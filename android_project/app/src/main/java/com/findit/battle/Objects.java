@@ -55,7 +55,8 @@ public class Objects {
     public static final int CHARACTER_TOTALNUM = 3;
     public static final int FINDIMAGE_TOTALNUM = 1000;
     public static final int FINDRECT_NUM = 5;
-    public static final int FINDRECT_TOTALNUM = 10;
+    // 기획 findit_틀린그림가이드_20120704.xls: 이미지당 찾기 부위 7개
+    public static final int FINDRECT_TOTALNUM = 7;
     public static final int IMAGE_CIRCLE = 0;
     public static final int IMAGE_TOTALNUM = 1;
     public static final int SKILL_TOTALNUM = 50;
@@ -1038,7 +1039,7 @@ public class Objects {
                         this.mImages[index].mSoundId = -1;
                         this.mImages[index].mSoundEventId = -1;
                         this.mImages[index].mFindRectTotalnum = 0;
-                        this.mImages[index].mImgPath = jsonobject.getString(GameActivity.JSON_NAME_IMAGES_IMG).replace("http://14.63.220.39/", String.valueOf(file.getPath()) + Animation.DEVIDER_DATA);
+                        this.mImages[index].mImgPath = jsonobject.getString(GameActivity.JSON_NAME_IMAGES_IMG).replace(Property.SERVER_DOMAIN, String.valueOf(file.getPath()) + Animation.DEVIDER_DATA);
                         this.mImages[index].mSoundPath = null;
                         this.mImages[index].mSoundEventPath = null;
                         try {
@@ -1068,7 +1069,7 @@ public class Objects {
                             this.mImages[index].mFindRect[i].mY = subjsonobject.getInt(GameActivity.JSON_NAME_IMAGES_Y);
                             this.mImages[index].mFindRect[i].mWidth = subjsonobject.getInt(GameActivity.JSON_NAME_IMAGES_WIDTH);
                             this.mImages[index].mFindRect[i].mHeight = subjsonobject.getInt(GameActivity.JSON_NAME_IMAGES_HEIGHT);
-                            this.mImages[index].mFindRect[i].mImgPath = subjsonobject.getString(GameActivity.JSON_NAME_IMAGES_IMG).replace("http://14.63.220.39/", String.valueOf(file.getPath()) + Animation.DEVIDER_DATA);
+                            this.mImages[index].mFindRect[i].mImgPath = subjsonobject.getString(GameActivity.JSON_NAME_IMAGES_IMG).replace(Property.SERVER_DOMAIN, String.valueOf(file.getPath()) + Animation.DEVIDER_DATA);
                         }
                         if (!c.moveToNext()) {
                             break;

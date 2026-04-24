@@ -118,15 +118,15 @@ public class GameActivity extends Activity {
     public static final int REQUEST_PICKFRIENDS = 1;
     public static final int REQUEST_RANK = 3;
     public static final String RESTORE_KEY = "restore";
-    public static final String SERVER_DOMAIN = "http://14.63.220.39/";
+    public static final String SERVER_DOMAIN = Property.SERVER_DOMAIN;
     public static final String SERVER_FILE_ADDUP = "app/member/mutiAddUp.json";
     private static final String SERVER_FILE_HITVIEWCOUNT = "app/member/hitViewCount.json";
     private static final String SERVER_FILE_IMAGELIST = "app/member/newImageList.json";
     private static final String SERVER_FILE_LOGIN = "app/member/login.json";
     private static final String SERVER_FILE_NEWADIMAGELIST = "app/member/newAdImageList.json";
     private static final String SERVER_FILE_SPENDITEM = "app/member/spendMyItem.json";
-    public static final String SERVER_IP = "14.63.220.39";
-    public static final int SERVER_PORT = 22131;
+    public static final String SERVER_IP = Property.SERVER_IP;
+    public static final int SERVER_PORT = Property.SERVER_SOCKET_PORT;
     private ImageView mAutoLoginImageView;
     private int mButtonClickSize;
     public CommonDialog mCommonDlg;
@@ -197,6 +197,9 @@ public class GameActivity extends Activity {
                                 gameview.mScore = subjsonobject.getInt("score");
                                 gameview.mCoin = subjsonobject.getInt("coin");
                                 gameview.mPoint = subjsonobject.getInt("point");
+                                // 보석 / 체력 — 신규 서버 필드, 없으면 테이블로 계산
+                                gameview.mGem = subjsonobject.optInt("gem", 0);
+                                gameview.mHP = subjsonobject.optInt("hp", GameView.Result.hpForLevel(gameview.mLevel));
                                 gameview.mNickName = subjsonobject.getString(GameActivity.JSON_NAME_USERNICK);
                                 gameview.mObjects.mCharacter[0].mBodyNum = subjsonobject.getInt(GameActivity.JSON_NAME_CHARACTER);
                                 gameview.mObjects.loadCharactersImage(GameActivity.this);
@@ -897,7 +900,7 @@ public class GameActivity extends Activity {
         LOG.verbose(">> login()");
         ConnectNetwork connectnetwork = this.mConnectNetwork;
         if (!connectnetwork.isConnecting()) {
-            connectnetwork.setServerUri("http://14.63.220.39/", SERVER_FILE_LOGIN);
+            connectnetwork.setServerUri(Property.SERVER_DOMAIN, SERVER_FILE_LOGIN);
             connectnetwork.setParameter("userId", id);
             connectnetwork.setParameter(PARAMETER_PASSWORD, password);
             connectnetwork.setParameter(PARAMETER_DEVICE, Objects.Animation.TYPE_ALPHA);
@@ -924,7 +927,7 @@ public class GameActivity extends Activity {
         ConnectNetwork connectnetwork = this.mConnectNetwork;
         while (connectnetwork.isConnecting()) {
         }
-        connectnetwork.setServerUri("http://14.63.220.39/", SERVER_FILE_ADDUP);
+        connectnetwork.setServerUri(Property.SERVER_DOMAIN, SERVER_FILE_ADDUP);
         connectnetwork.clearParameter();
         connectnetwork.setParameter("userId", email);
         connectnetwork.setParameter("level", new StringBuilder().append(level).toString());
@@ -942,7 +945,7 @@ public class GameActivity extends Activity {
         while (connectnetwork.isConnecting()) {
         }
         int itemno = this.mGameView.mObjects.mItems.mItem[index].mTypeNo;
-        connectnetwork.setServerUri("http://14.63.220.39/", SERVER_FILE_SPENDITEM);
+        connectnetwork.setServerUri(Property.SERVER_DOMAIN, SERVER_FILE_SPENDITEM);
         connectnetwork.clearParameter();
         connectnetwork.setParameter("userId", email);
         connectnetwork.setParameter("itemNo", new StringBuilder().append(itemno).toString());
@@ -957,7 +960,7 @@ public class GameActivity extends Activity {
         while (connectnetwork.isConnecting()) {
         }
         LOG.verbose("receiveImageList: " + lastimgid);
-        connectnetwork.setServerUri("http://14.63.220.39/", SERVER_FILE_IMAGELIST);
+        connectnetwork.setServerUri(Property.SERVER_DOMAIN, SERVER_FILE_IMAGELIST);
         connectnetwork.clearParameter();
         connectnetwork.setParameter("imgId", new StringBuilder().append(lastimgid).toString());
         this.mCommonDlg.showProgressDlg();
@@ -972,7 +975,7 @@ public class GameActivity extends Activity {
         }
         File file = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
         String url = list.get(index);
-        String desurl = url.replace("http://14.63.220.39/", String.valueOf(file.getPath()) + Objects.Animation.DEVIDER_DATA);
+        String desurl = url.replace(Property.SERVER_DOMAIN, String.valueOf(file.getPath()) + Objects.Animation.DEVIDER_DATA);
         int lastindex = desurl.lastIndexOf(Objects.Animation.DEVIDER_DATA) + 1;
         String folder = desurl.substring(0, lastindex);
         String filename = desurl.substring(lastindex);
@@ -987,7 +990,7 @@ public class GameActivity extends Activity {
         ConnectNetwork connectnetwork = this.mConnectNetwork;
         while (connectnetwork.isConnecting()) {
         }
-        connectnetwork.setServerUri("http://14.63.220.39/", SERVER_FILE_NEWADIMAGELIST);
+        connectnetwork.setServerUri(Property.SERVER_DOMAIN, SERVER_FILE_NEWADIMAGELIST);
         connectnetwork.clearParameter();
         connectnetwork.setParameter("adId", new StringBuilder().append(adid).toString());
         this.mCommonDlg.showProgressDlg();
@@ -999,7 +1002,7 @@ public class GameActivity extends Activity {
         ConnectNetwork connectnetwork = this.mConnectNetwork;
         while (connectnetwork.isConnecting()) {
         }
-        connectnetwork.setServerUri("http://14.63.220.39/", SERVER_FILE_HITVIEWCOUNT);
+        connectnetwork.setServerUri(Property.SERVER_DOMAIN, SERVER_FILE_HITVIEWCOUNT);
         connectnetwork.clearParameter();
         connectnetwork.setParameter("adId", new StringBuilder().append(adid).toString());
         this.mCommonDlg.showProgressDlg();

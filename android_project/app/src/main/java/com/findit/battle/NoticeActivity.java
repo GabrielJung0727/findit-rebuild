@@ -10,7 +10,7 @@ import android.webkit.WebViewClient;
 public class NoticeActivity extends Activity {
     public static final String KEY_URL = "url";
     public static final String SERVER_URL_FACEBOOK = "http://www.facebook.com/finditbattle";
-    public static final String SERVER_URL_NOTICE = "http://14.63.220.39/app/member/notice.json";
+    public static final String SERVER_URL_NOTICE = Property.SERVER_DOMAIN + "app/member/notice.json";
     public static GameView mgameView;
     private CommonDialog mCommonDialog;
     public WebView mWebView;

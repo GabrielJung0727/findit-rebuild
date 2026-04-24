@@ -104,6 +104,9 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
     protected Objects mObjects;
     public String mPassword;
     public int mPoint;
+    /** 체력 — 기획 "레벨별 첨수체계_기본능력치_02.xlsx". 레벨에 따라 110~5000 까지 상승. */
+    public int mHP;
+    public int mGem;
     private boolean mRestore;
     public String mRoomName;
     public long mScore;
@@ -2320,7 +2323,18 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
         /* JADX INFO: Access modifiers changed from: private */
         public int getAIFindTime() {
             LOG.verbose(">> getAIFindTime()");
-            return GameView.this.randomNumber(100, 180);
+            // 기획 AI_틀린부위 찾는 시간공식_01.xlsx:
+            //   AI 가 틀린 부위를 찾는 시간(초) = 7 - (본인레벨 × 0.03)
+            //   → Lv 1 ≈ 6.97초, Lv 50 = 5.5초, Lv 100 = 4.0초
+            // 본 함수는 frame tick 단위 반환 (게임 루프 ~60 FPS 목표).
+            // ±15% 랜덤 가중치로 예측 불가능성 부여.
+            int level = GameView.this.mLevel;
+            if (level < 1) level = 1;
+            double seconds = 7.0 - (level * 0.03);
+            if (seconds < 1.0) seconds = 1.0;
+            int frames = (int) (seconds * 60.0);
+            int variance = (int) (frames * 0.15);
+            return GameView.this.randomNumber(frames - variance, frames + variance);
         }
 
         private int[] getAISetSkillIndexs(Rate rate) {
@@ -3024,12 +3038,73 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
 
         private int calculateScore(int type) {
             LOG.verbose(">> calculateScore()");
-            return type == 0 ? this.mFindNum * 50 : this.mFindNum * 10;
+            // 기획 "레벨별 첨수체계_기본능력치_02.xlsx":
+            //   승자 = 찾은수 * 50 + 승리포인트 100
+            //   패자 = 찾은수 * 50
+            // 콤보 보너스 (레벨별 첨수체계_기본능력치_01.xlsx 콤보 시트):
+            //   1콤보 +100, 2콤보 +200, 3콤보 +400, 4콤보 +700
+            int base = this.mFindNum * 50;
+            int victoryBonus = (type == 0) ? 100 : 0;
+            int comboBonus = comboScoreBonus(this.mCombo);
+            return base + victoryBonus + comboBonus;
+        }
+
+        /**
+         * 콤보 → 추가 점수 매핑.
+         * 1:+100, 2:+200, 3:+400, 4+:+700
+         */
+        public static int comboScoreBonus(int combo) {
+            if (combo <= 0) return 0;
+            if (combo == 1) return 100;
+            if (combo == 2) return 200;
+            if (combo == 3) return 400;
+            return 700; // 4콤보 이상
+        }
+
+        /**
+         * 콤보 → 아이템 보너스 시간(초).
+         * 1:+1, 2:+2, 3:+4, 4+:+7
+         */
+        public static int comboTimeBonus(int combo) {
+            if (combo <= 0) return 0;
+            if (combo == 1) return 1;
+            if (combo == 2) return 2;
+            if (combo == 3) return 4;
+            return 7;
         }
 
         public Objects.FindImage getFindImage() {
             LOG.verbose(">> getFindImage()");
             return this.mAdBaseimg ? GameView.this.mObjects.mBaseImages[this.mAdImgnum] : GameView.this.mObjects.mImages[this.mAdImgnum];
+        }
+
+        /**
+         * 레벨별 기본 체력 테이블 — 기획 "레벨별 첨수체계_기본능력치_02.xlsx".
+         * 인덱스 0 = 레벨 0 (신규 계정), 1~100 = 레벨 1~100.
+         * 값 출처는 xlsx "level 별 점수체계" 시트의 "체력" 열.
+         * 범위 외 레벨은 가장 가까운 값으로 clamp.
+         */
+        public static final int[] HP_BY_LEVEL = new int[] {
+            /*   0 */ 100,
+            /*   1 */ 110,  120,  130,  140,  150,  160,  170,  180,  190,  200,
+            /*  11 */ 260,  270,  280,  290,  300,  310,  320,  330,  340,  350,
+            /*  21 */ 410,  420,  430,  440,  450,  460,  470,  480,  490,  500,
+            /*  31 */ 550,  560,  570,  580,  590,  600,  610,  620,  630,  640,
+            /*  41 */ 700,  710,  720,  730,  740,  750,  760,  770,  780,  790,
+            /*  51 */ 950, 1000, 1050, 1100, 1150, 1200, 1250, 1300, 1350, 1400,
+            /*  61 */ 1500,1550,1550,1550,1550,1550,1550,1550,1550,1600,
+            /*  71 */ 1800,1900,2000,2100,2200,2300,2400,2500,2600,2700,
+            /*  81 */ 2900,3000,3100,3200,3300,3400,3500,3600,3700,3800,
+            /*  91 */ 4000,4100,4200,4300,4400,4500,4600,4700,4800,5000,
+        };
+
+        /**
+         * 레벨 → 기본 HP.
+         */
+        public static int hpForLevel(int level) {
+            if (level < 0) return HP_BY_LEVEL[0];
+            if (level >= HP_BY_LEVEL.length) return HP_BY_LEVEL[HP_BY_LEVEL.length - 1];
+            return HP_BY_LEVEL[level];
         }
 
         public int getLevel(long score) {
@@ -3061,6 +3136,10 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
             GameView.this.mScore += score;
             GameView.this.mPoint += point;
             GameView.this.mCoin += coin;
+            // 레벨이 올랐으면 기본 HP 재계산 (기획 첨수체계_02.xlsx)
+            if (level > 0) {
+                GameView.this.mHP = hpForLevel(GameView.this.mLevel);
+            }
         }
 
         public void animate() {
@@ -3486,6 +3565,8 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
                             GameRoom gameRoom3 = GameView.this.mScreenGameRoom;
                             int num3 = gameRoom3.mRightNum;
                             gameRoom3.mRightNum = num3 - 1;
+                            // 상대가 찾으면 내 콤보는 끊김 (연속 찾기의 정의)
+                            gameRoom3.mCombo = 0;
                             GameView.this.mScreenGameRoom.mAIFindTime = GameView.this.mScreenGameRoom.getAIFindTime();
                             int num4 = 5 - num3;
                             if (num4 > -1 && num4 < 4 && (skillindex = GameView.this.mScreenGameRoom.mAISkillIndexs[num4]) > -1) {
@@ -3848,11 +3929,15 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
                                 if (touchy < game.mImgBmpHeight[1] && index3 == -1) {
                                     this.mVibrator.vibrate(200L);
                                     game.mDimTime = 20;
+                                    // 오답 터치 → 콤보 초기화
+                                    game.mCombo = 0;
                                     playSound(1);
                                 }
                             } else if (this.mScreenGameRoom.mLeftNum > 0) {
                                 GameRoom gameRoom = this.mScreenGameRoom;
                                 gameRoom.mLeftNum--;
+                                // 정답 터치 → 콤보 +1
+                                gameRoom.mCombo++;
                                 if (this.mScreenGameRoom.mRightCharacterIndex == 2) {
                                     GameRoom gameRoom2 = this.mScreenGameRoom;
                                     gameRoom2.mTempLeftNum--;

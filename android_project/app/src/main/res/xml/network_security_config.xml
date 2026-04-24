@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  네트워크 보안 설정 — HTTPS 강제 (운영) + 로컬 개발 예외.
+
+  기본(base-config): cleartextTrafficPermitted=false → 모든 http 차단.
+  예외(domain-config): 아래 도메인들만 평문 HTTP 허용.
+
+  배포 시 domain-config 블록 전체 삭제 권장.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system"/>
+        </trust-anchors>
+    </base-config>
+
+    <!-- 로컬 개발 예외: Android 에뮬레이터 호스트 루프백 + LAN 대역 -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">10.0.2.2</domain>          <!-- 에뮬레이터 → 호스트 PC -->
+        <domain includeSubdomains="true">127.0.0.1</domain>
+        <domain includeSubdomains="true">localhost</domain>
+        <domain includeSubdomains="true">192.168.0.0</domain>       <!-- LAN 개발 (실기기) -->
+        <domain includeSubdomains="true">192.168.1.0</domain>
+    </domain-config>
+</network-security-config>

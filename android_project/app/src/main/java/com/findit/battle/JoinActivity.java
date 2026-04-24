@@ -45,7 +45,7 @@ public class JoinActivity extends Activity {
     private static final String PARAMETER_ID = "userId";
     private static final String PARAMETER_NICKNAME = "userNick";
     private static final String PARAMETER_PASSWORD = "userPass";
-    private static final String SERVER_DOMAIN = "http://14.63.220.39/";
+    private static final String SERVER_DOMAIN = Property.SERVER_DOMAIN;
     private static final String SERVER_FILE_JOIN = "app/member/join.json";
     private ImageView mAutoLoginImageView;
     private int mButtonClickSize;
@@ -393,7 +393,7 @@ public class JoinActivity extends Activity {
         LOG.verbose(">> join()");
         ConnectNetwork connectnetwork = this.mConnectNetwork;
         if (!connectnetwork.isConnecting()) {
-            connectnetwork.setServerUri("http://14.63.220.39/", SERVER_FILE_JOIN);
+            connectnetwork.setServerUri(Property.SERVER_DOMAIN, SERVER_FILE_JOIN);
             connectnetwork.clearParameter();
             connectnetwork.setParameter(PARAMETER_ID, id);
             connectnetwork.setParameter(PARAMETER_PASSWORD, password);

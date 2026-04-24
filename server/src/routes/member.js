@@ -10,8 +10,14 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const { query, tx } = require('../db');
 const C = require('../util/codes');
+const V = require('../util/validation');
+const session = require('../util/session');
 
 const router = express.Router();
+
+function clientIp(req) {
+  return (req.headers['x-forwarded-for'] || req.ip || '').toString().split(',')[0].trim();
+}
 
 function ok(res, extra = {}) {
   res.json({ result: C.RESULT_PASS, ...extra });
@@ -51,17 +57,34 @@ router.all('/member/join.json', async (req, res, next) => {
   try {
     const p = { ...req.query, ...req.body };
     const { userId, userPass, userCharacter, userDevice = '1', userNick } = p;
-    if (!userId || !userPass || !userNick) return fail(res, C.RESULT_NOID);
+
+    // 유효성 검증 (기획 "번역할 한국어.txt" 알림 메시지 대응)
+    const errors = {
+      email: V.validateEmail(userId),
+      password: V.validatePassword(userPass),
+      nickname: V.validateNickname(userNick),
+      character: V.validateCharacter(userCharacter),
+    };
+    const firstError = Object.entries(errors).find(([, e]) => e !== null);
+    if (firstError) {
+      return res.json({ result: C.RESULT_NOID, field: firstError[0], error: firstError[1] });
+    }
 
     const existing = await query(`SELECT user_id FROM members WHERE user_id = ?`, [userId]);
     if (existing.length > 0) return fail(res, C.RESULT_ALREADYJOINED);
+
+    // 닉네임 중복 확인 (UNIQUE 제약이지만 선제 차단)
+    const nickTaken = await query(`SELECT user_id FROM members WHERE user_nick = ?`, [userNick.trim()]);
+    if (nickTaken.length > 0) {
+      return res.json({ result: C.RESULT_ALREADYJOINED, field: 'nickname', error: 'nickname_taken' });
+    }
 
     const hash = await bcrypt.hash(userPass, 10);
     await tx(async (conn) => {
       await conn.execute(
         `INSERT INTO members(user_id, user_pass_hash, user_nick, user_character, user_device, auth_type)
          VALUES(?, ?, ?, ?, ?, 'email')`,
-        [userId, hash, userNick, Number(userCharacter) || 0, String(userDevice)]
+        [userId, hash, userNick.trim(), Number(userCharacter) || 0, String(userDevice)]
       );
       await conn.execute(
         `INSERT INTO wallets(user_id, level, score, coin, point, gem, hp)
@@ -83,6 +106,7 @@ router.all('/member/login.json', async (req, res, next) => {
     const p = { ...req.query, ...req.body };
     const { userId, userPass } = p;
     if (!userId) return fail(res, C.RESULT_NOID);
+    if (V.validateEmail(userId)) return fail(res, C.RESULT_NOID);
 
     const rows = await query(`SELECT * FROM members WHERE user_id = ?`, [userId]);
     if (rows.length === 0) return fail(res, C.RESULT_NOID);
@@ -94,11 +118,18 @@ router.all('/member/login.json', async (req, res, next) => {
       if (!matched) return fail(res, C.RESULT_NOPASSWORD);
     }
 
+    // 중복 로그인 감지 — 기존 세션 강제 로그아웃 후 새 세션 생성
+    const token = await session.createSession(userId, {
+      ip: clientIp(req),
+      userAgent: req.headers['user-agent'],
+    });
+
     const wallet = await loadWallet(userId);
     const items = await loadItems(userId);
     const skills = await loadSkills(userId);
 
     ok(res, {
+      token,  // 원본 클라는 무시하지만 신규 클라/어드민용
       user: {
         userId: m.user_id,
         level: wallet?.level ?? 1,
@@ -106,12 +137,147 @@ router.all('/member/login.json', async (req, res, next) => {
         coin: Number(wallet?.coin ?? 0),
         point: wallet?.point ?? 0,
         gem: wallet?.gem ?? 0,
+        hp: wallet?.hp ?? 110,
         userNick: m.user_nick,
         userCharacter: m.user_character,
+        authType: m.auth_type,
       },
       item: items,
       skill: skills,
     });
+  } catch (e) { next(e); }
+});
+
+// -----------------------------------------------------
+// /app/member/guest.json — Guest 입장
+// 용어정리.docx: "Guest: 회원가입 없이 게임 진행, 상대방만 정보 저장"
+// 파라미터: deviceId (선택, 동일 디바이스 재로그인용)
+// 응답: result, user{...}
+// -----------------------------------------------------
+router.all('/member/guest.json', async (req, res, next) => {
+  try {
+    const p = { ...req.query, ...req.body };
+    const deviceId = p.deviceId || p.userDevice || '';
+    // Guest ID: "guest_<랜덤12>" 또는 deviceId 기반 고정 ID
+    const { randomBytes } = require('crypto');
+    const guestUserId = deviceId
+      ? `guest_dev_${deviceId}`
+      : `guest_${randomBytes(6).toString('hex')}`;
+
+    const existing = await query(`SELECT * FROM members WHERE user_id = ?`, [guestUserId]);
+    if (existing.length === 0) {
+      await tx(async (conn) => {
+        await conn.execute(
+          `INSERT INTO members(user_id, user_pass_hash, user_nick, user_character, user_device, auth_type)
+           VALUES(?, '!', ?, 0, ?, 'guest')`,
+          [guestUserId, `guest_${guestUserId.slice(-6)}`, String(deviceId || '1')]
+        );
+        await conn.execute(
+          `INSERT INTO wallets(user_id, level, score, coin, point, gem, hp)
+           VALUES(?, 1, 0, 10, 2, 0, 110)`,
+          [guestUserId]
+        );
+      });
+    }
+
+    const token = await session.createSession(guestUserId, { ip: clientIp(req) });
+    const wallet = await loadWallet(guestUserId);
+    const m = (await query(`SELECT * FROM members WHERE user_id = ?`, [guestUserId]))[0];
+
+    ok(res, {
+      token,
+      user: {
+        userId: guestUserId,
+        level: wallet.level,
+        score: Number(wallet.score),
+        coin: Number(wallet.coin),
+        point: wallet.point,
+        gem: wallet.gem,
+        hp: wallet.hp,
+        userNick: m.user_nick,
+        userCharacter: m.user_character,
+        authType: 'guest',
+      },
+      item: [],
+      skill: [],
+    });
+  } catch (e) { next(e); }
+});
+
+// -----------------------------------------------------
+// /app/member/facebook.json — Facebook 로그인
+// 용어정리.docx: "페이스북 로그인", JoinActivity.java:32 FACEBOOKID_PASSWORD="facebook"
+//
+// 클라에서 Facebook SDK 로 얻은 fbUserId 를 전달.
+// (SDK 통합은 별도 작업, 현재는 서버 접수부만 구현)
+// 파라미터: fbUserId, fbToken (선택, 서버측 Facebook Graph API 검증용),
+//          userNick (최초 가입 시), userCharacter
+// -----------------------------------------------------
+router.all('/member/facebook.json', async (req, res, next) => {
+  try {
+    const p = { ...req.query, ...req.body };
+    const { fbUserId, userNick, userCharacter } = p;
+    if (!fbUserId) return fail(res, C.RESULT_NOID);
+
+    // TODO: fbToken 을 Facebook Graph API 로 검증 (/me?access_token=...)
+    // 현재는 클라 신뢰. 프로덕션에서는 반드시 서버 검증 필요.
+
+    const userId = `fb_${fbUserId}`;
+    const existing = await query(`SELECT * FROM members WHERE user_id = ?`, [userId]);
+
+    if (existing.length === 0) {
+      // 최초 가입
+      if (!userNick || V.validateNickname(userNick)) {
+        return res.json({ result: C.RESULT_NOID, needsSignup: true });
+      }
+      await tx(async (conn) => {
+        await conn.execute(
+          `INSERT INTO members(user_id, user_pass_hash, user_nick, user_character, user_device, auth_type)
+           VALUES(?, '!', ?, ?, '1', 'facebook')`,
+          [userId, userNick.trim(), Number(userCharacter) || 0]
+        );
+        await conn.execute(
+          `INSERT INTO wallets(user_id, level, score, coin, point, gem, hp)
+           VALUES(?, 1, 0, 10, 2, 0, 110)`,
+          [userId]
+        );
+      });
+    }
+
+    const token = await session.createSession(userId, { ip: clientIp(req) });
+    const m = (await query(`SELECT * FROM members WHERE user_id = ?`, [userId]))[0];
+    const wallet = await loadWallet(userId);
+    const items = await loadItems(userId);
+    const skills = await loadSkills(userId);
+
+    ok(res, {
+      token,
+      user: {
+        userId: m.user_id,
+        level: wallet.level,
+        score: Number(wallet.score),
+        coin: Number(wallet.coin),
+        point: wallet.point,
+        gem: wallet.gem,
+        hp: wallet.hp,
+        userNick: m.user_nick,
+        userCharacter: m.user_character,
+        authType: 'facebook',
+      },
+      item: items,
+      skill: skills,
+    });
+  } catch (e) { next(e); }
+});
+
+// -----------------------------------------------------
+// /app/member/logout.json — 로그아웃 (세션 무효화)
+// -----------------------------------------------------
+router.all('/member/logout.json', async (req, res, next) => {
+  try {
+    const { token } = { ...req.query, ...req.body };
+    if (token) await session.invalidateSession(token);
+    ok(res);
   } catch (e) { next(e); }
 });
 

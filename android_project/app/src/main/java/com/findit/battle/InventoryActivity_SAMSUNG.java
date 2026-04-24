@@ -100,7 +100,7 @@ public class InventoryActivity_SAMSUNG extends IAPActivity {
     private static final int REQUEST_CAMERA = 100;
     public static final int REQUEST_CROP = 300;
     private static final int RINGSLOT_RECT = 1;
-    private static final String SERVER_DOMAIN = "http://14.63.220.39/";
+    private static final String SERVER_DOMAIN = Property.SERVER_DOMAIN;
     private static final String SERVER_FILE_ADDCOIN = "app/member/addCoin.json";
     private static final String SERVER_FILE_BUYITEM = "app/member/buyItemAndSpendCoin.json";
     private static final String SERVER_FILE_LEARNSKILL = "app/member/buySkillAndSpendPoint.json";
@@ -2107,7 +2107,7 @@ public class InventoryActivity_SAMSUNG extends IAPActivity {
     public void sendBuyItem(Items.Item item) {
         ConnectNetwork connectnetwork = this.mConnectNetwork;
         if (!connectnetwork.isConnecting()) {
-            connectnetwork.setServerUri("http://14.63.220.39/", SERVER_FILE_BUYITEM);
+            connectnetwork.setServerUri(Property.SERVER_DOMAIN, SERVER_FILE_BUYITEM);
             connectnetwork.clearParameter();
             connectnetwork.setParameter(PARAMETER_ID, this.mUserId);
             connectnetwork.setParameter(PARAMETER_ITMENO, new StringBuilder().append(item.mTypeNo).toString());
@@ -2128,7 +2128,7 @@ public class InventoryActivity_SAMSUNG extends IAPActivity {
         Objects.Skills.Skill skill = this.mSkills.mSkill[index];
         ConnectNetwork connectnetwork = this.mConnectNetwork;
         if (!connectnetwork.isConnecting()) {
-            connectnetwork.setServerUri("http://14.63.220.39/", SERVER_FILE_LEARNSKILL);
+            connectnetwork.setServerUri(Property.SERVER_DOMAIN, SERVER_FILE_LEARNSKILL);
             connectnetwork.clearParameter();
             connectnetwork.setParameter(PARAMETER_ID, this.mUserId);
             connectnetwork.setParameter(PARAMETER_SKILLID, new StringBuilder().append(skill.mId).toString());
@@ -2144,7 +2144,7 @@ public class InventoryActivity_SAMSUNG extends IAPActivity {
         ConnectNetwork connectnetwork = this.mConnectNetwork;
         while (connectnetwork.isConnecting()) {
         }
-        connectnetwork.setServerUri("http://14.63.220.39/", SERVER_FILE_ADDCOIN);
+        connectnetwork.setServerUri(Property.SERVER_DOMAIN, SERVER_FILE_ADDCOIN);
         connectnetwork.clearParameter();
         connectnetwork.setParameter(PARAMETER_ID, this.mUserId);
         connectnetwork.setParameter("coin", new StringBuilder().append(coin).toString());
@@ -2157,7 +2157,7 @@ public class InventoryActivity_SAMSUNG extends IAPActivity {
         ConnectNetwork connectnetwork = this.mConnectNetwork;
         while (connectnetwork.isConnecting()) {
         }
-        connectnetwork.setServerUri("http://14.63.220.39/", SERVER_FILE_SPENDCOIN);
+        connectnetwork.setServerUri(Property.SERVER_DOMAIN, SERVER_FILE_SPENDCOIN);
         connectnetwork.clearParameter();
         connectnetwork.setParameter(PARAMETER_ID, this.mUserId);
         connectnetwork.setParameter("coin", new StringBuilder().append(coin).toString());

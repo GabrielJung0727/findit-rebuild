@@ -28,7 +28,7 @@ import org.json.JSONObject;
 /* JADX INFO: loaded from: classes.dex */
 public class RankActivity extends Activity {
     public static final String KEY_URL = "url";
-    public static final String SERVER_URL_RANK = "http://14.63.220.39/app/member/rankList?userId=";
+    public static final String SERVER_URL_RANK = Property.SERVER_DOMAIN + Property.SERVER_URL_RANK;
     public static GameView mgameView;
     private String uri = null;
 

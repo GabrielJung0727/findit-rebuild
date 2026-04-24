@@ -1,0 +1,24 @@
+# macOS
+.DS_Store
+
+# IntelliJ / Android Studio
+.idea/
+*.iml
+/apk_analysis.iml
+
+# Gradle
+android_project/.gradle/
+android_project/build/
+android_project/app/build/
+android_project/captures/
+android_project/.cxx/
+
+# Android Studio per-machine config (SDK path, signing keys)
+android_project/local.properties
+
+# Compiled / generated
+android_project/**/*.class
+out/
+
+# Logs
+*.log

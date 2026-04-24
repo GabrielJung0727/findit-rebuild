@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="fill_parent"
+    android:layout_height="wrap_content"
+    android:layout_gravity="center"
+    android:gravity="center"
+    android:orientation="vertical" >
+
+    <LinearLayout
+        android:layout_width="408dip"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:background="@drawable/inapp_popup_01"
+        android:orientation="vertical"
+        android:paddingBottom="10dip">
+
+        <LinearLayout
+            android:id="@+id/dialog_Title"
+            android:layout_width="fill_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" >
+
+            <LinearLayout
+                android:layout_width="fill_parent"
+                android:layout_height="51.33dip"
+                android:gravity="center">
+
+                <TextView
+                    android:id="@+id/dialogCheckTitleTextView"
+                    android:layout_width="fill_parent"
+                    android:layout_height="51.33dip"
+                    android:gravity="center"
+                    android:textColor="#ffffff"
+                    android:textSize="32.28pt" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/dialog_Message"
+            android:layout_width="fill_parent"
+            android:layout_height="33.33dip">
+
+            <TextView
+                android:id="@+id/dialog_MessageTextView"
+                android:layout_width="fill_parent"
+                android:layout_height="33.33dip"
+                android:gravity="center"
+                android:textColor="#333333"
+                android:textSize="28.69pt" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/dialog_Message2"
+            android:layout_width="fill_parent"
+            android:layout_height="48.67dip"
+            android:paddingBottom="6.7dip">
+
+            <TextView
+                android:id="@+id/dialog_MessageTextView2"
+                android:layout_width="fill_parent"
+                android:layout_height="48.67dip"
+                android:gravity="center"
+                android:textColor="#333333"
+                android:textSize="25.11pt" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/dialog_Message3"
+            android:layout_width="fill_parent"
+            android:layout_height="51dip">
+
+            <TextView
+                android:id="@+id/dialog_MessageTextView3"
+                android:layout_width="fill_parent"
+                android:layout_height="51dip"
+                android:gravity="center"
+                android:textColor="#333333"
+                android:textSize="25.11pt" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/Button_Layout"
+            android:layout_width="fill_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:orientation="vertical" >
+
+            <Button
+                android:id="@+id/Button_1"
+                android:layout_width="369.33dip"
+                android:layout_height="32dip"
+                android:layout_weight="1"
+                android:background="@drawable/inapp_btn_n"
+                android:gravity="center"
+                android:text="예, 지금 설정합니다."
+                android:textColor="#FFFFFF"
+                android:textSize="24pt" />
+
+            <Button
+                android:id="@+id/Button_2"
+                android:layout_width="369.33dip"
+                android:layout_height="32dip"
+                android:layout_marginTop="10.67dip"
+                android:layout_weight="1"
+                android:background="@drawable/inapp_btn_n"
+                android:gravity="center"
+                android:text="아니오, 다음에 설정합니다."
+                android:textColor="#FFFFFF"
+                android:textSize="24pt" />
+        </LinearLayout>
+    </LinearLayout>
+</LinearLayout>

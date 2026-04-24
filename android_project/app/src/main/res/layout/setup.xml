@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout android:orientation="vertical" android:background="#e9e0c2" android:layout_width="match_parent" android:layout_height="match_parent"
+  xmlns:android="http://schemas.android.com/apk/res/android">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content">
+        <ImageView android:id="@id/TitleImageView" android:background="@drawable/title_option" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+    </LinearLayout>
+    <RelativeLayout android:background="@drawable/option_bg" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_margin="10.0dp">
+        <LinearLayout android:orientation="vertical" android:paddingLeft="20.0dp" android:paddingTop="10.0dp" android:paddingRight="20.0dp" android:paddingBottom="10.0dp" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_centerHorizontal="true">
+            <LinearLayout android:id="@id/AutoLoginLayout" android:layout_width="wrap_content" android:layout_height="wrap_content">
+                <ImageView android:id="@id/AutoLoginCheckImageView" android:background="@drawable/login_check_on" android:layout_width="28.0dp" android:layout_height="28.0dp" />
+                <ImageView android:id="@id/AutoLoginTextImageView" android:background="@drawable/login_text_autologin" android:layout_width="90.0dp" android:layout_height="25.0dp" />
+            </LinearLayout>
+            <LinearLayout android:id="@id/SoundonLayout" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="10.0dp">
+                <ImageView android:id="@id/SoundonCheckImageView" android:background="@drawable/login_check_on" android:layout_width="28.0dp" android:layout_height="28.0dp" />
+                <ImageView android:id="@id/SoundonTextImageView" android:background="@drawable/option_text_soundon" android:layout_width="90.0dp" android:layout_height="25.0dp" />
+            </LinearLayout>
+        </LinearLayout>
+    </RelativeLayout>
+    <RelativeLayout android:layout_width="match_parent" android:layout_height="wrap_content">
+        <Button android:id="@id/SaveButton" android:background="@drawable/option_btn_save" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_alignParentRight="true" />
+    </RelativeLayout>
+</LinearLayout>

@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="hello">Hello World, GameActivity!</string>
+    <string name="app_name">Findit</string>
+    <string name="notice">[Notice]</string>
+    <string name="notice_msg_notid">No ID entered.</string>
+    <string name="notice_msg_notpasswd">No Password entered.</string>
+    <string name="notice_msg_noemailtype">ID not in e-mail format.</string>
+    <string name="notice_msg_rewirtepasswd">Password must be 4 - 12 digits.</string>
+    <string name="notice_msg_noid">ID does not exist.</string>
+    <string name="notice_msg_nopasswd">Incorrect password.</string>
+    <string name="notice_msg_nicknamelength">No nicknames or excess characters.</string>
+    <string name="notice_msg_networkerror_join">Signing up cannot be processed as network status is unsatisfactory. Please try again.</string>
+    <string name="notice_msg_networkfail">Unable to connect to server. Please try again in a little while.</string>
+    <string name="notice_msg_alreadyid">ID already exists.</string>
+    <string name="notice_msg_nomatchpasswd">Password does not match.</string>
+    <string name="notice_msg_nocharacters">You have not selected a character.</string>
+    <string name="notice_msg_useableid">This ID is available.</string>
+    <string name="notice_msg_buyfail">Purchase failed, as network status is unsatisfactory. Please try again in a little while.</string>
+    <string name="notice_msg_networkerror_download">Network status is unsatisfactory. Please try downloading again later.</string>
+    <string name="notice_msg_networkerror_release">Your opponent has been disconnected.</string>
+    <string name="notice_msg_not_user">The user has not connected or the ID does not exist.</string>
+    <string name="notice_msg_not_users">No connected user.</string>
+    <string name="notice_msg_invite">has invited you.</string>
+    <string name="notice_msg_alreadyexit">has already left the waiting room.</string>
+    <string name="notice_msg_alreadygame">is already playing a game.</string>
+    <string name="notice_msg_overlapuserid">Login is repeated or the room does not exist.</string>
+    <string name="notice_msg_notsupported_chord">Is not supported. Or is not connected to Wi-Fi</string>
+    <string name="ok">OK</string>
+    <string name="yes">Yes</string>
+    <string name="no">No</string>
+    <string name="consent">Accept</string>
+    <string name="refuse">Refuse</string>
+    <string name="cancel">Cancel</string>
+    <string name="loading">Loading...</string>
+    <string name="login_title">[Login]</string>
+    <string name="email">E-mail</string>
+    <string name="password">Password</string>
+    <string name="nickname">Nickname</string>
+    <string name="login">Login</string>
+    <string name="autologin">Automatic login</string>
+    <string name="join">Sign in</string>
+    <string name="guest_admission">Guest entry</string>
+    <string name="sound">Sound</string>
+    <string name="identify_overlap">Check for repetition</string>
+    <string name="identify_password">Check password</string>
+    <string name="join1">Sign in</string>
+    <string name="wait_msg">Please wait</string>
+    <string name="guest_title">[Guest Entry]</string>
+    <string name="guest_msg">Sign up to save your experience levels and items.</string>
+    <string name="guest_msg_login">\tYou must log in.\t</string>
+    <string name="admission">Enter</string>
+    <string name="download_title">[Download Image]</string>
+    <string name="download_msg">Please download a new battle game image. Costs may be incurred when using 3G or 4G.</string>
+    <string name="download_now">Download now</string>
+    <string name="download_after">Download later</string>
+    <string name="downloadfile_msg">Downloading image.</string>
+    <string name="downloadfile_cancel">Cancel download</string>
+    <string name="waitingroom">Waiting room</string>
+    <string name="number">Order</string>
+    <string name="id">ID</string>
+    <string name="startgame">Play game</string>
+    <string name="makebattleroom">"Create
+battle room"</string>
+    <string name="friendid">"Friend's ID"</string>
+    <string name="invite">Invite</string>
+    <string name="list">List</string>
+    <string name="wait">Wait</string>
+    <string name="deleteitem">Do you want to discard this item?</string>
+    <string name="breakdown">View purchase details.</string>
+    <string name="buy">Purchase</string>
+    <string name="buyitem">You need coins to buy items. Do you wish to purchase coins?</string>
+    <string name="buyitem1">The cost will be KRW. Do you wish to make this purchase?</string>
+    <string name="lackcoin">"You don't have enough coins."</string>
+    <string name="alreadybuy">You have already purchased this.</string>
+    <string name="back">Back</string>
+    <string name="point">Point</string>
+    <string name="learn">Learn</string>
+    <string name="learnskill">Points will be consumed. Do you wish to learn this?</string>
+    <string name="lackpoint">"You don't have enough points."</string>
+    <string name="alreadylearn">You have already learned this.</string>
+    <string name="ready">In preparation</string>
+    <string name="buylist_title">" purchase details"</string>
+    <string name="date">Date</string>
+    <string name="item">Item</string>
+    <string name="num">Quantity</string>
+    <string name="item_pen01">"General pen
+This is a general pen and increases your skill attack effects."</string>
+    <string name="item_pen02">"Winged pen
+This pen has wings attached. It increases your skill attack effects by a lot."</string>
+    <string name="item_pen03">"Rainbow pen
+This pen shines with the mysterious colors of rainbow. It increases your skill attack effects remarkably."</string>
+    <string name="item_ring01">"Silver ring
+Made with shining silver, this ring increases your opponent’s attack effects."</string>
+    <string name="item_ring02">"Gold ring
+Made with brilliant gold, this ring increases your opponent’s attack effects by a lot."</string>
+    <string name="item_ring03">Ring item 2</string>
+    <string name="item_berry01">"Exploding berry
+This attack uses an exploding berry. Bombs explode on your opponent’s game screen."</string>
+    <string name="item_berry02">"Flame berry
+This attack uses a flame berry. Flames appear on your opponent’s game screen"</string>
+    <string name="item_berry03">"Snowflake berry
+This attack uses a snowflake berry. Snowflakes fall on your opponent’s game screen."</string>
+    <string name="item_berry21">"Powerful exploding berry
+This attack uses a powerful exploding berry. Bombs explode on your opponent’s game screen."</string>
+    <string name="item_berry22">"Powerful flame berry
+This attack uses a powerful flame berry. Flames appear on your opponent’s game screen."</string>
+    <string name="item_berry23">"Powerful snowflake berry
+This attack uses a powerful snowflake berry. Snowflakes fall on the opposition's game screen."</string>
+    <string name="item_potion01">"Defense potion
+This potion increases defensive effects a little bit during a single game."</string>
+    <string name="item_potion02">"Good defense potion
+This potion increases defensive effects during a single game."</string>
+    <string name="item_potion03">"Premium defense potion
+This potion increases defensive effects by a little for one week."</string>
+    <string name="item_potion21">"Large good defense potion
+This potion increases defensive effects significantly during a single game."</string>
+    <string name="item_potion22">"Large premium defense potion
+This potion increases defensive effects significantly for one week."</string>
+    <string name="item_etc0">Other items 0</string>
+    <string name="item_etc1">Other items 1</string>
+    <string name="item_etc2">Other items 2</string>
+    <string name="item_gold0">1,000 coin to buy</string>
+    <string name="item_gold1">2,500 coin to buy</string>
+    <string name="item_gold2">5,500 coin to buy</string>
+    <string name="item_gold3">8,500 coin to buy</string>
+    <string name="skill_name_0">"Puppy's footprint"</string>
+    <string name="skill_name_1">"Cat's claw"</string>
+    <string name="skill_name_2">Explosion</string>
+    <string name="skill_name_3">Flame</string>
+    <string name="skill_name_4">Snowflake</string>
+    <string name="skill_name_5">Powerful explosion</string>
+    <string name="skill_name_6">Powerful flame</string>
+    <string name="skill_name_7">Powerful snowflake</string>
+    <string name="skill_text_0">This is a basic technique. The puppy walks across your opponent’s game screen leaving footprints.</string>
+    <string name="skill_text_1">This is a basic technique. The angry cat scratched claw marks on your opponent’s game screen.</string>
+    <string name="skill_text_2">This attack uses explosives. Bombs explode on your opponent’s game screen.</string>
+    <string name="skill_text_3">This attack uses flame. Flames appear on your opponent’s game screen.</string>
+    <string name="skill_text_4">This attack uses snowflakes. Snowflakes fall on your opponent’s game screen.</string>
+    <string name="skill_text_5">This attack uses powerful explosives. Bombs explode on your opponent’s game screen.</string>
+    <string name="skill_text_6">This attack uses powerful flame. Flames appear on your opponent’s game screen.</string>
+    <string name="skill_text_7">This attack uses powerful snowflakes. Snowflakes fall on your opponent’s game screen.</string>
+    <string name="in_app_purchase">In-app purchase</string>
+    <string name="msg_iap_is_not_installed">IAP is not installed. Install?</string>
+    <string name="waiting_ing">Waiting...</string>
+    <string name="msg_iap_upgrade_is_requred">In-app Purchase upgrade is required.</string>
+    <string name="msg_failed_to_initialize_iap">Failed to initialize the in-app purchase.</string>
+    <string name="msg_failed_to_load_list_of_product">Failed to load list of product</string>
+    <string name="dlg_title_payment_success">Payment success</string>
+    <string name="dlg_msg_payment_success">The payment was successful</string>
+    <string name="msg_invalid_purchase">Payment is not valid!!</string>
+    <string name="msg_failed_to_load_list_of_purchase">Failed to load list of purchase</string>
+    <string name="dlg_title_payment_error">Payment error</string>
+    <string name="dlg_title_samsungaccount_authentication">SamsungAccount authentication</string>
+    <string name="msg_authentication_has_been_cancelled">SamsungAccount authentication has been cancelled</string>
+    <string name="dlg_title_payment_cancelled">Payment canceled</string>
+    <string name="dlg_msg_payment_cancelled">Payment has been canceled.</string>
+    <string name="msg_payment_was_not_processed_successfully">The payment was not processed successfully.</string>
+    <string name="invalid_iap_package">IAP Application installed in your device is not valid!!</string>
+    <string name="msg_iap_service_bind_failed">In-app Purchase Service Bind failed.</string>
+</resources>

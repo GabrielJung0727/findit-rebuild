@@ -1,0 +1,237 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="fill_parent"
+    android:layout_height="fill_parent"
+    android:gravity="center"
+    android:orientation="vertical" >
+
+    <LinearLayout
+        android:id="@+id/mainLayout"
+        android:layout_width="298dip"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:background="@drawable/inapp_popup_02"
+        android:orientation="vertical"
+        android:paddingBottom="10dip"
+        android:paddingLeft="13.33dip"
+        android:paddingRight="13.33dip" >
+
+        <LinearLayout
+            android:id="@+id/dialog_Title"
+            android:layout_width="fill_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" >
+
+            <LinearLayout
+                android:layout_width="fill_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center" >
+
+                <TextView
+                    android:id="@+id/dialogAlertTitleTextView"
+                    android:layout_width="fill_parent"
+                    android:layout_height="51.33dip"
+                    android:gravity="center"
+                    android:textColor="#ffffff"
+                    android:textSize="14dip" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="fill_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" >
+
+            <LinearLayout
+                android:id="@+id/dialog_Message"
+                android:layout_width="fill_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center" >
+
+                <TextView
+                    android:id="@+id/dialog_MessageTextView"
+                    android:layout_width="wrap_content"
+                    android:layout_height="30dip"
+                    android:gravity="center"
+                    android:textColor="#333333"
+                    android:textSize="8dip" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/text1"
+                android:layout_width="fill_parent"
+                android:layout_height="wrap_content"
+                android:text="* 아이템 구매는 후불결제만 가능합니다."
+                android:textColor="#9a9a9a"
+                android:textSize="7dip" />
+
+            <LinearLayout
+                android:id="@+id/dialog_PayMessage"
+                android:layout_width="fill_parent"
+                android:layout_height="fill_parent"
+                android:background="@drawable/inapp_text_box"
+                android:orientation="vertical"
+                android:paddingBottom="5dip"
+                android:paddingLeft="12dip"
+                android:paddingRight="12dip"
+                android:paddingTop="5dip" >
+
+                <LinearLayout
+                    android:layout_width="fill_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal" >
+
+                    <ImageView
+                        android:layout_width="4dip"
+                        android:layout_height="4dip"
+                        android:layout_gravity="center"
+                        android:layout_marginRight="4dip"
+                        android:background="#f32323" />
+
+                    <TextView
+                        android:id="@+id/dialog_PayNameTitle"
+                        android:layout_width="fill_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:singleLine="true"
+                        android:text="아이템명:"
+                        android:textColor="#333333"
+                        android:textSize="10dip" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="fill_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal" >
+
+                    <ImageView
+                        android:layout_width="4dip"
+                        android:layout_height="4dip"
+                        android:layout_gravity="center"
+                        android:layout_marginRight="4dip"
+                        android:background="#f32323" />
+
+                    <TextView
+                        android:id="@+id/dialog_PayMoney"
+                        android:layout_width="fill_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:singleLine="true"
+                        android:textColor="#333333"
+                        android:textSize="10dip" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/layout_payType1"
+                    android:layout_width="fill_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:visibility="gone" >
+
+                    <ImageView
+                        android:layout_width="4dip"
+                        android:layout_height="4dip"
+                        android:layout_gravity="center"
+                        android:layout_marginRight="4dip"
+                        android:background="#f32323" />
+
+                    <TextView
+                        android:id="@+id/dialog_PayType"
+                        android:layout_width="fill_parent"
+                        android:layout_height="wrap_content"
+                        android:textColor="#333333"
+                        android:textSize="10dip" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/layout_payType2"
+                android:layout_width="fill_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="5dip"
+                android:orientation="horizontal" >
+
+                <ImageView
+                    android:layout_width="20dip"
+                    android:layout_height="20dip"
+                    android:layout_gravity="center"
+                    android:layout_marginLeft="80dip"
+                    android:background="@drawable/inapp_radio_on" />
+
+                <TextView
+                    android:id="@+id/payType"
+                    android:layout_width="fill_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginLeft="6dip"
+                    android:text="휴대전화"
+                    android:textColor="#333333"
+                    android:textSize="8dip" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/payDesc"
+                android:layout_width="fill_parent"
+                android:layout_height="wrap_content"
+                android:text="* 휴대전화 결제는 다음 달 요금 고지서에 합산되어 청구됩니다.(청구항목:올레마켓)"
+                android:textColor="#9a9a9a"
+                android:textSize="6dip" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/Button_Layout"
+            android:layout_width="fill_parent"
+            android:layout_height="32dip"
+            android:layout_marginTop="5dip"
+            android:gravity="center"
+            android:visibility="gone" >
+
+            <Button
+                android:id="@+id/Button_1"
+                android:layout_width="111.33dip"
+                android:layout_height="32dip"
+                android:layout_weight="1"
+                android:background="@drawable/inapp_btn_n"
+                android:gravity="center"
+                android:textColor="#FFFFFF"
+                android:textSize="12dip"
+                android:visibility="gone" />
+
+            <Button
+                android:id="@+id/Button_3"
+                android:layout_width="111.33dip"
+                android:layout_height="32dip"
+                android:layout_marginLeft="6.67dip"
+                android:layout_weight="1"
+                android:background="@drawable/inapp_btn_n"
+                android:gravity="center"
+                android:textColor="#FFFFFF"
+                android:textSize="12dip"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="fill_parent"
+            android:layout_height="1dip"
+            android:layout_marginTop="8dip"
+            android:background="#cecece" />
+
+        <TextView
+            android:layout_width="fill_parent"
+            android:layout_height="58dip"
+            android:text="* 보안번호를 설정하시면 보다  안전한 결제가 가능합니다."
+            android:textColor="#9a9a9a"
+            android:textSize="6dip" />
+
+        <Button
+            android:id="@+id/Button_2"
+            android:layout_width="fill_parent"
+            android:layout_height="32dip"
+            android:background="@drawable/inapp_btn_n"
+            android:gravity="center"
+            android:text="보안번호 설정 "
+            android:textColor="#FFFFFF"
+            android:textSize="12dip"
+            android:visibility="gone" />
+    </LinearLayout>
+
+</LinearLayout>

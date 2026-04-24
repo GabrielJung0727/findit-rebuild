@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+    <string name="hello">Hello World, TestActivity!</string>
+    <string name="app_name">InAppLibrary</string>
+    
+    <!-- Dialog String START -->
+	<string name="dialog_information">* 후불청구의 경우 휴대폰요금에 합산청구
+		됩니다.\n* 신용카드는 올레마켓 웹사이트 (market.olleh.com) 에서 등록 후 사용하실 수 있습니다.
+	</string>
+
+	<string name="yes">예</string>
+	<string name="no">아니요</string>
+	<string name="cancle">취소</string>
+	<string name="confirm">확인</string>
+	
+	<string name="pay_phone">핸드폰 결제</string>
+	<string name="pay_card">신용카드 결제</string>
+	<string name="pay_koin">KOIN 결제</string>
+
+	<string name="paylist_title">결제 수단 선택</string>
+	
+	<string name="pay_title">결제 확인</string>
+	<string name="pay_question_1">[<xliff:g id="item_name">%s</xliff:g>]을 구입하시겠습니까?</string>
+	<string name="pay_question_2">결제하시겠습니까?</string>
+	<string name="pay_success">결제가 완료되었습니다.</string>
+	
+	<string name="pay_message">
+		아이템명:
+		<xliff:g id="item_name">%s</xliff:g>
+		\n결제금액:
+		<xliff:g id="item_price">%d</xliff:g>
+		(부가세 별도)
+		\n결제방식:
+		<xliff:g id="pay">%s</xliff:g>
+	</string>
+	
+	<string name="dialog_card_card_info">신용카드 정보 : <xliff:g id="cardName">%s</xliff:g></string>
+	<string name="dialog_card_price_info">결제 금액 : <xliff:g id="price">%s</xliff:g>원(부가세 별도)</string>
+	<string name="card_dialog_message_01">주민등록번호 뒷자리(7자리)\n(법인카드 시 사업자등록번호 10자리)</string>
+	<string name="card_dialog_message_02">(주민등록번호/사업자등록번호는 암호화되어 안전하게 전송됩니다.)</string>
+	<string name="card_dialog_message_03">결제하시겠습니까?</string>
+	
+	<string name="loading_info">정보요청중..</string>
+	<string name="loading_purchase">결제요청중..</string>
+	<string name="pwd_modify">보안번호 해제/변경 </string>
+	<string name="check_str">olleh 마켓에서는 안전한\n유료 아이템 결제를 위해\n보안번호 설정을 권장합니다.</string>
+	<!-- Dialog String END -->
+	
+</resources>

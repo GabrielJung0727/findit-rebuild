@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="fill_parent"
+    android:layout_height="fill_parent"
+    android:gravity="center"
+    android:orientation="vertical" >
+    <LinearLayout
+        android:layout_width="408dip"
+        android:layout_height="wrap_content"
+        android:background="@drawable/inapp_popup_01"
+        android:orientation="vertical"
+        android:paddingLeft="20dip"
+        android:paddingRight="20dip"
+        android:paddingBottom="10dip">
+
+        <LinearLayout
+            android:id="@+id/dialog_Title"
+            android:layout_width="fill_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" >
+
+            <LinearLayout
+                android:layout_width="fill_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center">
+
+                <TextView
+                    android:id="@+id/dialogAlertTitleTextView"
+                    android:layout_width="fill_parent"
+                    android:layout_height="51.33dip"
+                    android:textColor="#ffffff"
+                    android:gravity="center"
+                    android:textSize="32.28pt" 
+                    android:layout_gravity="center"/>
+            </LinearLayout>
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="fill_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" >
+
+            <LinearLayout
+                android:id="@+id/dialog_Message"
+                android:layout_width="fill_parent"
+                android:layout_height="wrap_content">
+
+                <TextView
+                    android:id="@+id/dialog_MessageTextView"
+                    android:layout_width="wrap_content"
+                    android:layout_height="49.33dip"
+                    android:text="보안번호는 앱 내 유료 아이템 구매 시 안전한 결제를 위해 설정하는 비밀번호 입니다.(보안번호는 4자리 숫자만 가능 합니다)"
+                    android:textColor="#333333"
+                    android:textSize="19pt" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/dialog_PayMessage"
+                android:layout_width="fill_parent"
+                android:layout_height="fill_parent">
+
+                <LinearLayout
+                    android:layout_width="fill_parent"
+                    android:layout_height="fill_parent"
+                    android:orientation="vertical" >
+
+                        <EditText
+                            android:id="@+id/pwdEditText"
+                            android:layout_width="fill_parent"
+                            android:layout_height="30.67dip"
+                            android:background="@drawable/inapp_input_box"
+                            android:inputType="number"
+                            android:maxLength="4"
+                            android:paddingLeft="5dip" 
+                            android:textColor="#c6c6c6"
+                            android:hint="보안번호"/>
+
+                        <EditText
+                            android:id="@+id/pwdEditText2"
+                            android:layout_width="fill_parent"
+                            android:layout_height="30.67dip"
+                            android:background="@drawable/inapp_input_box"
+                            android:inputType="number"
+                            android:maxLength="4"
+                            android:paddingLeft="5dip" 
+                            android:textColor="#c6c6c6"
+                            android:hint="보안번호 확인"
+                            android:layout_marginTop="4dip"/>
+                </LinearLayout>
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/dialog_PayInformation"
+                android:layout_width="fill_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginTop="5dip"
+                android:layout_marginBottom="5dip">
+
+                <TextView
+                    android:layout_width="fill_parent"
+                    android:layout_height="wrap_content"
+                    android:text="* 설정하신 보안번호는 올레마켓>My>보안번호에서 변경 및 해제 하실 수 있습니다.\n* 보안번호 설정 시, olleh.com 계정의 보안번호도 함께 설정 됩니다."
+                    android:textColor="#999999"
+                    android:textSize="19pt" 
+                    android:lineSpacingExtra="14.67dip"/>
+            </LinearLayout>
+        </LinearLayout>
+        <LinearLayout
+            android:id="@+id/Button_Layout"
+            android:layout_width="fill_parent"
+            android:layout_height="32dip"
+            android:gravity="center"
+            android:visibility="gone" >
+
+            <Button
+                android:id="@+id/Button_1"
+                android:layout_width="181.33dip"
+                android:layout_height="32dip"
+                android:layout_weight="1"
+                android:background="@drawable/inapp_btn_n"
+                android:gravity="center"
+                android:text="확인"
+                android:textColor="#FFFFFF"
+                android:textSize="26.31pt" />
+
+            <Button
+                android:id="@+id/Button_2"
+                android:layout_width="181.33dip"
+                android:layout_height="32dip"
+                android:layout_marginLeft="6.67dip"
+                android:layout_weight="1"
+                android:background="@drawable/inapp_btn_n"
+                android:gravity="center"
+                android:text="취소"
+                android:textColor="#FFFFFF"
+                android:textSize="26.31pt" />
+        </LinearLayout>
+    </LinearLayout>
+</LinearLayout>

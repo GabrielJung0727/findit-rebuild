@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout android:layout_width="match_parent" android:layout_height="35.0dp"
+  xmlns:android="http://schemas.android.com/apk/res/android">
+    <TextView android:textSize="16.0sp" android:textColor="#54443b" android:gravity="center_vertical" android:id="@id/rankTextView" android:layout_width="0.0dp" android:layout_height="35.0dp" android:layout_marginLeft="10.0dp" android:text="순위" android:layout_weight="2.0" />
+    <TextView android:textSize="16.0sp" android:textColor="#54443b" android:gravity="center_vertical" android:id="@id/idTextView" android:layout_width="0.0dp" android:layout_height="match_parent" android:text="아이디" android:layout_weight="3.0" />
+    <TextView android:textSize="16.0sp" android:textColor="#54443b" android:gravity="right|center" android:id="@id/scoreTextView" android:layout_width="0.0dp" android:layout_height="match_parent" android:layout_marginRight="10.0dp" android:text="점수" android:layout_weight="1.0" />
+</LinearLayout>

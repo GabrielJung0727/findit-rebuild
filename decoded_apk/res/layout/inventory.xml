@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout android:id="@id/BgLayout" android:layout_width="match_parent" android:layout_height="match_parent"
+  xmlns:android="http://schemas.android.com/apk/res/android">
+    <ImageView android:id="@id/TitleImageView" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+    <ImageView android:id="@id/CharacterImageView" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+    <ImageView android:id="@id/PenTextImageView" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+    <RelativeLayout android:id="@id/PenIconSlotLayout" android:layout_width="wrap_content" android:layout_height="wrap_content">
+        <ImageView android:id="@id/PenIconImageView" android:layout_width="match_parent" android:layout_height="match_parent" />
+        <TextView android:id="@id/PenIconTextView" android:layout_width="match_parent" android:layout_height="match_parent" />
+    </RelativeLayout>
+    <ImageView android:id="@id/RingTextImageView" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+    <RelativeLayout android:id="@id/RingIconSlotLayout" android:layout_width="wrap_content" android:layout_height="wrap_content">
+        <ImageView android:id="@id/RingIconImageView" android:layout_width="match_parent" android:layout_height="match_parent" />
+        <TextView android:id="@id/RingIconTextView" android:layout_width="match_parent" android:layout_height="match_parent" />
+    </RelativeLayout>
+    <ImageView android:id="@id/BerryTextImageView" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+    <RelativeLayout android:id="@id/BerryIconSlotLayout" android:layout_width="wrap_content" android:layout_height="wrap_content">
+        <ImageView android:id="@id/BerryIconImageView" android:layout_width="match_parent" android:layout_height="match_parent" />
+        <TextView android:id="@id/BerryIconTextView" android:layout_width="match_parent" android:layout_height="match_parent" />
+    </RelativeLayout>
+    <ImageView android:id="@id/PotionTextImageView" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+    <RelativeLayout android:id="@id/PotionIconSlotLayout" android:layout_width="wrap_content" android:layout_height="wrap_content">
+        <ImageView android:id="@id/PotionIconImageView" android:layout_width="match_parent" android:layout_height="match_parent" />
+        <TextView android:id="@id/PotionIconTextView" android:layout_width="match_parent" android:layout_height="match_parent" />
+    </RelativeLayout>
+    <LinearLayout android:gravity="center" android:layout_width="wrap_content" android:layout_height="wrap_content">
+        <ImageView android:id="@id/AttackImageView" android:background="@drawable/attack" android:layout_width="18.0dp" android:layout_height="18.0dp" android:layout_marginRight="2.0dp" />
+        <TextView android:textColor="#54443b" android:gravity="center" android:id="@id/AttackTextView" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+    </LinearLayout>
+    <LinearLayout android:gravity="center" android:layout_width="wrap_content" android:layout_height="wrap_content">
+        <ImageView android:id="@id/DefenseImageView" android:background="@drawable/defence" android:layout_width="16.0dp" android:layout_height="18.0dp" android:layout_marginRight="2.0dp" />
+        <TextView android:textColor="#54443b" android:gravity="center" android:id="@id/DefenseTextView" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+    </LinearLayout>
+    <Button android:id="@id/ItemTabButton" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+    <Button android:id="@id/ShopTabButton" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+    <Button android:id="@id/SkillTabButton" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+    <ImageView android:id="@id/WindowsBgImageView" android:tag="not" android:background="@drawable/popup_0" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+    <RelativeLayout android:id="@id/ItemLayout" android:layout_width="wrap_content" android:layout_height="wrap_content">
+        <LinearLayout android:gravity="center_vertical" android:layout_width="match_parent" android:layout_height="wrap_content">
+            <ImageView android:gravity="right|center" android:id="@id/LevelImageView" android:background="@drawable/level" android:layout_width="18.0dp" android:layout_height="16.0dp" android:layout_marginRight="4.0dp" />
+            <TextView android:textSize="12.0sp" android:textColor="#54443b" android:gravity="center" android:id="@id/LevelTextView" android:layout_width="wrap_content" android:layout_height="16.0dp" android:layout_marginRight="10.0dp" />
+            <ImageView android:gravity="right|center" android:id="@id/ScoreImageView" android:background="@drawable/exp" android:layout_width="25.0dp" android:layout_height="16.0dp" android:layout_marginRight="4.0dp" />
+            <TextView android:textSize="12.0sp" android:textColor="#54443b" android:gravity="center" android:id="@id/ScoreTextView" android:layout_width="wrap_content" android:layout_height="16.0dp" android:layout_marginRight="10.0dp" />
+            <LinearLayout android:gravity="right|center" android:layout_width="match_parent" android:layout_height="match_parent">
+                <ImageView android:gravity="right|center" android:id="@id/CoinImageView" android:background="@drawable/coin" android:layout_width="16.0dp" android:layout_height="16.0dp" android:layout_marginRight="4.0dp" />
+                <TextView android:textSize="12.0sp" android:textColor="#54443b" android:gravity="right|center" android:id="@id/CoinNumTextView" android:layout_width="wrap_content" android:layout_height="16.0dp" />
+            </LinearLayout>
+        </LinearLayout>
+        <ImageView android:id="@id/Line0ImageView" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+        <Button android:id="@id/SlotPreButton" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+        <LinearLayout android:gravity="center" android:layout_width="wrap_content" android:layout_height="wrap_content">
+            <HorizontalScrollView android:gravity="center" android:id="@id/SlotHorizontalScrollView" android:scrollbars="none" android:layout_width="wrap_content" android:layout_height="wrap_content">
+                <LinearLayout android:orientation="horizontal" android:id="@id/SlotsLayout" android:layout_width="match_parent" android:layout_height="match_parent" />
+            </HorizontalScrollView>
+        </LinearLayout>
+        <Button android:id="@id/SlotNextButton" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+        <ImageView android:id="@id/Line1ImageView" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+        <ScrollView android:layout_width="wrap_content" android:layout_height="match_parent">
+            <LinearLayout android:layout_width="wrap_content" android:layout_height="match_parent">
+                <TextView android:textColor="#54443b" android:id="@id/ExplainTextView" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+            </LinearLayout>
+        </ScrollView>
+    </RelativeLayout>
+    <RelativeLayout android:orientation="vertical" android:id="@id/ShopLayout" android:visibility="invisible" android:layout_width="match_parent" android:layout_height="match_parent">
+        <LinearLayout android:gravity="center_vertical" android:layout_width="match_parent" android:layout_height="wrap_content">
+            <ImageView android:gravity="right|center" android:id="@id/ShopLevelImageView" android:background="@drawable/level" android:layout_width="18.0dp" android:layout_height="16.0dp" android:layout_marginRight="4.0dp" />
+            <TextView android:textSize="12.0sp" android:textColor="#54443b" android:gravity="center" android:id="@id/ShopLevelTextView" android:layout_width="wrap_content" android:layout_height="16.0dp" android:layout_marginRight="10.0dp" />
+            <ImageView android:gravity="right|center" android:id="@id/ShopScoreImageView" android:background="@drawable/exp" android:layout_width="25.0dp" android:layout_height="16.0dp" android:layout_marginRight="4.0dp" />
+            <TextView android:textSize="12.0sp" android:textColor="#54443b" android:gravity="center" android:id="@id/ShopScoreTextView" android:layout_width="wrap_content" android:layout_height="16.0dp" android:layout_marginRight="10.0dp" />
+            <LinearLayout android:gravity="right|center" android:layout_width="match_parent" android:layout_height="match_parent">
+                <ImageView android:gravity="right|center" android:id="@id/ShopCoinImageView" android:background="@drawable/coin" android:layout_width="16.0dp" android:layout_height="16.0dp" android:layout_marginRight="4.0dp" />
+                <TextView android:textSize="12.0sp" android:textColor="#54443b" android:gravity="right|center" android:id="@id/ShopCoinNumTextView" android:layout_width="wrap_content" android:layout_height="16.0dp" />
+            </LinearLayout>
+        </LinearLayout>
+        <ImageView android:id="@id/ShopLine0ImageView" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+        <RelativeLayout android:orientation="vertical" android:id="@id/ShopSub1Layout" android:visibility="invisible" android:layout_width="wrap_content" android:layout_height="wrap_content">
+            <Button android:id="@id/ShopSlotPreButton" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+            <LinearLayout android:gravity="center" android:layout_width="wrap_content" android:layout_height="wrap_content">
+                <HorizontalScrollView android:id="@id/ShopSlotHorizontalScrollView" android:scrollbars="none" android:layout_width="wrap_content" android:layout_height="wrap_content">
+                    <LinearLayout android:orientation="horizontal" android:id="@id/ShopItemSlotsLayout" android:layout_width="match_parent" android:layout_height="match_parent" />
+                </HorizontalScrollView>
+            </LinearLayout>
+            <Button android:id="@id/ShopSlotNextButton" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+            <ImageView android:id="@id/ShopLine1ImageView" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+            <ScrollView android:layout_width="wrap_content" android:layout_height="match_parent">
+                <LinearLayout android:layout_width="wrap_content" android:layout_height="match_parent">
+                    <TextView android:textColor="#54443b" android:id="@id/ShopExplainTextView" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+                </LinearLayout>
+            </ScrollView>
+            <Button android:textSize="10.0sp" android:textColor="#a5876d" android:id="@id/ShopBuyButton" android:tag="not" android:background="@drawable/dlg_btn" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/buy" />
+            <Button android:textSize="10.0sp" android:textColor="#a5876d" android:id="@id/ShopBackButton" android:tag="not" android:background="@drawable/dlg_btn" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/back" />
+        </RelativeLayout>
+        <RelativeLayout android:orientation="vertical" android:id="@id/ShopSub0Layout" android:layout_width="wrap_content" android:layout_height="wrap_content">
+            <LinearLayout android:gravity="center" android:orientation="horizontal" android:id="@id/ShopMenuSlotsLayout" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+            <Button android:id="@id/ShopBreakdownButton" android:tag="not" android:background="@drawable/shop_btn_buyinglist" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+        </RelativeLayout>
+    </RelativeLayout>
+    <RelativeLayout android:orientation="vertical" android:id="@id/SkillLayout" android:visibility="invisible" android:layout_width="wrap_content" android:layout_height="wrap_content">
+        <LinearLayout android:gravity="right|center" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+        <ImageView android:id="@id/SkillLine0ImageView" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+        <Button android:id="@id/SkillSlotPreButton" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+        <LinearLayout android:gravity="center" android:layout_width="wrap_content" android:layout_height="wrap_content">
+            <HorizontalScrollView android:id="@id/SkillSlotHorizontalScrollView" android:scrollbars="none" android:layout_width="wrap_content" android:layout_height="wrap_content">
+                <LinearLayout android:gravity="center" android:orientation="horizontal" android:id="@id/SkillSlotsLayout" android:layout_width="match_parent" android:layout_height="match_parent" />
+            </HorizontalScrollView>
+        </LinearLayout>
+        <Button android:id="@id/SkillSlotNextButton" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+        <ImageView android:id="@id/SkillLine1ImageView" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+        <ScrollView android:layout_width="wrap_content" android:layout_height="match_parent">
+            <LinearLayout android:layout_width="wrap_content" android:layout_height="match_parent">
+                <TextView android:textColor="#54443b" android:id="@id/SkillExplainTextView" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+            </LinearLayout>
+        </ScrollView>
+        <TextView android:textColor="#a5876d" android:gravity="center" android:id="@id/SkillPointTextView" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/point" />
+        <TextView android:textColor="#2fb501" android:gravity="center" android:id="@id/SkillPointNumTextView" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+        <Button android:textSize="10.0sp" android:textColor="#a5876d" android:id="@id/SkillLearnButton" android:tag="not" android:background="@drawable/dlg_btn" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/learn" />
+    </RelativeLayout>
+    <ImageView android:id="@id/MoveIconImageView" android:visibility="invisible" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+</RelativeLayout>

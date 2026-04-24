@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(rm -f .git/index.lock)",
+      "Bash(git add *)",
+      "Bash(rm -rf /Users/gabriel/Desktop/apk_analysis/.git)",
+      "Bash(mkdir -p /tmp/findit-push)",
+      "Bash(rsync -a --exclude=.git --exclude=.DS_Store --exclude=.idea '--exclude=*.iml' --exclude=out/ --exclude=android_project/.gradle --exclude=android_project/build --exclude=android_project/app/build --exclude=android_project/local.properties /Users/gabriel/Desktop/apk_analysis/ /tmp/findit-push/)",
+      "Read(//tmp/**)"
+    ]
+  }
+}

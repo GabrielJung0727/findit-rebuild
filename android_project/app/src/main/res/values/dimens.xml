@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="characterimgview_width">65.0dp</dimen>
+    <dimen name="characterimgview_height">95.0dp</dimen>
+    <dimen name="linevt_width">3.0dp</dimen>
+    <dimen name="linevt_height">14.0dp</dimen>
+    <dimen name="loginline_height">118.0dp</dimen>
+    <dimen name="buttonclick_size">5.0dp</dimen>
+</resources>

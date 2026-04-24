@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout android:gravity="center" android:orientation="vertical" android:layout_width="match_parent" android:layout_height="match_parent"
+  xmlns:android="http://schemas.android.com/apk/res/android">
+    <ImageView android:textColor="#a5876d" android:id="@id/ItemImageView" android:layout_width="50.0dp" android:layout_height="50.0dp" android:layout_margin="5.0dp" />
+    <TextView android:textColor="#543839" android:gravity="center" android:id="@id/MessageTextView" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_margin="5.0dp" android:text="@string/deleteitem" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent">
+        <Button android:textColor="#a5876d" android:gravity="center" android:id="@id/YesButton" android:background="@drawable/dlg_btn" android:layout_width="0.0dp" android:layout_height="wrap_content" android:layout_margin="5.0dp" android:text="@string/yes" android:layout_weight="1.0" />
+        <Button android:textColor="#a5876d" android:gravity="center" android:id="@id/NoButton" android:background="@drawable/dlg_btn" android:layout_width="0.0dp" android:layout_height="wrap_content" android:layout_margin="5.0dp" android:text="@string/no" android:layout_weight="1.0" />
+    </LinearLayout>
+</LinearLayout>

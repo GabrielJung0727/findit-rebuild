@@ -1,0 +1,45 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.findit.battle'
+    compileSdk 34
+
+    useLibrary 'org.apache.http.legacy'
+
+    defaultConfig {
+        applicationId "com.findit.battle"
+        minSdk 21
+        targetSdk 34
+        versionCode 1
+        versionName "1.01"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+
+    packagingOptions {
+        resources {
+            excludes += ['META-INF/**']
+        }
+    }
+}
+
+dependencies {
+    // Used by decompiled IAP/parser code (junit.framework.Assert references)
+    implementation 'junit:junit:4.13.2'
+}

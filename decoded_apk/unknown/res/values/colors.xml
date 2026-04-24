@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<resources>
+	<color name="RGB_000000">#000000</color>
+	<color name="RGB_171717">#171717</color>
+	<color name="RGB_B3B3B3">#B3B3B3</color>
+	<color name="RGB_80_80_80">#505050</color>
+	<color name="RGB_120_120_120">#787878</color>
+	<color name="RGB_150_150_150">#969696</color>
+	<color name="RGB_255_179_141">#FFB38D</color>
+	<color name="RGB_175_175_175">#AFAFAF</color>
+	<color name="RGB_230_230_230">#E6E6E6</color>
+	<color name="RGB_118_118_188">#767676</color>
+	<color name="RGB_104_104_104">#686868</color>
+	<color name="RGB_245_245_245">#F5F5F5</color>
+	<color name="RGB_255_255_255">#FFFFFF</color>
+	<color name="RGB_200_200_200">#C8C8C8</color>	
+	<color name="RGB_220_30_30">#DC1E1E</color>
+	<color name="RGB_40_100_200">#2864C8</color>
+	<color name="RGB_214_214_214">#D6D6D6</color>		
+	<color name="RGB_60_60_60">#3C3C3C</color>
+	<color name="RGB_80_130_250">#5082FA</color>
+	<color name="RGB_160_160_160">#A0A0A0</color>
+	<color name="RGB_183_39_15">#B7270F</color>
+	<color name="RGB_19_104_245">#1368F5</color>
+	
+	<drawable name="translucent_background">#00000000</drawable>
+	
+	<color name="black">#000000</color>
+	<color name="title_normal">#FFFFFF</color>			<!-- 255, 255, 255 -->
+	<color name="optiontap_title">#E6E6E6</color>		<!-- 230, 230, 230 -->
+	<color name="sublist_2">#AFAFAF</color>				<!-- 175, 175, 175 -->
+	<color name="optiontap_select">#FFB38D</color>		<!-- 255, 179, 141 --> 
+	
+	<color name="white">#FFFFFF</color>
+	<color name="block">#000000</color>
+	<color name="tap_text_n">#FFFFFF</color>
+	<color name="tap_text_p">#FFB38D</color>
+	
+</resources>

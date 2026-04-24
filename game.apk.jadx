@@ -1,0 +1,401 @@
+{
+  "projectVersion": 2,
+  "files": [
+    "game.apk"
+  ],
+  "treeExpansionsV2": [
+    "c:com.feelingk.iap.gui.data.SingletonCounter",
+    "c:com.feelingk.iap.gui.data.PurchaseItem",
+    "c:com.android.vending.billing.IInAppBillingService",
+    "p:com.feelingk.iap.net",
+    "t:JResources//res//layout",
+    "t:JInputs//JInputFiles"
+  ],
+  "codeData": {
+    "comments": [],
+    "renames": []
+  },
+  "openTabs": [
+    {
+      "type": "class",
+      "tabPath": "com.android.vending.billing.IInAppBillingService",
+      "subPath": "java",
+      "caret": 772,
+      "view": {
+        "x": 15,
+        "y": 541
+      },
+      "active": false,
+      "pinned": false,
+      "bookmarked": false,
+      "hidden": false,
+      "previewTab": false
+    },
+    {
+      "type": "class",
+      "tabPath": "com.feelingk.iap.gui.data.PurchaseItem",
+      "subPath": "java",
+      "caret": 536,
+      "view": {
+        "x": 0,
+        "y": 0
+      },
+      "active": true,
+      "pinned": false,
+      "bookmarked": false,
+      "hidden": false,
+      "previewTab": false
+    },
+    {
+      "type": "class",
+      "tabPath": "com.feelingk.iap.gui.data.SingletonCounter",
+      "subPath": "java",
+      "caret": 2414,
+      "view": {
+        "x": 0,
+        "y": 1412
+      },
+      "active": false,
+      "pinned": false,
+      "bookmarked": false,
+      "hidden": false,
+      "previewTab": false
+    },
+    {
+      "type": "class",
+      "tabPath": "com.feelingk.iap.net.PurchaseParam",
+      "subPath": "java",
+      "caret": 86,
+      "view": {
+        "x": 0,
+        "y": 0
+      },
+      "active": false,
+      "pinned": false,
+      "bookmarked": false,
+      "hidden": false,
+      "previewTab": false
+    },
+    {
+      "type": "class",
+      "tabPath": "com.feelingk.iap.IAPActivity",
+      "subPath": "java",
+      "caret": 3051,
+      "view": {
+        "x": 0,
+        "y": 1021
+      },
+      "active": false,
+      "pinned": false,
+      "bookmarked": false,
+      "hidden": false,
+      "previewTab": false
+    },
+    {
+      "type": "resource",
+      "tabPath": "res/btn_buy_nor_h_e.png",
+      "subPath": "",
+      "caret": 0,
+      "view": {
+        "x": 0,
+        "y": 0
+      },
+      "active": false,
+      "pinned": false,
+      "bookmarked": false,
+      "hidden": false,
+      "previewTab": false
+    },
+    {
+      "type": "resource",
+      "tabPath": "res/bt_buy_dim.png",
+      "subPath": "",
+      "caret": 0,
+      "view": {
+        "x": 0,
+        "y": 0
+      },
+      "active": false,
+      "pinned": false,
+      "bookmarked": false,
+      "hidden": false,
+      "previewTab": false
+    },
+    {
+      "type": "resource",
+      "tabPath": "res/bt_01_reclaim_nor_e.png",
+      "subPath": "",
+      "caret": 0,
+      "view": {
+        "x": 0,
+        "y": 0
+      },
+      "active": false,
+      "pinned": false,
+      "bookmarked": false,
+      "hidden": false,
+      "previewTab": false
+    },
+    {
+      "type": "resource",
+      "tabPath": "res/btn_buy_resel_h.png",
+      "subPath": "",
+      "caret": 0,
+      "view": {
+        "x": 0,
+        "y": 0
+      },
+      "active": false,
+      "pinned": false,
+      "bookmarked": false,
+      "hidden": false,
+      "previewTab": false
+    },
+    {
+      "type": "resource",
+      "tabPath": "res/btn_buy_nor_h.png",
+      "subPath": "",
+      "caret": 0,
+      "view": {
+        "x": 0,
+        "y": 0
+      },
+      "active": false,
+      "pinned": false,
+      "bookmarked": false,
+      "hidden": false,
+      "previewTab": false
+    },
+    {
+      "type": "resource",
+      "tabPath": "res/bt_buy_dim_e.png",
+      "subPath": "",
+      "caret": 0,
+      "view": {
+        "x": 0,
+        "y": 0
+      },
+      "active": false,
+      "pinned": false,
+      "bookmarked": false,
+      "hidden": false,
+      "previewTab": false
+    },
+    {
+      "type": "resource",
+      "tabPath": "res/bt_01_reclaim_sel.png",
+      "subPath": "",
+      "caret": 0,
+      "view": {
+        "x": 0,
+        "y": 0
+      },
+      "active": false,
+      "pinned": false,
+      "bookmarked": false,
+      "hidden": false,
+      "previewTab": false
+    },
+    {
+      "type": "resource",
+      "tabPath": "res/bt_01_reclaim_dim.png",
+      "subPath": "",
+      "caret": 0,
+      "view": {
+        "x": 0,
+        "y": 0
+      },
+      "active": false,
+      "pinned": false,
+      "bookmarked": false,
+      "hidden": false,
+      "previewTab": false
+    },
+    {
+      "type": "resource",
+      "tabPath": "res/bt_confirm_dim_e.png",
+      "subPath": "",
+      "caret": 0,
+      "view": {
+        "x": 0,
+        "y": 0
+      },
+      "active": false,
+      "pinned": false,
+      "bookmarked": false,
+      "hidden": false,
+      "previewTab": false
+    },
+    {
+      "type": "resource",
+      "tabPath": "res/btn_con_nor.png",
+      "subPath": "",
+      "caret": 0,
+      "view": {
+        "x": 0,
+        "y": 0
+      },
+      "active": false,
+      "pinned": false,
+      "bookmarked": false,
+      "hidden": false,
+      "previewTab": false
+    },
+    {
+      "type": "resource",
+      "tabPath": "res/btn_pad_nor.png",
+      "subPath": "",
+      "caret": 0,
+      "view": {
+        "x": 0,
+        "y": 0
+      },
+      "active": false,
+      "pinned": false,
+      "bookmarked": false,
+      "hidden": false,
+      "previewTab": false
+    },
+    {
+      "type": "resource",
+      "tabPath": "res/btn_policy_sel_b.png",
+      "subPath": "",
+      "caret": 0,
+      "view": {
+        "x": 0,
+        "y": 0
+      },
+      "active": false,
+      "pinned": false,
+      "bookmarked": false,
+      "hidden": false,
+      "previewTab": false
+    },
+    {
+      "type": "resource",
+      "tabPath": "res/info_table_01.png",
+      "subPath": "",
+      "caret": 0,
+      "view": {
+        "x": 0,
+        "y": 0
+      },
+      "active": false,
+      "pinned": false,
+      "bookmarked": false,
+      "hidden": false,
+      "previewTab": false
+    },
+    {
+      "type": "resource",
+      "tabPath": "res/input_box_sel2.9.png",
+      "subPath": "",
+      "caret": 0,
+      "view": {
+        "x": 0,
+        "y": 0
+      },
+      "active": false,
+      "pinned": false,
+      "bookmarked": false,
+      "hidden": false,
+      "previewTab": false
+    },
+    {
+      "type": "resource",
+      "tabPath": "res/keypad_num_05.png",
+      "subPath": "",
+      "caret": 0,
+      "view": {
+        "x": 0,
+        "y": 0
+      },
+      "active": false,
+      "pinned": false,
+      "bookmarked": false,
+      "hidden": false,
+      "previewTab": false
+    },
+    {
+      "type": "resource",
+      "tabPath": "res/pop_title_e.png",
+      "subPath": "",
+      "caret": 0,
+      "view": {
+        "x": 0,
+        "y": 0
+      },
+      "active": false,
+      "pinned": false,
+      "bookmarked": false,
+      "hidden": false,
+      "previewTab": false
+    },
+    {
+      "type": "resource",
+      "tabPath": "res/textbox_01_3.png",
+      "subPath": "",
+      "caret": 0,
+      "view": {
+        "x": 0,
+        "y": 0
+      },
+      "active": false,
+      "pinned": false,
+      "bookmarked": false,
+      "hidden": false,
+      "previewTab": false
+    },
+    {
+      "type": "resource",
+      "tabPath": "res/textbox_01_6.png",
+      "subPath": "",
+      "caret": 0,
+      "view": {
+        "x": 0,
+        "y": 0
+      },
+      "active": false,
+      "pinned": false,
+      "bookmarked": false,
+      "hidden": false,
+      "previewTab": false
+    },
+    {
+      "type": "resource",
+      "tabPath": "res/layout/buylist_listrow.xml",
+      "subPath": "",
+      "caret": 0,
+      "view": {
+        "x": 0,
+        "y": 0
+      },
+      "active": false,
+      "pinned": false,
+      "bookmarked": false,
+      "hidden": false,
+      "previewTab": false
+    },
+    {
+      "type": "resource",
+      "tabPath": "res/layout/main.xml",
+      "subPath": "",
+      "caret": 0,
+      "view": {
+        "x": 0,
+        "y": 0
+      },
+      "active": false,
+      "pinned": false,
+      "bookmarked": false,
+      "hidden": false,
+      "previewTab": false
+    }
+  ],
+  "cacheDir": "/Users/gabriel/Library/Caches/io.github.skylot.jadx/projects/game-74a8ee5e3cf7b877d46cd304c2d96a9f",
+  "enableLiveReload": false,
+  "searchHistory": [],
+  "searchResourcesFilter": "$TEXT",
+  "searchResourcesSizeLimit": 0,
+  "pluginOptions": {}
+}

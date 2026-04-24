@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
+    <uses-permission android:name="android.permission.VIBRATE"/>
+    <uses-permission android:name="android.permission.READ_PHONE_STATE"/>
+    <uses-permission android:name="android.permission.GET_TASKS"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <uses-permission android:name="android.permission.RECEIVE_SMS"/>
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <uses-permission android:name="com.sec.android.iap.permission.BILLING"/>
+    <uses-permission android:name="com.android.vending.BILLING"/>
+    <application android:allowBackup="true" android:icon="@drawable/icon" android:label="@string/app_name" android:name="com.findit.battle.FindItApplication">
+        <activity android:configChanges="orientation" android:exported="true" android:label="@string/app_name" android:launchMode="singleTop" android:name="com.findit.battle.GameActivity" android:screenOrientation="landscape" android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+        <activity android:name="com.findit.battle.JoinActivity" android:screenOrientation="landscape" android:theme="@style/CustomDialog"/>
+        <activity android:configChanges="keyboardHidden|orientation" android:name="com.findit.battle.InventoryActivity_Google" android:screenOrientation="landscape" android:theme="@style/CustomDialog" android:windowSoftInputMode="adjustNothing"/>
+        <activity android:configChanges="keyboardHidden|orientation" android:name="com.findit.battle.InventoryActivity_Olleh" android:screenOrientation="landscape" android:theme="@style/CustomDialog"/>
+        <activity android:configChanges="keyboardHidden|orientation" android:name="com.findit.battle.InventoryActivity_T" android:screenOrientation="landscape" android:theme="@style/CustomDialog"/>
+        <activity android:name="com.findit.battle.SetupActivity" android:screenOrientation="landscape" android:theme="@style/CustomDialog"/>
+        <activity android:name="com.findit.battle.NoticeActivity" android:noHistory="true" android:screenOrientation="landscape" android:theme="@style/CustomDialog"/>
+        <activity android:name="com.findit.battle.RankActivity" android:noHistory="true" android:screenOrientation="landscape" android:theme="@style/CustomDialog"/>
+        <service android:name="com.kt.olleh.inapp.TimerService"/>
+        <receiver android:exported="true" android:name="com.feelingk.iap.SmsReceiver">
+            <intent-filter>
+                <action android:name="android.provider.Telephony.SMS_RECEIVED"/>
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

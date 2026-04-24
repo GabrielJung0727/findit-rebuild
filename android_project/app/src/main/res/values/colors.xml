@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="translucent_white">#00ffffff</color>
+    <color name="translucent_black">#00000000</color>
+    <color name="color_20per_black">#33000000</color>
+    <color name="color_50per_black">#7f000000</color>
+</resources>

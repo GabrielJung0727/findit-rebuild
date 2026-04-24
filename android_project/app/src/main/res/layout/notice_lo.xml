@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout android:layout_width="match_parent" android:layout_height="match_parent"
+  xmlns:android="http://schemas.android.com/apk/res/android"> `	
+    <LinearLayout android:orientation="vertical" android:id="@id/BgLayout" android:layout_width="match_parent" android:layout_height="match_parent">
+        <LinearLayout android:background="@drawable/waiting_bg" android:layout_width="match_parent" android:layout_height="0.0dp" android:layout_weight="16.0">
+            <View android:layout_width="0.0dp" android:layout_height="match_parent" android:layout_weight="30.0" />
+            <LinearLayout android:orientation="vertical" android:layout_width="0.0dp" android:layout_height="match_parent" android:layout_weight="733.0">
+                <View android:layout_width="match_parent" android:layout_height="0.0dp" android:layout_weight="21.0" />
+                <TextView android:id="@id/TitleTextView" android:background="@drawable/title_notice" android:layout_width="match_parent" android:layout_height="0.0dp" android:layout_weight="100.0" />
+                <View android:layout_width="match_parent" android:layout_height="0.0dp" android:layout_weight="39.0" />
+            </LinearLayout>
+            <LinearLayout android:orientation="vertical" android:layout_width="0.0dp" android:layout_height="match_parent" android:layout_weight="234.0">
+                <View android:layout_width="match_parent" android:layout_height="0.0dp" android:layout_weight="21.0" />
+                <Button android:id="@id/RefreshButton" android:background="@drawable/smallbtn_close" android:layout_width="match_parent" android:layout_height="0.0dp" android:layout_weight="90.0" />
+                <View android:layout_width="match_parent" android:layout_height="0.0dp" android:layout_weight="49.0" />
+            </LinearLayout>
+            <View android:layout_width="0.0dp" android:layout_height="match_parent" android:layout_weight="15.0" />
+        </LinearLayout>
+        <LinearLayout android:layout_width="match_parent" android:layout_height="0.0dp" android:layout_weight="64.0">
+            <View android:layout_width="0.0dp" android:layout_height="match_parent" android:layout_weight="30.0" />
+            <ListView android:id="@id/UserListView" android:layout_width="0.0dp" android:layout_height="match_parent" android:divider="@drawable/line_hr_0" android:dividerHeight="3.0dp" android:layout_weight="902.0" />
+            <View android:layout_width="0.0dp" android:layout_height="match_parent" android:layout_weight="30.0" />
+        </LinearLayout>
+    </LinearLayout>
+</LinearLayout>

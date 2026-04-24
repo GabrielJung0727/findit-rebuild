@@ -12,6 +12,7 @@ const { query, tx } = require('../db');
 const C = require('../util/codes');
 const V = require('../util/validation');
 const session = require('../util/session');
+const recaptcha = require('../util/recaptcha');
 
 const router = express.Router();
 
@@ -53,7 +54,7 @@ async function loadWallet(userId) {
 // 1. POST-이나-GET /app/member/join.json
 // 파라미터: userId, userPass, userCharacter, userDevice, userNick
 // -----------------------------------------------------
-router.all('/member/join.json', async (req, res, next) => {
+router.all('/member/join.json', recaptcha.middleware, async (req, res, next) => {
   try {
     const p = { ...req.query, ...req.body };
     const { userId, userPass, userCharacter, userDevice = '1', userNick } = p;
@@ -154,7 +155,7 @@ router.all('/member/login.json', async (req, res, next) => {
 // 파라미터: deviceId (선택, 동일 디바이스 재로그인용)
 // 응답: result, user{...}
 // -----------------------------------------------------
-router.all('/member/guest.json', async (req, res, next) => {
+router.all('/member/guest.json', recaptcha.middleware, async (req, res, next) => {
   try {
     const p = { ...req.query, ...req.body };
     const deviceId = p.deviceId || p.userDevice || '';

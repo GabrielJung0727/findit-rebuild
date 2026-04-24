@@ -13,6 +13,7 @@
 
 const net = require('net');
 const { encodeFrame, createFrameParser, splitFields } = require('../util/protocol');
+const fcm = require('../util/fcm');
 
 const CODES = {
   USERLIST: '100',
@@ -174,11 +175,21 @@ function onGame(socket, [characterName, payload]) {
 // 107: 초대
 // 클라 요청: |107|<targetUserId>|<roomName>
 // 대상자에게 |107|000|<fromUserName>
+// 대상자 오프라인 시: FCM 푸시 발송 (토큰 등록돼 있으면)
 function onInvite(socket, [targetUserId, roomName]) {
   const target = waiting.get(targetUserId);
   const fromSession = sessions.get(socket);
   if (!target) {
     send(socket, `|${CODES.INVITE}|${FAIL_ALREADYEXIT}|${targetUserId || ''}`);
+    // 오프라인 타겟 → FCM 초대 푸시 (fire-and-forget)
+    if (targetUserId) {
+      fcm.sendToUser(targetUserId, {
+        type: 'invite',
+        title: '대전 초대',
+        body: `${fromSession?.userId || '친구'} 님이 초대 요청을 하셨습니다.`,
+        data: { from: fromSession?.userId || '', roomName: roomName || '' },
+      }).catch((e) => console.warn('[socket] invite push failed:', e.message));
+    }
     return;
   }
   send(target, `|${CODES.INVITE}|${OK}|${fromSession?.userId || ''}|${roomName || ''}`);

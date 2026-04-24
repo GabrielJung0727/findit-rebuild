@@ -6,6 +6,9 @@
 SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS=0;
 
+DROP TABLE IF EXISTS `push_log`;
+DROP TABLE IF EXISTS `ad_click_log`;
+DROP TABLE IF EXISTS `event_log`;
 DROP TABLE IF EXISTS `ad_reward_log`;
 DROP TABLE IF EXISTS `admin_tokens`;
 DROP TABLE IF EXISTS `item_upgrade_log`;
@@ -33,10 +36,13 @@ CREATE TABLE `members` (
   `user_character` TINYINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '0~2 캐릭터 인덱스',
   `user_device` VARCHAR(16) NOT NULL DEFAULT '0' COMMENT '1=Android, 2=iOS 등',
   `auth_type` ENUM('email','guest','facebook') NOT NULL DEFAULT 'email',
+  `fcm_token` VARCHAR(512) DEFAULT NULL COMMENT 'Firebase Cloud Messaging 토큰',
+  `last_active_at` TIMESTAMP NULL DEFAULT NULL COMMENT 'DAU 계산용',
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`user_id`),
-  UNIQUE KEY `uk_user_nick` (`user_nick`)
+  UNIQUE KEY `uk_user_nick` (`user_nick`),
+  KEY `idx_last_active` (`last_active_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- -----------------------------------------------------
@@ -116,6 +122,50 @@ CREATE TABLE `ad_reward_log` (
   `user_id` VARCHAR(128) NOT NULL,
   `ad_id` BIGINT UNSIGNED NOT NULL,
   `coin_reward` INT UNSIGNED NOT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_user_time` (`user_id`, `created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- -----------------------------------------------------
+-- event_log: 클라가 보고하는 이벤트 (Google Analytics 대체)
+-- -----------------------------------------------------
+CREATE TABLE `event_log` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id` VARCHAR(128) DEFAULT NULL,
+  `event_name` VARCHAR(64) NOT NULL,
+  `payload` JSON DEFAULT NULL,
+  `session_id` VARCHAR(64) DEFAULT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_event_time` (`event_name`, `created_at`),
+  KEY `idx_user_time` (`user_id`, `created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- -----------------------------------------------------
+-- ad_click_log: 광고 클릭 이력
+-- -----------------------------------------------------
+CREATE TABLE `ad_click_log` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id` VARCHAR(128) DEFAULT NULL,
+  `ad_id` BIGINT UNSIGNED NOT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_ad_time` (`ad_id`, `created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- -----------------------------------------------------
+-- push_log: FCM 푸시 발송 이력
+-- -----------------------------------------------------
+CREATE TABLE `push_log` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id` VARCHAR(128) NOT NULL,
+  `type` ENUM('invite','notice','reward','custom') NOT NULL,
+  `title` VARCHAR(128) NOT NULL,
+  `body` VARCHAR(512) NOT NULL,
+  `data` JSON DEFAULT NULL,
+  `status` ENUM('queued','sent','failed','no_token') NOT NULL DEFAULT 'queued',
+  `error` VARCHAR(255) DEFAULT NULL,
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_user_time` (`user_id`, `created_at`)
@@ -223,6 +273,7 @@ CREATE TABLE `ad_images` (
   `ad_url` VARCHAR(512) DEFAULT NULL COMMENT '클릭 시 이동 URL',
   `expire_date` DATETIME NOT NULL,
   `view_count` INT UNSIGNED NOT NULL DEFAULT 0,
+  `click_count` INT UNSIGNED NOT NULL DEFAULT 0,
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`ad_id`),
   KEY `idx_expire` (`expire_date`)
@@ -247,6 +298,7 @@ CREATE TABLE `iap_receipts` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_store_order` (`store`, `order_id`),
   KEY `idx_user` (`user_id`),
+  KEY `idx_purchase_token` (`purchase_token`(128)),
   CONSTRAINT `fk_iap_user` FOREIGN KEY (`user_id`) REFERENCES `members`(`user_id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 

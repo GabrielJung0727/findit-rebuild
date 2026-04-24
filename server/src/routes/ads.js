@@ -45,4 +45,19 @@ router.all('/member/adReward.json', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// -----------------------------------------------------
+// 광고 클릭 추적 (보상 없음)
+// 파라미터: userId (선택), adId
+// -----------------------------------------------------
+router.all('/member/adClick.json', async (req, res, next) => {
+  try {
+    const { userId, adId } = { ...req.query, ...req.body };
+    if (adId == null) return res.json({ result: C.RESULT_NOID });
+    const aid = Number(adId);
+    await query(`UPDATE ad_images SET click_count = click_count + 1 WHERE ad_id = ?`, [aid]);
+    await query(`INSERT INTO ad_click_log(user_id, ad_id) VALUES(?, ?)`, [userId || null, aid]);
+    res.json({ result: C.RESULT_PASS });
+  } catch (e) { next(e); }
+});
+
 module.exports = router;

@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>FindIt Admin</title>
+  <style>
+    *{box-sizing:border-box}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;margin:0;background:#f7f8fa;color:#222}
+    header{background:#1a1f36;color:#fff;padding:12px 20px;display:flex;align-items:center;gap:16px}
+    header h1{font-size:18px;margin:0}
+    header nav{display:flex;gap:12px;flex:1}
+    header nav a{color:#b7bed0;text-decoration:none;font-size:14px;padding:6px 10px;border-radius:4px}
+    header nav a.active{background:#2d3557;color:#fff}
+    header .token{display:flex;gap:6px;align-items:center;font-size:12px}
+    header .token input{padding:4px 8px;border:1px solid #444;background:#2d3557;color:#fff;border-radius:4px;width:260px}
+    main{padding:20px;max-width:1200px;margin:0 auto}
+    .card{background:#fff;border:1px solid #e5e8ef;border-radius:6px;padding:16px;margin-bottom:16px}
+    .card h2{margin:0 0 12px;font-size:15px;color:#1a1f36}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+    .stat{background:#f0f3f8;padding:12px;border-radius:4px}
+    .stat .v{font-size:22px;font-weight:600;color:#1a1f36}
+    .stat .k{font-size:11px;color:#6b7285;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
+    table{width:100%;border-collapse:collapse;font-size:13px}
+    table th{text-align:left;background:#f0f3f8;padding:8px;border-bottom:2px solid #d7dce8;font-weight:600;color:#1a1f36}
+    table td{padding:8px;border-bottom:1px solid #eef0f5}
+    table tr:hover td{background:#fafbfd}
+    button{padding:6px 12px;border:1px solid #d7dce8;background:#fff;border-radius:4px;cursor:pointer;font-size:13px}
+    button:hover{background:#f0f3f8}
+    button.danger{color:#c0392b;border-color:#e6c0c0}
+    button.primary{background:#1a1f36;color:#fff;border-color:#1a1f36}
+    input[type=text],input[type=url],input[type=datetime-local],textarea{padding:6px 10px;border:1px solid #d7dce8;border-radius:4px;font-size:13px;width:100%;font-family:inherit}
+    textarea{min-height:60px}
+    .form-row{display:grid;grid-template-columns:120px 1fr;gap:8px;align-items:start;margin-bottom:8px}
+    .form-row label{font-size:12px;color:#6b7285;padding-top:7px}
+    .tabs{display:none}
+    .tabs.active{display:block}
+    .muted{color:#6b7285;font-size:12px}
+    .err{color:#c0392b;background:#fceae8;padding:8px;border-radius:4px;margin-top:8px}
+    .ok{color:#27613e;background:#e4f6ec;padding:8px;border-radius:4px;margin-top:8px}
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>FindIt Admin</h1>
+  <nav>
+    <a href="#overview" class="active">개요</a>
+    <a href="#analytics">통계</a>
+    <a href="#members">회원</a>
+    <a href="#iap">결제</a>
+    <a href="#images">스테이지</a>
+    <a href="#ads">광고</a>
+    <a href="#notices">공지</a>
+    <a href="#push">푸시</a>
+  </nav>
+  <div class="token">
+    <label>토큰:</label>
+    <input type="text" id="adminToken" placeholder="X-Admin-Token" />
+  </div>
+</header>
+
+<main>
+  <!-- overview -->
+  <section id="overview-tab" class="tabs active">
+    <div class="card">
+      <h2>서비스 개요</h2>
+      <div class="grid" id="overviewStats"><div class="muted">토큰 입력 후 로드</div></div>
+    </div>
+  </section>
+
+  <!-- analytics -->
+  <section id="analytics-tab" class="tabs">
+    <div class="card">
+      <h2>DAU (14일)</h2>
+      <table id="dauTable"><thead><tr><th>날짜</th><th>DAU</th></tr></thead><tbody><tr><td colspan="2" class="muted">로딩...</td></tr></tbody></table>
+    </div>
+    <div class="card">
+      <h2>매출 (30일, 스토어별)</h2>
+      <table id="revenueTable"><thead><tr><th>날짜</th><th>스토어</th><th>건수</th><th>코인</th><th>보석</th></tr></thead><tbody></tbody></table>
+    </div>
+    <div class="card">
+      <h2>이벤트 (24시간)</h2>
+      <table id="eventsTable"><thead><tr><th>이벤트</th><th>횟수</th><th>고유 유저</th></tr></thead><tbody></tbody></table>
+    </div>
+    <div class="card">
+      <h2>광고 성과</h2>
+      <table id="adStatsTable"><thead><tr><th>ID</th><th>이름</th><th>노출</th><th>클릭</th><th>CTR(%)</th><th>만료</th></tr></thead><tbody></tbody></table>
+    </div>
+  </section>
+
+  <!-- members (read-only) -->
+  <section id="members-tab" class="tabs">
+    <div class="card">
+      <h2>회원 목록 (개요 — 통계 엔드포인트는 추후)</h2>
+      <div class="muted">상세 검색은 서버 DB 쿼리로 진행. 현재 UI 는 통계만 표시.</div>
+    </div>
+  </section>
+
+  <!-- iap -->
+  <section id="iap-tab" class="tabs">
+    <div class="card">
+      <h2>최근 결제 (분석 API)</h2>
+      <div class="muted">매출 탭 참고. 영수증 상세는 DB 직접 조회.</div>
+    </div>
+  </section>
+
+  <!-- images -->
+  <section id="images-tab" class="tabs">
+    <div class="card">
+      <h2>스테이지 이미지</h2>
+      <table id="imagesTable"><thead><tr><th>ID</th><th>파일</th><th>크기</th><th>노출</th><th>조회</th><th>등록</th><th></th></tr></thead><tbody></tbody></table>
+    </div>
+  </section>
+
+  <!-- ads -->
+  <section id="ads-tab" class="tabs">
+    <div class="card">
+      <h2>광고 등록</h2>
+      <div class="form-row"><label>이미지 URL</label><input type="url" id="adImage" placeholder="https://..."></div>
+      <div class="form-row"><label>이름</label><input type="text" id="adName"></div>
+      <div class="form-row"><label>클릭 URL</label><input type="url" id="adUrl"></div>
+      <div class="form-row"><label>만료일</label><input type="datetime-local" id="adExpire"></div>
+      <div class="form-row"><label></label><button class="primary" onclick="createAd()">등록</button></div>
+      <div id="adResult"></div>
+    </div>
+    <div class="card">
+      <h2>광고 목록</h2>
+      <table id="adsTable"><thead><tr><th>ID</th><th>이름</th><th>이미지</th><th>만료</th><th>노출</th><th>클릭</th><th></th></tr></thead><tbody></tbody></table>
+    </div>
+  </section>
+
+  <!-- notices -->
+  <section id="notices-tab" class="tabs">
+    <div class="card">
+      <h2>공지 등록</h2>
+      <div class="form-row"><label>제목</label><input type="text" id="noticeTitle"></div>
+      <div class="form-row"><label>본문</label><textarea id="noticeBody"></textarea></div>
+      <div class="form-row"><label></label><button class="primary" onclick="createNotice()">등록</button></div>
+      <div id="noticeResult"></div>
+    </div>
+    <div class="card">
+      <h2>공지 목록</h2>
+      <table id="noticesTable"><thead><tr><th>ID</th><th>제목</th><th>노출</th><th>작성일</th><th></th></tr></thead><tbody></tbody></table>
+    </div>
+  </section>
+
+  <!-- push -->
+  <section id="push-tab" class="tabs">
+    <div class="card">
+      <h2>푸시 전송 (전체 또는 특정 유저)</h2>
+      <div class="form-row"><label>제목</label><input type="text" id="pushTitle"></div>
+      <div class="form-row"><label>본문</label><textarea id="pushBody"></textarea></div>
+      <div class="form-row"><label>대상 유저 ID</label><input type="text" id="pushUserIds" placeholder="비워두면 전체 활성 유저 (쉼표 구분)"></div>
+      <div class="form-row"><label></label><button class="primary" onclick="sendPush()">발송</button></div>
+      <div id="pushResult"></div>
+    </div>
+    <div class="card">
+      <h2>최근 푸시 로그</h2>
+      <table id="pushLogTable"><thead><tr><th>ID</th><th>유저</th><th>타입</th><th>제목</th><th>상태</th><th>시각</th></tr></thead><tbody></tbody></table>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = (q) => document.querySelector(q);
+const getToken = () => localStorage.getItem('adminToken') || '';
+$('#adminToken').value = getToken();
+$('#adminToken').oninput = (e) => { localStorage.setItem('adminToken', e.target.value); loadCurrentTab(); };
+
+async function api(path, opts = {}) {
+  const headers = { 'X-Admin-Token': getToken(), ...(opts.headers || {}) };
+  if (opts.body && !(opts.body instanceof FormData)) {
+    headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(opts.body);
+  }
+  const r = await fetch(path, { ...opts, headers });
+  if (!r.ok) throw new Error(`${r.status}: ${await r.text()}`);
+  return r.json();
+}
+
+function setActiveTab(hash) {
+  const tab = (hash || '#overview').slice(1);
+  document.querySelectorAll('.tabs').forEach((el) => el.classList.remove('active'));
+  document.querySelectorAll('header nav a').forEach((el) => el.classList.remove('active'));
+  const target = document.getElementById(tab + '-tab');
+  const link = document.querySelector(`header nav a[href="#${tab}"]`);
+  if (target) target.classList.add('active');
+  if (link) link.classList.add('active');
+  loadCurrentTab();
+}
+
+function loadCurrentTab() {
+  const hash = (location.hash || '#overview').slice(1);
+  if (!getToken()) return;
+  const loaders = { overview: loadOverview, analytics: loadAnalytics, ads: loadAds, notices: loadNotices, images: loadImages, push: loadPushLogs };
+  const fn = loaders[hash];
+  if (fn) fn().catch((e) => console.error(e));
+}
+
+window.addEventListener('hashchange', () => setActiveTab(location.hash));
+
+// ---- overview
+async function loadOverview() {
+  try {
+    const o = await api('/admin/analytics/overview');
+    $('#overviewStats').innerHTML = [
+      stat('회원 수', o.members),
+      stat('24h 신규', o.new_joins_24h),
+      stat('오늘 DAU', o.dau_today),
+      stat('어제 DAU', o.dau_yesterday),
+      stat('7일 WAU', o.wau_7d),
+      stat('오늘 결제 건수', o.iap_today.count),
+      stat('오늘 결제 코인', o.iap_today.coin),
+      stat('오늘 결제 보석', o.iap_today.gem),
+    ].join('');
+  } catch (e) { $('#overviewStats').innerHTML = `<div class="err">${e.message}</div>`; }
+}
+const stat = (k, v) => `<div class="stat"><div class="k">${k}</div><div class="v">${v ?? '-'}</div></div>`;
+
+// ---- analytics
+async function loadAnalytics() {
+  try {
+    const [dau, rev, ev, ads] = await Promise.all([
+      api('/admin/analytics/dau?days=14'),
+      api('/admin/analytics/revenue?days=30'),
+      api('/admin/analytics/events?hours=24'),
+      api('/admin/analytics/ads'),
+    ]);
+    renderTable('#dauTable', dau.list, (r) => [r.day, r.dau]);
+    renderTable('#revenueTable', rev.list, (r) => [r.day, r.store, r.cnt, r.coin, r.gem]);
+    renderTable('#eventsTable', ev.list, (r) => [r.event_name, r.cnt, r.users]);
+    renderTable('#adStatsTable', ads.list, (r) => [r.ad_id, r.ad_name, r.view_count, r.click_count, r.ctr_pct ?? '-', r.expire_date]);
+  } catch (e) { console.error(e); }
+}
+function renderTable(sel, rows, map) {
+  const tb = $(sel).querySelector('tbody');
+  tb.innerHTML = rows.length === 0
+    ? '<tr><td colspan="9" class="muted">데이터 없음</td></tr>'
+    : rows.map((r) => `<tr>${map(r).map((c) => `<td>${c ?? ''}</td>`).join('')}</tr>`).join('');
+}
+
+// ---- images
+async function loadImages() {
+  const r = await api('/admin/images');
+  const tb = $('#imagesTable').querySelector('tbody');
+  tb.innerHTML = r.list.map((x) => `
+    <tr>
+      <td>${x.img_id}</td><td>${x.img}</td><td>${x.x_size}×${x.y_size}</td>
+      <td>${x.view ? 'Y' : 'N'}</td><td>${x.view_count}</td><td>${x.reg_date}</td>
+      <td><button class="danger" onclick="deleteImage(${x.img_id})">숨김</button></td>
+    </tr>`).join('');
+}
+async function deleteImage(id) {
+  if (!confirm('숨김 처리하시겠습니까?')) return;
+  await api('/admin/images/' + id, { method: 'DELETE' });
+  loadImages();
+}
+
+// ---- ads
+async function loadAds() {
+  const r = await api('/admin/ads');
+  const tb = $('#adsTable').querySelector('tbody');
+  tb.innerHTML = r.list.map((x) => `
+    <tr>
+      <td>${x.ad_id}</td><td>${x.ad_name}</td>
+      <td><a href="${x.ad_image}" target="_blank">이미지</a></td>
+      <td>${x.expire_date}</td><td>${x.view_count}</td><td>${x.click_count}</td>
+      <td><button class="danger" onclick="deleteAd(${x.ad_id})">삭제</button></td>
+    </tr>`).join('');
+}
+async function createAd() {
+  try {
+    const body = {
+      adImage: $('#adImage').value,
+      adName: $('#adName').value,
+      adUrl: $('#adUrl').value,
+      expireDate: $('#adExpire').value.replace('T', ' ') + ':00',
+    };
+    const r = await api('/admin/ads', { method: 'POST', body });
+    $('#adResult').innerHTML = `<div class="ok">등록 완료 (ID ${r.adId})</div>`;
+    loadAds();
+  } catch (e) { $('#adResult').innerHTML = `<div class="err">${e.message}</div>`; }
+}
+async function deleteAd(id) {
+  if (!confirm('삭제하시겠습니까?')) return;
+  await api('/admin/ads/' + id, { method: 'DELETE' });
+  loadAds();
+}
+
+// ---- notices
+async function loadNotices() {
+  const r = await api('/admin/notices');
+  const tb = $('#noticesTable').querySelector('tbody');
+  tb.innerHTML = r.list.map((x) => `
+    <tr>
+      <td>${x.id}</td><td>${x.title}</td>
+      <td>${x.is_visible ? 'Y' : 'N'}</td><td>${x.created_at}</td>
+      <td><button class="danger" onclick="deleteNotice(${x.id})">삭제</button></td>
+    </tr>`).join('');
+}
+async function createNotice() {
+  try {
+    const body = { title: $('#noticeTitle').value, body: $('#noticeBody').value };
+    const r = await api('/admin/notices', { method: 'POST', body });
+    $('#noticeResult').innerHTML = `<div class="ok">등록 (ID ${r.id})</div>`;
+    loadNotices();
+  } catch (e) { $('#noticeResult').innerHTML = `<div class="err">${e.message}</div>`; }
+}
+async function deleteNotice(id) {
+  if (!confirm('삭제하시겠습니까?')) return;
+  await api('/admin/notices/' + id, { method: 'DELETE' });
+  loadNotices();
+}
+
+// ---- push
+async function sendPush() {
+  try {
+    const userIds = $('#pushUserIds').value.split(',').map((s) => s.trim()).filter(Boolean);
+    if (userIds.length === 1) {
+      const r = await api('/admin/push/user/' + encodeURIComponent(userIds[0]), { method: 'POST',
+        body: { title: $('#pushTitle').value, body: $('#pushBody').value, type: 'notice' }});
+      $('#pushResult').innerHTML = `<div class="ok">${JSON.stringify(r)}</div>`;
+    } else {
+      const r = await api('/admin/push/broadcast', { method: 'POST',
+        body: { title: $('#pushTitle').value, body: $('#pushBody').value, userIds }});
+      $('#pushResult').innerHTML = `<div class="ok">대상 ${r.total}, 요약: ${JSON.stringify(r.summary)}</div>`;
+    }
+    loadPushLogs();
+  } catch (e) { $('#pushResult').innerHTML = `<div class="err">${e.message}</div>`; }
+}
+async function loadPushLogs() {
+  try {
+    const r = await api('/admin/push/logs?limit=50');
+    const tb = $('#pushLogTable').querySelector('tbody');
+    tb.innerHTML = r.list.map((x) => `<tr>
+      <td>${x.id}</td><td>${x.user_id}</td><td>${x.type}</td>
+      <td>${x.title}</td><td>${x.status}${x.error ? ' ('+x.error+')' : ''}</td><td>${x.created_at}</td>
+    </tr>`).join('');
+  } catch (_) {}
+}
+
+setActiveTab(location.hash);
+</script>
+</body>
+</html>

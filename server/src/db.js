@@ -20,6 +20,12 @@ const pool = mysql.createPool({
   queueLimit: 0,
   charset: 'utf8mb4',
   dateStrings: true,
+  connectTimeout: 3000,  // DB 없는 상태에서 헬스체크/요청 hang 방지
+});
+
+// DB 불가 상태에서도 프로세스가 죽지 않도록 pool error 이벤트 수신
+pool.on('error', (err) => {
+  console.warn('[db] pool error:', err.code || err.message);
 });
 
 async function query(sql, params = []) {

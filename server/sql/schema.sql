@@ -6,6 +6,10 @@
 SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS=0;
 
+DROP TABLE IF EXISTS `ad_reward_log`;
+DROP TABLE IF EXISTS `admin_tokens`;
+DROP TABLE IF EXISTS `item_upgrade_log`;
+DROP TABLE IF EXISTS `skill_catalog`;
 DROP TABLE IF EXISTS `login_logs`;
 DROP TABLE IF EXISTS `iap_receipts`;
 DROP TABLE IF EXISTS `rankings`;
@@ -49,9 +53,72 @@ CREATE TABLE `wallets` (
   `attack` INT UNSIGNED NOT NULL DEFAULT 0,
   `defense` INT UNSIGNED NOT NULL DEFAULT 0,
   `hp` INT UNSIGNED NOT NULL DEFAULT 100,
+  `inventory_size` TINYINT UNSIGNED NOT NULL DEFAULT 3 COMMENT '기본 3 → 9단계 × +3 = 최대 30',
+  `skill_deck_count` TINYINT UNSIGNED NOT NULL DEFAULT 1 COMMENT '기본 1 → 최대 4 (SETSKILL_TOTALNUM)',
   `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`user_id`),
   CONSTRAINT `fk_wallets_user` FOREIGN KEY (`user_id`) REFERENCES `members`(`user_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- -----------------------------------------------------
+-- skill_catalog: 44개 스킬 마스터 데이터 (기획 findit_item,skill,shop_20130702.xlsx)
+-- -----------------------------------------------------
+CREATE TABLE `skill_catalog` (
+  `skill_id` INT NOT NULL,
+  `code` VARCHAR(64) NOT NULL,
+  `name_ko` VARCHAR(64) NOT NULL,
+  `name_en` VARCHAR(64) NOT NULL,
+  `group_code` ENUM('cat','dog','explosion','flame','snow','powerful_ex','powerful_fl','powerful_sn') NOT NULL,
+  `tier` TINYINT UNSIGNED NOT NULL,
+  `unlock_level` INT UNSIGNED NOT NULL,
+  `attack_duration` DECIMAL(3,1) NOT NULL,
+  `point_cost` INT UNSIGNED NOT NULL DEFAULT 1,
+  `required_skill_ids` VARCHAR(255) NOT NULL DEFAULT '',
+  `asset_group` VARCHAR(32) NOT NULL,
+  PRIMARY KEY (`skill_id`),
+  UNIQUE KEY `uk_code` (`code`),
+  KEY `idx_group_tier` (`group_code`, `tier`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- -----------------------------------------------------
+-- item_upgrade_log: 아이템 강화 시도 감사 로그
+-- -----------------------------------------------------
+CREATE TABLE `item_upgrade_log` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id` VARCHAR(128) NOT NULL,
+  `inventory_id` BIGINT UNSIGNED NOT NULL,
+  `from_level` TINYINT UNSIGNED NOT NULL,
+  `to_level` TINYINT UNSIGNED NOT NULL,
+  `success` BOOLEAN NOT NULL,
+  `coin_cost` INT UNSIGNED NOT NULL,
+  `flux_used` ENUM('none','flux','advanced_flux') NOT NULL DEFAULT 'none',
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_user_time` (`user_id`, `created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- -----------------------------------------------------
+-- admin_tokens: 어드민 API 접근 토큰
+-- -----------------------------------------------------
+CREATE TABLE `admin_tokens` (
+  `token` VARCHAR(128) NOT NULL,
+  `name` VARCHAR(64) NOT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `revoked_at` TIMESTAMP NULL DEFAULT NULL,
+  PRIMARY KEY (`token`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- -----------------------------------------------------
+-- ad_reward_log: 광고 보상 수령 이력 (24h rate limit)
+-- -----------------------------------------------------
+CREATE TABLE `ad_reward_log` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id` VARCHAR(128) NOT NULL,
+  `ad_id` BIGINT UNSIGNED NOT NULL,
+  `coin_reward` INT UNSIGNED NOT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_user_time` (`user_id`, `created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- -----------------------------------------------------

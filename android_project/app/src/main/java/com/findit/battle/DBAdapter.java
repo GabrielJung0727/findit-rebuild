@@ -17,7 +17,8 @@ public class DBAdapter {
     public static final String DATABASE_TABLE_IMAGES = "images";
     public static final String DATABASE_TABLE_SATUP = "setup";
     public static final String DATABASE_TABLE_STATE = "state";
-    private static final int DATABASE_VERSION = 1;
+    // 스키마 변경 시 증분. v2: mGem/mHP/mInventorySize/mSkillDeckCount 추가 (1.6 보석 + 확장)
+    private static final int DATABASE_VERSION = 2;
     public static final String FIELD_ATTACK = "mAttack";
     public static final String FIELD_AUTOLOGIN = "mAutoLogin";
     public static final String FIELD_CHARACTERS_BODYNUM = "mObjects_mCharacter_mBodyNum";
@@ -28,6 +29,9 @@ public class DBAdapter {
     public static final String FIELD_COIN = "mCoin";
     public static final String FIELD_DEFENSE = "mDefense";
     public static final String FIELD_FACEBOOKAUTOLOGIN = "mFacebookAutoLogin";
+    public static final String FIELD_GEM = "mGem";
+    public static final String FIELD_HP = "mHP";
+    public static final String FIELD_INVENTORY_SIZE = "mInventorySize";
     public static final String FIELD_IMAGES_DATAS = "ImagesDatas";
     public static final String FIELD_ITEMS = "mItems";
     public static final String FIELD_LEVEL = "mLevel";
@@ -38,6 +42,7 @@ public class DBAdapter {
     public static final String FIELD_ROWID = "_id";
     public static final String FIELD_SCORE = "mScore";
     public static final String FIELD_SCREENMODE = "mScreenMode";
+    public static final String FIELD_SKILL_DECK_COUNT = "mSkillDeckCount";
     public static final String FIELD_SKILLS = "mSkills";
     public static final String FIELD_SOUNDON = "mSoundon";
     public static final int SATUP_ROWID = 0;
@@ -48,12 +53,12 @@ public class DBAdapter {
 
     private static class DatabaseHelper extends SQLiteOpenHelper {
         DatabaseHelper(Context context) {
-            super(context, DBAdapter.DATABASE_NAME, (SQLiteDatabase.CursorFactory) null, 1);
+            super(context, DBAdapter.DATABASE_NAME, (SQLiteDatabase.CursorFactory) null, DATABASE_VERSION);
         }
 
         @Override // android.database.sqlite.SQLiteOpenHelper
         public void onCreate(SQLiteDatabase db) {
-            db.execSQL("create table state(_id integer primary key , mScreenMode integer , mLogin integer , mLevel integer , mScore long , mCoin long , mPoint integer , mAttack integer , mDefense integer , mSkills text , mItems text);");
+            db.execSQL("create table state(_id integer primary key , mScreenMode integer , mLogin integer , mLevel integer , mScore long , mCoin long , mPoint integer , mAttack integer , mDefense integer , mSkills text , mItems text , mGem integer default 0 , mHP integer default 100 , mInventorySize integer default 3 , mSkillDeckCount integer default 1);");
             db.execSQL("create table setup(_id integer primary key , mEmail text , mPassword text , mAutoLogin boolean , mSoundon boolean , mFacebookAutoLogin boolean);");
             db.execSQL("create table images(_id integer primary key , ImagesDatas text);");
             db.execSQL("create table characters(_id integer primary key , mObjects_mCharacter_mName text , mObjects_mCharacter_mBodyType integer , mObjects_mCharacter_mBodyNum integer , mObjects_mCharacter_mFaceImgnum integer , mObjects_mCharacter_mFaceImgPath text);");
@@ -62,6 +67,13 @@ public class DBAdapter {
         @Override // android.database.sqlite.SQLiteOpenHelper
         public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
             LOG.error("Upgrading database from version " + oldVersion + " to " + newVersion);
+            if (oldVersion < 2) {
+                // v1 → v2: 보석/HP/인벤토리 크기/스킬덱 개수 컬럼 추가
+                try { db.execSQL("ALTER TABLE state ADD COLUMN mGem integer default 0"); } catch (Exception e) {}
+                try { db.execSQL("ALTER TABLE state ADD COLUMN mHP integer default 100"); } catch (Exception e) {}
+                try { db.execSQL("ALTER TABLE state ADD COLUMN mInventorySize integer default 3"); } catch (Exception e) {}
+                try { db.execSQL("ALTER TABLE state ADD COLUMN mSkillDeckCount integer default 1"); } catch (Exception e) {}
+            }
         }
     }
 
@@ -94,6 +106,10 @@ public class DBAdapter {
         initialValues.put(FIELD_POINT, (Integer) 2);
         initialValues.put(FIELD_ATTACK, (Integer) 0);
         initialValues.put(FIELD_DEFENSE, (Integer) 0);
+        initialValues.put(FIELD_GEM, (Integer) 0);
+        initialValues.put(FIELD_HP, (Integer) 110);
+        initialValues.put(FIELD_INVENTORY_SIZE, (Integer) 3);
+        initialValues.put(FIELD_SKILL_DECK_COUNT, (Integer) 1);
         initialValues.putNull(FIELD_SKILLS);
         initialValues.putNull(FIELD_ITEMS);
         return this.mDb.insert(DATABASE_TABLE_STATE, null, initialValues);

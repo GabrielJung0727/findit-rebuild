@@ -4,6 +4,11 @@ const morgan = require('morgan');
 
 const { ping } = require('./db');
 const memberRoutes = require('./routes/member');
+const skillRoutes = require('./routes/skills');
+const economyRoutes = require('./routes/economy');
+const adRoutes = require('./routes/ads');
+const rankRoutes = require('./routes/ranks');
+const adminRoutes = require('./routes/admin');
 const socketServer = require('./socket/server');
 
 const HTTP_PORT = Number(process.env.HTTP_PORT || 8080);
@@ -30,6 +35,12 @@ app.get('/healthz', async (_req, res) => {
 
 // 원본 경로: /app/member/*
 app.use('/app', memberRoutes);
+app.use('/app', skillRoutes);
+app.use('/app', economyRoutes);
+app.use('/app', adRoutes);
+app.use('/app', rankRoutes);
+// 어드민: /admin/*
+app.use('/admin', adminRoutes);
 
 // 404
 app.use((req, res) => {

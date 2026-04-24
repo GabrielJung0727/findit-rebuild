@@ -120,10 +120,10 @@ This potion increases defensive effects significantly for one week."</string>
     <string name="item_etc0">Other items 0</string>
     <string name="item_etc1">Other items 1</string>
     <string name="item_etc2">Other items 2</string>
-    <string name="item_gold0">1,000 coin to buy</string>
-    <string name="item_gold1">2,500 coin to buy</string>
-    <string name="item_gold2">5,500 coin to buy</string>
-    <string name="item_gold3">8,500 coin to buy</string>
+    <string name="item_gold0">100 coin</string>
+    <string name="item_gold1">250 coin</string>
+    <string name="item_gold2">500 coin</string>
+    <string name="item_gold3">650 coin</string>
     <string name="skill_name_0">"Puppy's footprint"</string>
     <string name="skill_name_1">"Cat's claw"</string>
     <string name="skill_name_2">Explosion</string>

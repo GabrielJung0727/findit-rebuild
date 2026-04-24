@@ -1,0 +1,24 @@
+# 로컬 개발용 MySQL
+# 사용: docker compose up -d
+version: "3.9"
+
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root_dev
+      MYSQL_DATABASE: findit_game
+      MYSQL_USER: findit
+      MYSQL_PASSWORD: findit_dev
+    ports:
+      - "3306:3306"
+    volumes:
+      - findit_mysql_data:/var/lib/mysql
+      - ./sql:/docker-entrypoint-initdb.d:ro
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+
+volumes:
+  findit_mysql_data:

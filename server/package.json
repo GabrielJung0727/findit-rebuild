@@ -1,0 +1,23 @@
+{
+  "name": "findit-server",
+  "version": "0.1.0",
+  "description": "FindIt Rebuild game server (REST + TCP socket)",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "db:init": "node scripts/db-init.js",
+    "db:seed": "node scripts/db-seed.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "morgan": "^1.10.0",
+    "mysql2": "^3.11.0"
+  }
+}

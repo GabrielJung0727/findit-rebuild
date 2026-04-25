@@ -226,7 +226,7 @@ public class InventoryActivity_Google extends InAppBillingActivity {
         public void OnResultPurchase(String tr_id) {
             LOG.verbose(">> OnResultPurchase()");
             InventoryActivity_Google.this.applyPurchaseItem((Items.Item) InventoryActivity_Google.this.mPurchaseItemMap.get(tr_id));
-            Toast.makeText(InventoryActivity_Google.this.getApplicationContext(), "결제 완료", 0).show();
+            Toast.makeText(InventoryActivity_Google.this.getApplicationContext(), R.string.payment_complete, 0).show();
         }
 
         @Override // com.kt.olleh.inapp.OnInAppListener

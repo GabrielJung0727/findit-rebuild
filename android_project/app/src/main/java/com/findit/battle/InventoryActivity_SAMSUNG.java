@@ -242,7 +242,7 @@ public class InventoryActivity_SAMSUNG extends IAPActivity {
         @Override // com.feelingk.iap.IAPLib.OnClientListener
         public void onItemPurchaseComplete() {
             InventoryActivity_SAMSUNG.this.applyPurchaseItem((Items.Item) InventoryActivity_SAMSUNG.this.mPurchaseItemMap.get(InventoryActivity_SAMSUNG.this.mPurchaseId));
-            Toast.makeText(InventoryActivity_SAMSUNG.this.getApplicationContext(), "결제 완료", 0).show();
+            Toast.makeText(InventoryActivity_SAMSUNG.this.getApplicationContext(), R.string.payment_complete, 0).show();
         }
 
         @Override // com.feelingk.iap.IAPLib.OnClientListener
@@ -2240,7 +2240,7 @@ public class InventoryActivity_SAMSUNG extends IAPActivity {
         list.add(new BuyList("2012/04/03", "방어포션", "5"));
         list.add(new BuyList("2012/04/01", "날개연필", InAppError.FAILED));
         list.add(new BuyList("2012/04/01", "불꽃연필", "2"));
-        list.add(new BuyList(GameView.CHARACTER_AI, "     더 보기", GameView.CHARACTER_AI));
+        list.add(new BuyList(GameView.CHARACTER_AI, "     " + getString(R.string.view_more), GameView.CHARACTER_AI));
         BuyListAdapter adapter = new BuyListAdapter(this, R.layout.buylist_listrow, list);
         this.mBuyListView.setAdapter((ListAdapter) adapter);
     }

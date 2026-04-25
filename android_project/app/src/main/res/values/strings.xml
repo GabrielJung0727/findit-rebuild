@@ -84,6 +84,10 @@ battle room"</string>
     <string name="date">Date</string>
     <string name="item">Item</string>
     <string name="num">Quantity</string>
+    <string name="rank">Rank</string>
+    <string name="score">Score</string>
+    <string name="payment_complete">Payment complete</string>
+    <string name="view_more">View more</string>
     <string name="item_pen01">"General pen
 This is a general pen and increases your skill attack effects."</string>
     <string name="item_pen02">"Winged pen
@@ -91,9 +95,9 @@ This pen has wings attached. It increases your skill attack effects by a lot."</
     <string name="item_pen03">"Rainbow pen
 This pen shines with the mysterious colors of rainbow. It increases your skill attack effects remarkably."</string>
     <string name="item_ring01">"Silver ring
-Made with shining silver, this ring increases your opponent’s attack effects."</string>
+Made with shining silver, this ring slightly reduces your opponent\'s attack effects."</string>
     <string name="item_ring02">"Gold ring
-Made with brilliant gold, this ring increases your opponent’s attack effects by a lot."</string>
+Made with brilliant gold, this ring greatly reduces your opponent\'s attack effects."</string>
     <string name="item_ring03">Ring item 2</string>
     <string name="item_berry01">"Exploding berry
 This attack uses an exploding berry. Bombs explode on your opponent’s game screen."</string>

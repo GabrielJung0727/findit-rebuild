@@ -1,0 +1,12 @@
+{
+  "@@locale": "en",
+  "appName": "Findit",
+  "@appName": {
+    "description": "App display name"
+  },
+  "loginTitle": "[Login]",
+  "@loginTitle": {
+    "description": "Login screen title"
+  },
+  "loading": "Loading..."
+}

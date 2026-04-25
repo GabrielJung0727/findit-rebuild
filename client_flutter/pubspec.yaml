@@ -47,6 +47,9 @@ dependencies:
   # 라우팅 — 로그인/대기실/배틀룸 deep link
   go_router: ^14.6.2
 
+  # 캐릭터 사진 — 카메라/앨범 (§9 ProfileScreen)
+  image_picker: ^1.1.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

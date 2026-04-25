@@ -15,6 +15,10 @@ const router = express.Router();
 
 // 코인팩 상품 정의 — Items.java GOLD 배열과 동기화
 // productId 는 스토어 SKU. 실제 스토어 등록값과 일치해야 함.
+//
+// SKU 정책:
+//   Google Play / Apple App Store: 동일한 4 SKU 사용 (`coin_100`, `coin_250`, ...)
+//   Samsung: 구 SKU (000001005358~61) 호환
 const PRODUCT_CATALOG = {
   'coin_100':  { coin: 100,  gem: 0 },
   'coin_250':  { coin: 250,  gem: 0 },
@@ -41,7 +45,7 @@ router.all('/member/verifyIap.json', async (req, res, next) => {
     if (!userId || !store || !productId || !purchaseToken) {
       return res.json({ result: '999', error: 'missing_params' });
     }
-    if (!['google', 'samsung'].includes(store)) {
+    if (!['google', 'samsung', 'apple'].includes(store)) {
       return res.json({ result: '999', error: 'unsupported_store' });
     }
     const entitlement = productEntitlement(productId);

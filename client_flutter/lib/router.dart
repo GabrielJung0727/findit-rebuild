@@ -10,6 +10,9 @@ import 'screens/inventory_screen.dart';
 import 'screens/join_screen.dart';
 import 'screens/lobby_screen.dart';
 import 'screens/login_screen.dart';
+import 'screens/notice_screen.dart';
+import 'screens/profile_screen.dart';
+import 'screens/rank_screen.dart';
 import 'screens/result_screen.dart';
 import 'screens/shop_screen.dart';
 import 'screens/skill_tree_screen.dart';
@@ -54,6 +57,9 @@ GoRouter buildRouter(Ref ref) {
       GoRoute(path: '/inventory', builder: (_, __) => const InventoryScreen()),
       GoRoute(path: '/shop', builder: (_, __) => const ShopScreen()),
       GoRoute(path: '/skills', builder: (_, __) => const SkillTreeScreen()),
+      GoRoute(path: '/rank', builder: (_, __) => const RankScreen()),
+      GoRoute(path: '/notice', builder: (_, __) => const NoticeScreen()),
+      GoRoute(path: '/profile', builder: (_, __) => const ProfileScreen()),
     ],
   );
 }

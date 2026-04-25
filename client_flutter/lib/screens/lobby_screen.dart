@@ -88,6 +88,21 @@ class LobbyScreen extends ConsumerWidget {
                     tooltip: l.learn,
                     onPressed: () => context.push('/skills'),
                   ),
+                  IconButton(
+                    icon: const Icon(Icons.leaderboard),
+                    tooltip: l.rank,
+                    onPressed: () => context.push('/rank'),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.notifications),
+                    tooltip: l.notice,
+                    onPressed: () => context.push('/notice'),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.person),
+                    tooltip: l.nickname,
+                    onPressed: () => context.push('/profile'),
+                  ),
                 ],
               ),
             ],

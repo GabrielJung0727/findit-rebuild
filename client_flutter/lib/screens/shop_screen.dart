@@ -1,7 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:in_app_purchase/in_app_purchase.dart';
 
 import '../api/api_client.dart';
+import '../api/iap_service.dart';
 import '../game/item_catalog.dart';
 import '../l10n/app_localizations.dart';
 import '../state/auth.dart';
@@ -22,6 +26,9 @@ class ShopScreen extends ConsumerStatefulWidget {
 class _ShopScreenState extends ConsumerState<ShopScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tab;
+  Map<String, ProductDetails> _products = const <String, ProductDetails>{};
+  bool _iapReady = false;
+  StreamSubscription<PurchaseEvent>? _iapSub;
 
   // GOLD 는 IAP 별도 탭 — 일반 구매 탭에서 제외
   static const _generalTypes = <ItemType>[
@@ -36,10 +43,46 @@ class _ShopScreenState extends ConsumerState<ShopScreen>
   void initState() {
     super.initState();
     _tab = TabController(length: _generalTypes.length + 1, vsync: this);
+    unawaited(_initIap());
+  }
+
+  Future<void> _initIap() async {
+    final user = ref.read(authControllerProvider).user;
+    if (user == null) return;
+    final svc = ref.read(iapServiceProvider);
+    final ok = await svc.init(userId: user.userId);
+    _iapSub?.cancel();
+    _iapSub = svc.events.listen(_onPurchaseEvent);
+    if (!ok || !mounted) {
+      setState(() => _iapReady = false);
+      return;
+    }
+    final res = await svc.loadProducts();
+    if (!mounted) return;
+    setState(() {
+      _iapReady = true;
+      _products = <String, ProductDetails>{
+        for (final p in res.productDetails) p.id: p,
+      };
+    });
+  }
+
+  void _onPurchaseEvent(PurchaseEvent e) {
+    final l = AppLocalizations.of(context);
+    if (e.ok) {
+      ref.read(authControllerProvider.notifier).applyWalletDelta(
+            coin: e.coin,
+            gem: e.gem,
+          );
+      _toast(l.dlgMsgPaymentSuccess);
+    } else {
+      _toast(l.msgInvalidPurchase);
+    }
   }
 
   @override
   void dispose() {
+    _iapSub?.cancel();
     _tab.dispose();
     super.dispose();
   }
@@ -127,8 +170,35 @@ class _ShopScreenState extends ConsumerState<ShopScreen>
 
   Future<void> _buyCoinPack(CatalogItem cat) async {
     final l = AppLocalizations.of(context);
-    // §10 IAP 통합 후 실제 결제. 현재는 placeholder 안내.
-    _toast(l.msgIapIsNotInstalled);
+    if (!_iapReady) {
+      _toast(l.msgIapIsNotInstalled);
+      return;
+    }
+    // CatalogItem.typeNo (55..58) → SKU 매핑
+    final sku = _skuFor(cat);
+    final product = _products[sku];
+    if (product == null) {
+      _toast(l.msgFailedToLoadListOfProduct);
+      return;
+    }
+    try {
+      await ref.read(iapServiceProvider).buy(product);
+      // 결제 결과는 purchaseStream → IapService 가 서버 검증 후 wallet 갱신.
+      // 사용자가 결제 완료/취소 시 OS 다이얼로그가 표시됨.
+    } catch (_) {
+      _toast(l.msgPaymentWasNotProcessedSuccessfully);
+    }
+  }
+
+  String _skuFor(CatalogItem cat) {
+    // GOLD typeNo 55/56/57/58 → coin_100/250/500/650
+    switch (cat.typeNo) {
+      case 55: return 'coin_100';
+      case 56: return 'coin_250';
+      case 57: return 'coin_500';
+      case 58: return 'coin_650';
+    }
+    return 'coin_100';
   }
 
   Future<bool> _confirm(String message) async {

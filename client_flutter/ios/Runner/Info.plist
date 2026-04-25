@@ -45,6 +45,11 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<!-- 04-26.md §9 ProfileScreen — 캐릭터 아바타 사진 (image_picker) -->
+	<key>NSCameraUsageDescription</key>
+	<string>Take a photo for your character avatar.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Pick a photo from your library for your character avatar.</string>
 	<!-- 04-26.md §3 — 디바이스 언어 한/영 토글 (Android values-ko 와 페어) -->
 	<key>CFBundleLocalizations</key>
 	<array>

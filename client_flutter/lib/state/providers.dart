@@ -6,6 +6,7 @@ import '../api/catalog_api.dart';
 import '../api/content_api.dart';
 import '../api/game_api.dart';
 import '../api/iap_api.dart';
+import '../api/iap_service.dart';
 import '../api/member_api.dart';
 import '../api/push_api.dart';
 import '../api/shop_api.dart';
@@ -35,6 +36,13 @@ final analyticsApiProvider = Provider<AnalyticsApi>(
 final iapApiProvider = Provider<IapApi>(
   (ref) => IapApi(ref.watch(apiClientProvider)),
 );
+
+/// 인앱 결제 서비스 — 단일 인스턴스. 앱 시작 시 init() 호출 (로그인 후 userId 전달).
+final iapServiceProvider = Provider<IapService>((ref) {
+  final svc = IapService(ref.watch(iapApiProvider));
+  ref.onDispose(svc.dispose);
+  return svc;
+});
 final pushApiProvider = Provider<PushApi>(
   (ref) => PushApi(ref.watch(apiClientProvider)),
 );

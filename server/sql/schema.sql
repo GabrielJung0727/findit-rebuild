@@ -286,7 +286,7 @@ CREATE TABLE `ad_images` (
 CREATE TABLE `iap_receipts` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `user_id` VARCHAR(128) NOT NULL,
-  `store` ENUM('google','samsung','olleh','tstore') NOT NULL,
+  `store` ENUM('google','samsung','olleh','tstore','apple') NOT NULL,
   `product_id` VARCHAR(128) NOT NULL COMMENT '상점 SKU',
   `purchase_token` TEXT NOT NULL,
   `order_id` VARCHAR(255) DEFAULT NULL,

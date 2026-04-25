@@ -1,4 +1,4 @@
-// IAP 영수증 서버 재검증 — Google Play / Samsung
+// IAP 영수증 서버 재검증 — Google Play / Samsung / Apple App Store
 //
 // 목적:
 //   1) 클라가 전달한 purchase_token 을 실제 스토어 API 로 검증
@@ -10,6 +10,10 @@
 //   GOOGLE_PLAY_PACKAGE_NAME         — 앱 패키지명 (예: com.findit.battle)
 //   SAMSUNG_IAP_MODE                 — "0"=production, "1"=test
 //   SAMSUNG_IAP_API_KEY              — Samsung Checkout API 키
+//   APPLE_SHARED_SECRET              — App Store Connect "App-Specific Shared Secret".
+//                                       Apple `/verifyReceipt` 의 password 필드.
+//   APPLE_USE_SANDBOX                — "1" 이면 sandbox 만 사용 (개발).
+//                                       기본은 production 시도 후 21007 응답 시 sandbox 자동 fallback.
 //
 // 실제 호출 라이브러리 (옵션): `googleapis` 패키지.
 // 미설치 시 stub 으로 동작 (verified=false, 로그 남김).
@@ -72,6 +76,68 @@ async function verifySamsung({ purchaseToken }) {
 }
 
 /**
+ * Apple 영수증 검증 — `/verifyReceipt` (legacy) 또는 v2 JWS.
+ *
+ * 클라가 보내는 purchaseToken 은 base64 로 인코딩된 receipt-data 또는
+ * StoreKit2 의 jwsRepresentation. 둘 다 우선 `/verifyReceipt` 로 검증.
+ *
+ * 응답 status 코드:
+ *   0     성공
+ *   21007 sandbox receipt 인데 production 으로 보냄 → sandbox 재시도
+ *   21008 production receipt 인데 sandbox 로 보냄 → 무시 (운영 환경 오류)
+ *   기타  실패 (21000-21010)
+ *
+ * Apple 권장: 운영 production 먼저 시도, 21007 면 sandbox 재시도.
+ * 참조: https://developer.apple.com/documentation/appstorereceipts/verifyreceipt
+ */
+async function verifyApple({ productId, purchaseToken, useSandbox }) {
+  if (!process.env.APPLE_SHARED_SECRET) {
+    return { verified: false, reason: 'credentials_missing', raw: null };
+  }
+  const body = JSON.stringify({
+    'receipt-data': purchaseToken,
+    'password': process.env.APPLE_SHARED_SECRET,
+    'exclude-old-transactions': true,
+  });
+
+  async function postTo(host) {
+    const resp = await fetch(`https://${host}/verifyReceipt`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    });
+    return resp.json();
+  }
+
+  try {
+    const forceSandbox = useSandbox || process.env.APPLE_USE_SANDBOX === '1';
+    let data = await postTo(forceSandbox ? 'sandbox.itunes.apple.com' : 'buy.itunes.apple.com');
+    // 21007 → sandbox 로 재시도
+    if (!forceSandbox && data?.status === 21007) {
+      data = await postTo('sandbox.itunes.apple.com');
+    }
+    if (data?.status !== 0) {
+      return { verified: false, reason: `apple_status_${data?.status}`, raw: data };
+    }
+    // in_app 배열에서 product_id 일치 + 가장 최신 transaction 추출
+    const inApp = Array.isArray(data?.receipt?.in_app) ? data.receipt.in_app : [];
+    const match = productId
+      ? inApp.find((t) => t.product_id === productId)
+      : inApp[inApp.length - 1];
+    if (!match) {
+      return { verified: false, reason: 'product_not_in_receipt', raw: data };
+    }
+    return {
+      verified: true,
+      raw: data,
+      orderId: match.transaction_id,
+    };
+  } catch (e) {
+    return { verified: false, reason: 'api_error', error: e.message, raw: null };
+  }
+}
+
+/**
  * 스토어별 검증 + DB 기록.
  * 동일 purchase_token 중복 사용 방지.
  */
@@ -91,6 +157,7 @@ async function verifyAndRecord({ userId, store, productId, purchaseToken, amount
   let out;
   if (store === 'google')       out = await verifyGoogle({ productId, purchaseToken });
   else if (store === 'samsung') out = await verifySamsung({ purchaseToken });
+  else if (store === 'apple')   out = await verifyApple({ productId, purchaseToken });
   else out = { verified: false, reason: 'unsupported_store' };
 
   const orderId = out.orderId || null;
@@ -115,4 +182,4 @@ async function verifyAndRecord({ userId, store, productId, purchaseToken, amount
   return { ok: true, verified: out.verified, reason: out.reason, orderId };
 }
 
-module.exports = { verifyGoogle, verifySamsung, verifyAndRecord };
+module.exports = { verifyGoogle, verifySamsung, verifyApple, verifyAndRecord };

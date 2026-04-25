@@ -1,0 +1,16 @@
+# 04-26.md §15 — Android 릴리스 서명 자격.
+#
+# 이 파일을 `key.properties` 로 복사 후 실 값 채우기. (`.gitignore` 에 등록됨)
+# CI 에서는 환경변수 → 빌드 시 file 생성 또는 `--dart-define` 패턴 사용.
+#
+# 키스토어 생성 (1회):
+#   keytool -genkey -v -keystore findit-release.jks \
+#     -keyalg RSA -keysize 2048 -validity 10000 \
+#     -alias findit
+#
+# 분실 시 해당 alias 로 같은 패키지명 앱을 다시 출시할 수 없음 — 안전 보관 필수.
+
+storePassword=CHANGE_ME
+keyPassword=CHANGE_ME
+keyAlias=findit
+storeFile=../keystores/findit-release.jks

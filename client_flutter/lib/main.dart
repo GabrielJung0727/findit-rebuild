@@ -44,6 +44,11 @@ class _FinditAppState extends ConsumerState<FinditApp> {
     _authSub = ref.listenManual<AuthState>(authControllerProvider, (prev, next) {
       final wasIn = prev?.isLoggedIn ?? false;
       if (!wasIn && next.isLoggedIn) {
+        // 로그인 분석 이벤트 — fire-and-forget
+        ref.read(analyticsProvider).loginSuccess(
+              userId: next.user!.userId,
+              authType: next.user!.authType,
+            );
         unawaited(_initPushAfterLogin(next.user!.userId));
       }
       if (wasIn && !next.isLoggedIn) {

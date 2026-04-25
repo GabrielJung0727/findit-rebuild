@@ -134,8 +134,6 @@ Future<void> _startMultiGame(BuildContext context, WidgetRef ref) async {
   final lobby = ref.read(lobbyControllerProvider);
   final br = lobby.battleRoom;
   if (auth.user == null || br == null) return;
-  // 첫 사용 가능한 이미지 1건을 가져옴. 양 클라이언트가 같은 imgId 를 골라야 매칭 의미가 있음 —
-  // 정식은 서버에서 mutual image id 를 라우팅 (W3 후속). 현재는 "첫 활성 이미지" 정책으로 일치.
   final list = await ref.read(contentApiProvider).newImageList();
   if (list.isEmpty) return;
   final imageSet = ImageSet.fromJson(list.first);
@@ -146,6 +144,12 @@ Future<void> _startMultiGame(BuildContext context, WidgetRef ref) async {
     selfHp: auth.user!.hp,
     opponentHp: auth.user!.hp,
   );
+  ref.read(analyticsProvider).gameStart(
+        userId: auth.user!.userId,
+        isAi: false,
+        imgId: imageSet.imgId,
+        level: auth.user!.level,
+      );
   if (context.mounted) context.go('/game');
 }
 

@@ -126,6 +126,12 @@ Future<void> _startSinglePlay(BuildContext context, WidgetRef ref) async {
     selfHp: auth.user!.hp,
     opponentHp: auth.user!.hp,
   );
+  ref.read(analyticsProvider).gameStart(
+        userId: auth.user!.userId,
+        isAi: true,
+        imgId: imageSet.imgId,
+        level: auth.user!.level,
+      );
   if (context.mounted) context.go('/game');
 }
 

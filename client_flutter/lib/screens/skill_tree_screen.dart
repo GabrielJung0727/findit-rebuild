@@ -62,6 +62,10 @@ class _SkillTreeScreenState extends ConsumerState<SkillTreeScreen> {
       ref
           .read(authControllerProvider.notifier)
           .applyWalletDelta(point: user.point - n.pointCost);
+      ref.read(analyticsProvider).skillLearn(
+            userId: user.userId,
+            skillId: n.skillId,
+          );
     } on ApiResultException catch (e) {
       _toast(e.reason ?? l.noticeMsgNetworkfail);
     } catch (_) {

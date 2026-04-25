@@ -148,6 +148,13 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen>
             itemType: it.itemType,
             upgradeLevel: newLv,
           );
+      ref.read(analyticsProvider).itemUpgrade(
+            userId: user.userId,
+            itemNo: it.itemNo,
+            success: success,
+            newLevel: newLv,
+            fluxUsed: flux,
+          );
       _toast(success ? '+1' : 'X');
     } on ApiResultException catch (e) {
       _toast(e.reason ?? fail);

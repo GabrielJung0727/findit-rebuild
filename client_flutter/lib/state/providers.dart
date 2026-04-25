@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../api/analytics_api.dart';
+import '../api/analytics_helper.dart';
 import '../api/api_client.dart';
 import '../api/catalog_api.dart';
 import '../api/content_api.dart';
@@ -33,6 +34,11 @@ final gameApiProvider = Provider<GameApi>(
 );
 final analyticsApiProvider = Provider<AnalyticsApi>(
   (ref) => AnalyticsApi(ref.watch(apiClientProvider)),
+);
+
+/// 도메인 이벤트 헬퍼 — 화면/컨트롤러가 `loginSuccess` / `gameStart` 등 named 메서드 호출.
+final analyticsProvider = Provider<AnalyticsHelper>(
+  (ref) => AnalyticsHelper(ref.watch(analyticsApiProvider)),
 );
 final iapApiProvider = Provider<IapApi>(
   (ref) => IapApi(ref.watch(apiClientProvider)),

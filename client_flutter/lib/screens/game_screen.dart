@@ -52,6 +52,16 @@ class _GameScreenState extends ConsumerState<GameScreen> {
               point: result.pointReward,
             );
       } catch (_) {/* 네트워크 실패해도 화면은 진행 */}
+      // 분석 이벤트
+      final state = ref.read(gameControllerProvider);
+      ref.read(analyticsProvider).gameEnd(
+            userId: user.userId,
+            won: result.won,
+            reason: result.reason.name,
+            selfScore: result.selfScore,
+            findNum: state.self.findNum,
+            elapsedSeconds: state.elapsedSeconds,
+          );
     }
     if (!mounted) return;
     context.go('/result', extra: result);

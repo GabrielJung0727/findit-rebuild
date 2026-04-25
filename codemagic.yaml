@@ -1,0 +1,137 @@
+# Codemagic CI/CD — iOS + Android 동시 출시 파이프라인.
+#
+# 워크플로:
+#   - main 푸시 / PR    → flutter analyze + test (Android debug APK)
+#   - tag v*            → TestFlight + Play Internal Track 업로드
+#
+# 시크릿 (Codemagic Dashboard → Environment variables, Encrypted 모드):
+#   IOS_APP_STORE_CONNECT_KEY_ID         App Store Connect API Key (P8)
+#   IOS_APP_STORE_CONNECT_ISSUER_ID
+#   IOS_APP_STORE_CONNECT_PRIVATE_KEY    .p8 본문
+#   IOS_BUNDLE_ID                        com.findit.battle (예시)
+#   IOS_DIST_CERT_PASSWORD               distribution cert P12 password (manual code signing 시)
+#   ANDROID_KEYSTORE_PATH (file)         keystore .jks 업로드
+#   ANDROID_KEYSTORE_PASSWORD
+#   ANDROID_KEY_ALIAS
+#   ANDROID_KEY_PASSWORD
+#   GOOGLE_PLAY_SERVICE_ACCOUNT_JSON     gcloud-style 서비스 계정 JSON
+#
+# 04-26.md §15 참조.
+
+definitions:
+  flutter-version: &flutter-version 3.27.4
+  envs-shared: &envs-shared
+    flutter: *flutter-version
+    java: 17
+  artifacts-flutter: &artifacts-flutter
+    - client_flutter/build/**/outputs/**/*.apk
+    - client_flutter/build/**/outputs/**/*.aab
+    - client_flutter/build/ios/ipa/*.ipa
+    - flutter_drive.log
+
+workflows:
+  # ===========================================================
+  # 1. main / PR — analyze + test + Android debug APK
+  # ===========================================================
+  ci:
+    name: ci (analyze + test + debug APK)
+    instance_type: linux_x2
+    max_build_duration: 30
+    environment:
+      <<: *envs-shared
+    triggering:
+      events: [push, pull_request]
+      branch_patterns:
+        - pattern: main
+    scripts:
+      - name: pub get
+        working_directory: client_flutter
+        script: flutter pub get
+      - name: gen-l10n
+        working_directory: client_flutter
+        script: flutter gen-l10n
+      - name: analyze
+        working_directory: client_flutter
+        script: flutter analyze
+      - name: test
+        working_directory: client_flutter
+        script: flutter test --reporter expanded
+      - name: build APK (debug)
+        working_directory: client_flutter
+        script: flutter build apk --debug
+    artifacts:
+      - client_flutter/build/app/outputs/flutter-apk/app-debug.apk
+
+  # ===========================================================
+  # 2. tag v* — Android Release (Play Internal Track)
+  # ===========================================================
+  android-release:
+    name: android release (Play Internal)
+    instance_type: linux_x2
+    max_build_duration: 60
+    environment:
+      <<: *envs-shared
+      android_signing:
+        - findit-keystore
+      groups:
+        - google_play
+      vars:
+        PACKAGE_NAME: com.findit.battle
+    triggering:
+      events: [tag]
+      tag_patterns:
+        - pattern: 'v*'
+    scripts:
+      - name: pub get
+        working_directory: client_flutter
+        script: flutter pub get
+      - name: build appbundle (release)
+        working_directory: client_flutter
+        script: flutter build appbundle --release
+    artifacts:
+      - client_flutter/build/app/outputs/bundle/release/app-release.aab
+    publishing:
+      google_play:
+        credentials: $GOOGLE_PLAY_SERVICE_ACCOUNT_JSON
+        track: internal
+        submit_as_draft: true
+
+  # ===========================================================
+  # 3. tag v* — iOS Release (TestFlight)
+  # ===========================================================
+  ios-release:
+    name: ios release (TestFlight)
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      <<: *envs-shared
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.findit.battle
+      groups:
+        - app_store_connect
+    triggering:
+      events: [tag]
+      tag_patterns:
+        - pattern: 'v*'
+    scripts:
+      - name: pub get
+        working_directory: client_flutter
+        script: flutter pub get
+      - name: pod install
+        working_directory: client_flutter/ios
+        script: pod install --repo-update
+      - name: build IPA (release, App Store)
+        working_directory: client_flutter
+        script: |
+          flutter build ipa --release \
+            --export-options-plist=/Users/builder/export_options.plist
+    artifacts:
+      - client_flutter/build/ios/ipa/*.ipa
+    publishing:
+      app_store_connect:
+        auth: integration
+        # TestFlight 내부 그룹에 자동 추가 (외부 그룹은 Apple 리뷰 필요)
+        submit_to_testflight: true
+        beta_groups:
+          - 'Internal Testers'

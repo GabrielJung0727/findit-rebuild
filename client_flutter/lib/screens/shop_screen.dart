@@ -75,6 +75,16 @@ class _ShopScreenState extends ConsumerState<ShopScreen>
             coin: e.coin,
             gem: e.gem,
           );
+      final user = ref.read(authControllerProvider).user;
+      if (user != null) {
+        ref.read(analyticsProvider).purchaseIap(
+              userId: user.userId,
+              store: ref.read(iapServiceProvider).currentStore,
+              productId: e.productId,
+              coinReward: e.coin ?? 0,
+              gemReward: e.gem ?? 0,
+            );
+      }
       _toast(l.dlgMsgPaymentSuccess);
     } else {
       _toast(l.msgInvalidPurchase);
@@ -160,6 +170,11 @@ class _ShopScreenState extends ConsumerState<ShopScreen>
             itemNo: cat.typeNo,
             newQuantity: (body['quantity'] as num?)?.toInt() ?? 1,
             itemType: cat.type.serverName,
+          );
+      ref.read(analyticsProvider).purchaseItem(
+            userId: user.userId,
+            itemNo: cat.typeNo,
+            coin: cat.price,
           );
       _toast(l.dlgMsgPaymentSuccess);
     } on ApiResultException catch (e) {

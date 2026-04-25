@@ -45,5 +45,24 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<!-- 04-26.md §3 — 디바이스 언어 한/영 토글 (Android values-ko 와 페어) -->
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>en</string>
+		<string>ko</string>
+	</array>
+	<!-- 04-26.md §2 — HTTPS 강제 + 로컬 개발용 평문 예외.
+	     - NSAllowsArbitraryLoads=false : 임의 도메인 평문 불허 (App Store 통과 조건)
+	     - NSAllowsLocalNetworking=true : private/link-local/loopback 만 평문 허용
+	         · 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 127.0.0.0/8, *.local
+	         · iOS 10+ — LAN 실기기 디버깅 / 시뮬 localhost 둘 다 커버
+	     운영 배포 시 NSAllowsLocalNetworking 도 false 로 토글. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<false/>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 </dict>
 </plist>

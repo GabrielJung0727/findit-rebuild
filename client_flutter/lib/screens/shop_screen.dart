@@ -10,6 +10,7 @@ import '../game/item_catalog.dart';
 import '../l10n/app_localizations.dart';
 import '../state/auth.dart';
 import '../state/providers.dart';
+import '../util/asset_paths.dart';
 
 /// 상점 — `Items.java` 의 2013 가격 그대로. 5개 일반 카테고리(PEN/RING/BERRY/POTION/ETC)
 /// + 코인팩(GOLD) 4종 IAP 분리 탭.
@@ -291,6 +292,7 @@ class _ShopCell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final iconPath = AssetPaths.itemIcon(item.typeNo);
     return Material(
       color: scheme.surfaceContainer,
       borderRadius: BorderRadius.circular(8),
@@ -302,7 +304,10 @@ class _ShopCell extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
-              Icon(_iconFor(item.type), size: 32),
+              if (iconPath != null)
+                Image.asset(iconPath, width: 40, height: 40, fit: BoxFit.contain)
+              else
+                Icon(_iconFor(item.type), size: 32),
               const SizedBox(height: 4),
               Text('#${item.typeNo}',
                   style: Theme.of(context).textTheme.labelSmall,),

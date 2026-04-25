@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../l10n/app_localizations.dart';
 import '../state/auth.dart';
+import '../util/asset_paths.dart';
 
 /// 캐릭터 / 프로필 — 닉네임 + 캐릭터 0~2 + 사진(앨범/카메라).
 ///
@@ -95,15 +96,15 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     children: <Widget>[
                       CircleAvatar(
                         radius: 64,
-                        backgroundImage:
-                            _avatar != null ? FileImage(_avatar!) : null,
-                        child: _avatar == null
-                            ? Text(
-                                user == null
-                                    ? '?'
-                                    : '${user.userCharacter + 1}',
-                                style: Theme.of(context).textTheme.headlineMedium,
-                              )
+                        backgroundImage: _avatar != null
+                            ? FileImage(_avatar!) as ImageProvider
+                            : (user != null
+                                ? AssetImage(
+                                    AssetPaths.characterHead(user.userCharacter),
+                                  )
+                                : null),
+                        child: (_avatar == null && user == null)
+                            ? const Text('?')
                             : null,
                       ),
                       Container(

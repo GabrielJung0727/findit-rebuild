@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'api/push_service.dart';
@@ -10,7 +11,12 @@ import 'state/auth.dart';
 import 'state/lobby.dart';
 import 'state/providers.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  // 04-26.md §14 — 세로 고정 (안드 원본 디자인 + 게임 화면 비율 고려)
+  await SystemChrome.setPreferredOrientations(<DeviceOrientation>[
+    DeviceOrientation.portraitUp,
+  ]);
   runApp(const ProviderScope(child: FinditApp()));
 }
 
@@ -86,6 +92,8 @@ class _FinditAppState extends ConsumerState<FinditApp> {
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF54443B)),
         useMaterial3: true,
       ),
+      // 04-26.md §14 — 다크모드 미지원 (게임 색상 일관성). OS 다크모드와 무관하게 light.
+      themeMode: ThemeMode.light,
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       routerConfig: router,

@@ -6,6 +6,7 @@ import '../game/item_catalog.dart';
 import '../l10n/app_localizations.dart';
 import '../state/auth.dart';
 import '../state/providers.dart';
+import '../util/asset_paths.dart';
 
 /// 보유 아이템 화면 — 6 카테고리 탭, 그리드 표시, 사용/강화/버리기.
 ///
@@ -296,6 +297,7 @@ class _ItemCell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cat = ItemCatalog.findByTypeNo(item.itemNo);
+    final iconPath = AssetPaths.itemIcon(item.itemNo);
     return Material(
       color: Theme.of(context).colorScheme.surfaceContainer,
       borderRadius: BorderRadius.circular(8),
@@ -307,7 +309,10 @@ class _ItemCell extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
-              Icon(_iconFor(item.itemType), size: 28),
+              if (iconPath != null)
+                Image.asset(iconPath, width: 32, height: 32, fit: BoxFit.contain)
+              else
+                Icon(_iconFor(item.itemType), size: 28),
               const SizedBox(height: 4),
               Text('#${item.itemNo}', style: Theme.of(context).textTheme.labelSmall),
               Text(

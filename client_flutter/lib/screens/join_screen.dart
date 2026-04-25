@@ -6,6 +6,7 @@ import '../api/api_client.dart';
 import '../l10n/app_localizations.dart';
 import '../state/auth.dart';
 import '../state/providers.dart';
+import '../util/asset_paths.dart';
 import 'login_messages.dart';
 
 /// 회원가입 폼 — 이메일·비번·비번확인·닉네임·캐릭터(0~2) + 중복확인.
@@ -263,10 +264,15 @@ class _CharacterPicker extends StatelessWidget {
                   width: 3,
                 ),
               ),
-              child: Center(
-                child: Text(
-                  '${i + 1}',
-                  style: Theme.of(context).textTheme.headlineSmall,
+              clipBehavior: Clip.antiAlias,
+              child: Image.asset(
+                AssetPaths.characterHead(i),
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => Center(
+                  child: Text(
+                    '${i + 1}',
+                    style: Theme.of(context).textTheme.headlineSmall,
+                  ),
                 ),
               ),
             ),

@@ -60,8 +60,12 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   generate: true  # enables flutter_localizations gen-l10n pipeline (uses l10n.yaml)
-  # assets:
-  #   - assets/images/   # 실제 자산 추가 시 활성화 (빈 디렉터리는 build 단계에서 reject)
+  assets:
+    # 04-26.md §13 — 디컴파일 안드 drawable-hdpi 에서 추출한 임시 자산.
+    # 디자이너 신규 에셋 입수 후 교체.
+    - assets/images/items/
+    - assets/images/characters/
+    - assets/images/ui/
 
 # Launcher icons (placeholder — replace assets/icon/icon.png with real artwork before release)
 flutter_launcher_icons:

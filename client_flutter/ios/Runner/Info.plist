@@ -28,18 +28,14 @@
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
 	<string>Main</string>
+	<!-- 04-26.md §14 — 세로 고정. iPad 도 동일. -->
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>UISupportedInterfaceOrientations~ipad</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationPortraitUpsideDown</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
@@ -56,6 +52,14 @@
 	<string>Take a photo for your character avatar.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Pick a photo from your library for your character avatar.</string>
+	<!-- 04-26.md §14 — App Tracking Transparency (광고 ID 사용 시).
+	     AdMob/광고 SDK 미사용이면 제거 가능. 현재 §16 광고 추적은 click_count + adReward 만 — 광고 ID 사용 X. -->
+	<key>NSUserTrackingUsageDescription</key>
+	<string>Allow personalized ads. You can change this anytime in Settings.</string>
+	<!-- 04-26.md §14 — 개발 LAN 디버깅 (실기기 + 호스트 PC 같은 Wi-Fi).
+	     운영 빌드는 키 통째로 제거 권장 (App Store 리뷰가 불필요한 권한으로 보지 않도록). -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Connect to the local development server during testing.</string>
 	<!-- 04-26.md §3 — 디바이스 언어 한/영 토글 (Android values-ko 와 페어) -->
 	<key>CFBundleLocalizations</key>
 	<array>

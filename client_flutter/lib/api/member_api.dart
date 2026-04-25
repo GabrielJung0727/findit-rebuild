@@ -111,6 +111,24 @@ class MemberApi {
     }
   }
 
+  /// 가입 전 ID/닉네임 중복·유효성 사전 검증.
+  ///
+  /// 응답: `{userId: {taken, valid, error?}, userNick: {taken, valid, error?}}`
+  /// 둘 중 하나만 보내면 해당 키만 응답에 포함됨.
+  Future<Map<String, dynamic>> checkUserId({
+    String? userId,
+    String? userNick,
+  }) async {
+    final res = await _dio.post<Map<String, dynamic>>(
+      'app/member/checkUserId.json',
+      data: <String, dynamic>{
+        if (userId != null) 'userId': userId,
+        if (userNick != null) 'userNick': userNick,
+      },
+    );
+    return unwrapResult(res.data);
+  }
+
   Future<void> _persistToken(Map<String, dynamic> body) async {
     final token = body['token'] as String?;
     if (token != null && token.isNotEmpty) {

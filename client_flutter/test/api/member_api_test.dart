@@ -82,6 +82,25 @@ void main() {
       expect(coin, 150);
     });
 
+    test('checkUserId returns valid/taken flags per side', () async {
+      t.adapter.onPost(
+        t.url('app/member/checkUserId.json'),
+        (s) => s.reply(200, <String, dynamic>{
+          'result': '000',
+          'userId': <String, dynamic>{'valid': true, 'taken': false},
+          'userNick': <String, dynamic>{'valid': true, 'taken': true},
+        }),
+      );
+      final body = await api.checkUserId(
+        userId: 'new@findit.com',
+        userNick: 'taken_nick',
+      );
+      final id = body['userId'] as Map<String, dynamic>;
+      final nick = body['userNick'] as Map<String, dynamic>;
+      expect(id['taken'], false);
+      expect(nick['taken'], true);
+    });
+
     test('spendGem rethrows insufficient-balance error', () async {
       t.adapter.onPost(
         t.url('app/member/spendGem.json'),

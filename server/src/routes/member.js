@@ -51,6 +51,47 @@ async function loadWallet(userId) {
 }
 
 // -----------------------------------------------------
+// 0. /app/member/checkUserId.json — 가입 전 아이디/닉네임 중복 확인
+// 파라미터: userId 또는 userNick (둘 중 하나 이상)
+// 응답: { result: '000', userId: { taken: bool, valid: bool, error?: string },
+//                       userNick: { taken: bool, valid: bool, error?: string } }
+//
+// 클라 JoinScreen 의 "중복확인" 버튼이 호출. 가입 전 즉시 피드백 용도.
+// 정식 가입 시점에는 join.json 이 다시 검증함 (race 방지).
+// -----------------------------------------------------
+router.all('/member/checkUserId.json', async (req, res, next) => {
+  try {
+    const p = { ...req.query, ...req.body };
+    const { userId, userNick } = p;
+    if (userId == null && userNick == null) return fail(res, C.RESULT_NOID);
+
+    const out = { result: C.RESULT_PASS };
+    if (userId != null) {
+      const idErr = V.validateEmail(userId);
+      if (idErr) {
+        out.userId = { valid: false, taken: false, error: idErr };
+      } else {
+        const rows = await query(`SELECT user_id FROM members WHERE user_id = ?`, [userId]);
+        out.userId = { valid: true, taken: rows.length > 0 };
+      }
+    }
+    if (userNick != null) {
+      const nickErr = V.validateNickname(userNick);
+      if (nickErr) {
+        out.userNick = { valid: false, taken: false, error: nickErr };
+      } else {
+        const rows = await query(
+          `SELECT user_id FROM members WHERE user_nick = ?`,
+          [userNick.trim()]
+        );
+        out.userNick = { valid: true, taken: rows.length > 0 };
+      }
+    }
+    res.json(out);
+  } catch (e) { next(e); }
+});
+
+// -----------------------------------------------------
 // 1. POST-이나-GET /app/member/join.json
 // 파라미터: userId, userPass, userCharacter, userDevice, userNick
 // -----------------------------------------------------

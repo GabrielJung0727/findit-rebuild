@@ -44,6 +44,9 @@ dependencies:
   # 공지사항 HTML 렌더 (server /notice.json 응답)
   flutter_html: ^3.0.0-beta.2
 
+  # 라우팅 — 로그인/대기실/배틀룸 deep link
+  go_router: ^14.6.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

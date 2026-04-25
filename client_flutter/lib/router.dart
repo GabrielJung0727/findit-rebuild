@@ -6,10 +6,13 @@ import 'game/game_state.dart';
 import 'screens/battle_room_screen.dart';
 import 'screens/game_screen.dart';
 import 'screens/guest_screen.dart';
+import 'screens/inventory_screen.dart';
 import 'screens/join_screen.dart';
 import 'screens/lobby_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/result_screen.dart';
+import 'screens/shop_screen.dart';
+import 'screens/skill_tree_screen.dart';
 import 'screens/waiting_room_screen.dart';
 import 'state/auth.dart';
 
@@ -48,6 +51,9 @@ GoRouter buildRouter(Ref ref) {
         path: '/result',
         builder: (_, st) => ResultScreen(result: st.extra! as GameResult),
       ),
+      GoRoute(path: '/inventory', builder: (_, __) => const InventoryScreen()),
+      GoRoute(path: '/shop', builder: (_, __) => const ShopScreen()),
+      GoRoute(path: '/skills', builder: (_, __) => const SkillTreeScreen()),
     ],
   );
 }

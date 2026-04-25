@@ -69,6 +69,27 @@ class LobbyScreen extends ConsumerWidget {
                 onPressed: () => _startSinglePlay(context, ref),
                 label: const Text('Play vs AI'),
               ),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: <Widget>[
+                  IconButton(
+                    icon: const Icon(Icons.inventory_2),
+                    tooltip: l.item,
+                    onPressed: () => context.push('/inventory'),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.store),
+                    tooltip: l.buy,
+                    onPressed: () => context.push('/shop'),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.school),
+                    tooltip: l.learn,
+                    onPressed: () => context.push('/skills'),
+                  ),
+                ],
+              ),
             ],
           ),
         ),

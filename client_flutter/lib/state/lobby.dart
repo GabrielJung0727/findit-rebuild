@@ -204,6 +204,17 @@ class LobbyController extends StateNotifier<LobbyState> {
     );
   }
 
+  /// 푸시 알림(초대) 으로 도착한 정보 주입 — main.dart 의 `_handlePushEvent` 에서 호출.
+  /// WaitingRoomScreen 의 invite 다이얼로그가 자동으로 표시됨.
+  void injectInviteFromPush(String fromUser, String roomName) {
+    state = state.copyWith(
+      waiting: state.waiting.copyWith(
+        invitedBy: fromUser,
+        invitedRoom: roomName,
+      ),
+    );
+  }
+
   // ===========================================================
   // 수신 프레임 라우팅
   // ===========================================================

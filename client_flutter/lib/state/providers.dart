@@ -9,6 +9,7 @@ import '../api/iap_api.dart';
 import '../api/iap_service.dart';
 import '../api/member_api.dart';
 import '../api/push_api.dart';
+import '../api/push_service.dart';
 import '../api/shop_api.dart';
 import '../api/ws_client.dart';
 
@@ -46,6 +47,13 @@ final iapServiceProvider = Provider<IapService>((ref) {
 final pushApiProvider = Provider<PushApi>(
   (ref) => PushApi(ref.watch(apiClientProvider)),
 );
+
+/// FCM 푸시 서비스 — 단일 인스턴스. 로그인 후 init(userId) 호출.
+final pushServiceProvider = Provider<PushService>((ref) {
+  final svc = PushService(ref.watch(pushApiProvider));
+  ref.onDispose(svc.dispose);
+  return svc;
+});
 
 /// 멀티플레이 WebSocket — 단일 인스턴스. 인증 필요 시점에 `connect()` 호출.
 final wsClientProvider = Provider<WsClient>((ref) {

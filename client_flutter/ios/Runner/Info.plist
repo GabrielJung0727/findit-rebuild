@@ -45,6 +45,12 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<!-- 04-26.md §11 FCM 푸시 — 백그라운드 silent push + APNs -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+		<string>remote-notification</string>
+	</array>
 	<!-- 04-26.md §9 ProfileScreen — 캐릭터 아바타 사진 (image_picker) -->
 	<key>NSCameraUsageDescription</key>
 	<string>Take a photo for your character avatar.</string>

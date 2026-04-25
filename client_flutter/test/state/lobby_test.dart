@@ -138,6 +138,16 @@ void main() {
       expect(container.read(lobbyControllerProvider).battleRoom!.opponentReady, true);
     });
 
+    test('injectInviteFromPush 가 invitedBy/Room 을 채움 (push deep link)', () async {
+      await container.read(lobbyControllerProvider.notifier).connect();
+      container
+          .read(lobbyControllerProvider.notifier)
+          .injectInviteFromPush('alice', '@room_42');
+      final s = container.read(lobbyControllerProvider).waiting;
+      expect(s.invitedBy, 'alice');
+      expect(s.invitedRoom, '@room_42');
+    });
+
     test('toggleSkill: 5개 제한 + 락 시 변경 불가', () async {
       await container.read(lobbyControllerProvider.notifier).connect();
       container.read(lobbyControllerProvider.notifier).createRoom();

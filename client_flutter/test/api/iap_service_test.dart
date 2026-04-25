@@ -1,5 +1,3 @@
-import 'dart:io' show Platform;
-
 import 'package:findit/api/iap_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 

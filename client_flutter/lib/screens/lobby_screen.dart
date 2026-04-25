@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../l10n/app_localizations.dart';
 import '../state/auth.dart';
@@ -53,6 +54,12 @@ class LobbyScreen extends ConsumerWidget {
               _StatRow(label: 'Point', value: '${user?.point ?? 0}'),
               _StatRow(label: 'Gem', value: '${user?.gem ?? 0}'),
               _StatRow(label: 'HP', value: '${user?.hp ?? 0}'),
+              const SizedBox(height: 24),
+              FilledButton.icon(
+                icon: const Icon(Icons.gamepad),
+                onPressed: () => context.go('/waiting'),
+                label: Text(l.startgame),
+              ),
             ],
           ),
         ),

@@ -15,6 +15,7 @@ const fcmRoutes = require('./routes/fcm');
 const iapModule = require('./routes/iap');
 const fcmUtil = require('./util/fcm');
 const socketServer = require('./socket/server');
+const wsServer = require('./socket/ws_server');
 
 const HTTP_PORT = Number(process.env.HTTP_PORT || 8080);
 const TCP_PORT = Number(process.env.TCP_PORT || 22131);
@@ -95,11 +96,15 @@ async function main() {
   // FCM 준비 (옵션)
   fcmUtil.tryInitFirebase();
 
-  app.listen(HTTP_PORT, () => {
+  const httpServer = app.listen(HTTP_PORT, () => {
     console.log(`[http] listening on :${HTTP_PORT}`);
     console.log(`       admin UI: http://localhost:${HTTP_PORT}/admin/ui`);
   });
 
+  // WebSocket gateway — TCP 와 동일 handlers.js 상태 공유. 신규 Flutter 클라가 사용.
+  wsServer.attach(httpServer, { path: '/ws' });
+
+  // 레거시 raw TCP — 디컴파일된 안드 APK 호환용. WS 마이그레이션 완료 후 제거 가능.
   socketServer.start({ host: TCP_HOST, port: TCP_PORT });
 
   process.on('SIGTERM', () => {

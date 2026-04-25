@@ -2,10 +2,12 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'screens/battle_room_screen.dart';
 import 'screens/guest_screen.dart';
 import 'screens/join_screen.dart';
 import 'screens/lobby_screen.dart';
 import 'screens/login_screen.dart';
+import 'screens/waiting_room_screen.dart';
 import 'state/auth.dart';
 
 /// 단일 [GoRouter] 인스턴스 — Riverpod 상태 변화에 따라 redirect 재평가.
@@ -24,31 +26,20 @@ GoRouter buildRouter(Ref ref) {
     refreshListenable: notifier,
     redirect: (context, state) {
       final loggedIn = ref.read(authControllerProvider).isLoggedIn;
-      final atLogin = state.matchedLocation.startsWith('/login') ||
-          state.matchedLocation == '/guest' ||
-          state.matchedLocation == '/join';
+      final loc = state.matchedLocation;
+      final atLogin = loc.startsWith('/login') || loc == '/guest' || loc == '/join';
 
       if (!loggedIn && !atLogin) return '/login';
       if (loggedIn && atLogin) return '/lobby';
       return null;
     },
     routes: <RouteBase>[
-      GoRoute(
-        path: '/login',
-        builder: (_, __) => const LoginScreen(),
-      ),
-      GoRoute(
-        path: '/join',
-        builder: (_, __) => const JoinScreen(),
-      ),
-      GoRoute(
-        path: '/guest',
-        builder: (_, __) => const GuestScreen(),
-      ),
-      GoRoute(
-        path: '/lobby',
-        builder: (_, __) => const LobbyScreen(),
-      ),
+      GoRoute(path: '/login', builder: (_, __) => const LoginScreen()),
+      GoRoute(path: '/join', builder: (_, __) => const JoinScreen()),
+      GoRoute(path: '/guest', builder: (_, __) => const GuestScreen()),
+      GoRoute(path: '/lobby', builder: (_, __) => const LobbyScreen()),
+      GoRoute(path: '/waiting', builder: (_, __) => const WaitingRoomScreen()),
+      GoRoute(path: '/battle', builder: (_, __) => const BattleRoomScreen()),
     ],
   );
 }

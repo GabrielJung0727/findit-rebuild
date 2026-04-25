@@ -9,6 +9,7 @@ import '../api/iap_api.dart';
 import '../api/member_api.dart';
 import '../api/push_api.dart';
 import '../api/shop_api.dart';
+import '../api/ws_client.dart';
 
 /// 단일 [`Dio`] 인스턴스 — 모든 wrapper 가 공유. ProviderScope 단위로 1개.
 final apiClientProvider = Provider<ApiClient>((ref) => ApiClient());
@@ -37,3 +38,10 @@ final iapApiProvider = Provider<IapApi>(
 final pushApiProvider = Provider<PushApi>(
   (ref) => PushApi(ref.watch(apiClientProvider)),
 );
+
+/// 멀티플레이 WebSocket — 단일 인스턴스. 인증 필요 시점에 `connect()` 호출.
+final wsClientProvider = Provider<WsClient>((ref) {
+  final client = WsClient();
+  ref.onDispose(() => client.dispose());
+  return client;
+});

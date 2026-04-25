@@ -33,10 +33,14 @@ INSERT INTO `notices` (`title`, `body`, `is_visible`) VALUES
   ('서버 재구축 완료', '원본 14.63.220.39 서버 대체 서버가 배포되었습니다. 기획 2013-07-02 최종 밸런스 적용.', TRUE),
   ('신규 보석 재화', '보석(Gem) 재화가 추가되었습니다. 유료 상품 구매 시 지급됩니다.', TRUE);
 
-INSERT INTO `images` (`img`, `x_size`, `y_size`, `image_cut`, `url_download`, `view`) VALUES
-  ('market001.png', 800, 480,
+-- market001 — 기획서 findit_틀린그림가이드_20120704.xls 샘플 (실제 PNG: 640x720)
+-- ※ 광고문구/관련URL 은 원본 가이드 그대로 (KT olleh market 링크는 서비스 종료 → 데모 의미만)
+INSERT INTO `images` (`img`, `x_size`, `y_size`, `image_cut`, `url_download`, `url_detail`, `ad_caption`, `view`) VALUES
+  ('market001.png', 640, 720,
    '[{"x":195,"y":66,"w":100,"h":100},{"x":445,"y":6,"w":130,"h":130},{"x":287,"y":630,"w":100,"h":80},{"x":451,"y":208,"w":80,"h":80},{"x":0,"y":117,"w":100,"h":100},{"x":213,"y":416,"w":80,"h":80},{"x":560,"y":354,"w":80,"h":90}]',
-   'https://cdn.findit.example/images/market001.png', 1);
+   'https://cdn.findit.example/images/market001.png',
+   'https://example.com/promo/ucloud',
+   '위급상황시 동영상촬영 및 ucloud 자동백업', 1);
 
 INSERT INTO `ad_images` (`ad_image`, `ad_name`, `ad_url`, `expire_date`) VALUES
   ('https://cdn.findit.example/ads/sample.png', '샘플 광고', 'https://example.com', DATE_ADD(NOW(), INTERVAL 90 DAY));

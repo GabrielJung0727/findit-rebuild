@@ -33,7 +33,7 @@ router.use(async (req, res, next) => {
 router.get('/images', async (_req, res, next) => {
   try {
     const rows = await query(
-      `SELECT img_id, img, x_size, y_size, img_type, image_cut, url_download, view, view_count, reg_date
+      `SELECT img_id, img, x_size, y_size, img_type, image_cut, url_download, url_detail, ad_caption, view, view_count, reg_date
          FROM images ORDER BY img_id DESC LIMIT 200`
     );
     res.json({ list: rows });
@@ -42,13 +42,18 @@ router.get('/images', async (_req, res, next) => {
 
 router.post('/images', async (req, res, next) => {
   try {
-    const { img, xSize, ySize, x = 0, y = 0, imgType = 0, imageCut, urlDownload, urlDetail, urlVideo, view = 1 } = req.body;
+    const {
+      img, xSize, ySize, x = 0, y = 0, imgType = 0,
+      imageCut, urlDownload, urlDetail, urlVideo, adCaption, view = 1,
+    } = req.body;
     if (!img || !xSize || !ySize || !imageCut) return res.status(400).json({ error: 'missing_required' });
-    // imageCut 은 JSON 문자열 — 클라 7개 좌표 배열
+    // imageCut 은 7개 좌표 배열 — 길이 검증 + 이미지 경계 검증
+    const cutErr = validateImageCut(imageCut, Number(xSize), Number(ySize));
+    if (cutErr) return res.status(400).json({ error: 'invalid_image_cut', detail: cutErr });
     const r = await query(
-      `INSERT INTO images(img, x_size, y_size, x, y, img_type, image_cut, url_download, url_detail, url_video, view)
-       VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [img, xSize, ySize, x, y, imgType, JSON.stringify(imageCut), urlDownload, urlDetail, urlVideo, view ? 1 : 0]
+      `INSERT INTO images(img, x_size, y_size, x, y, img_type, image_cut, url_download, url_detail, url_video, ad_caption, view)
+       VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [img, xSize, ySize, x, y, imgType, JSON.stringify(imageCut), urlDownload, urlDetail, urlVideo, adCaption || null, view ? 1 : 0]
     );
     res.json({ ok: true, imgId: r.insertId });
   } catch (e) { next(e); }
@@ -57,18 +62,52 @@ router.post('/images', async (req, res, next) => {
 router.put('/images/:id', async (req, res, next) => {
   try {
     const id = Number(req.params.id);
-    const { view, imageCut, urlDownload } = req.body;
+    const { view, imageCut, urlDownload, urlDetail, adCaption, xSize, ySize } = req.body;
     const updates = [];
     const values = [];
     if (view !== undefined) { updates.push('view = ?'); values.push(view ? 1 : 0); }
-    if (imageCut !== undefined) { updates.push('image_cut = ?'); values.push(JSON.stringify(imageCut)); }
+    if (imageCut !== undefined) {
+      // 검증을 위해선 xSize/ySize 필요 — 미지정 시 DB 값으로 검증
+      let w = Number(xSize), h = Number(ySize);
+      if (!w || !h) {
+        const [row] = await query(`SELECT x_size, y_size FROM images WHERE img_id = ?`, [id]);
+        if (!row) return res.status(404).json({ error: 'not_found' });
+        w = row.x_size; h = row.y_size;
+      }
+      const cutErr = validateImageCut(imageCut, w, h);
+      if (cutErr) return res.status(400).json({ error: 'invalid_image_cut', detail: cutErr });
+      updates.push('image_cut = ?'); values.push(JSON.stringify(imageCut));
+    }
     if (urlDownload !== undefined) { updates.push('url_download = ?'); values.push(urlDownload); }
+    if (urlDetail !== undefined) { updates.push('url_detail = ?'); values.push(urlDetail); }
+    if (adCaption !== undefined) { updates.push('ad_caption = ?'); values.push(adCaption); }
+    if (xSize !== undefined) { updates.push('x_size = ?'); values.push(Number(xSize)); }
+    if (ySize !== undefined) { updates.push('y_size = ?'); values.push(Number(ySize)); }
     if (updates.length === 0) return res.status(400).json({ error: 'no_fields' });
     values.push(id);
     await query(`UPDATE images SET ${updates.join(', ')} WHERE img_id = ?`, values);
     res.json({ ok: true });
   } catch (e) { next(e); }
 });
+
+// imageCut 검증: 7개 항목, 각 항목 {x,y,w,h} 모두 양의 정수, 이미지 경계 안에 들어갈 것
+function validateImageCut(cut, imgW, imgH) {
+  if (!Array.isArray(cut)) return 'image_cut must be array';
+  if (cut.length !== 7) return `image_cut length must be 7 (got ${cut.length})`;
+  for (let i = 0; i < cut.length; i++) {
+    const c = cut[i];
+    if (!c || typeof c !== 'object') return `image_cut[${i}] not object`;
+    const { x, y, w, h } = c;
+    if (![x, y, w, h].every((v) => Number.isInteger(v) && v >= 0)) {
+      return `image_cut[${i}] x/y/w/h must be non-negative integers`;
+    }
+    if (w === 0 || h === 0) return `image_cut[${i}] w/h must be positive`;
+    if (x + w > imgW || y + h > imgH) {
+      return `image_cut[${i}] (x=${x},y=${y},w=${w},h=${h}) exceeds image ${imgW}x${imgH}`;
+    }
+  }
+  return null;
+}
 
 router.delete('/images/:id', async (req, res, next) => {
   try {

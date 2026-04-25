@@ -1,0 +1,18 @@
+{
+  "_comment": "Sample manifest for market001 set — mirrors the reference row in findit_틀린그림가이드_20120704.xls. Producer hands this JSON next to the 8 PNGs; admin POST /admin/images consumes the same shape.",
+  "img": "market001.png",
+  "xSize": 640,
+  "ySize": 720,
+  "imageCut": [
+    { "x": 195, "y":  66, "w": 100, "h": 100 },
+    { "x": 445, "y":   6, "w": 130, "h": 130 },
+    { "x": 287, "y": 630, "w": 100, "h":  80 },
+    { "x": 451, "y": 208, "w":  80, "h":  80 },
+    { "x":   0, "y": 117, "w": 100, "h": 100 },
+    { "x": 213, "y": 416, "w":  80, "h":  80 },
+    { "x": 560, "y": 354, "w":  80, "h":  90 }
+  ],
+  "adCaption": "위급상황시 동영상촬영 및 ucloud 자동백업",
+  "urlDetail": "https://example.com/promo/ucloud",
+  "urlDownload": "https://cdn.findit.example/images/market001.png"
+}

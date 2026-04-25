@@ -437,7 +437,7 @@ router.all('/member/hitViewCount.json', async (req, res, next) => {
 // -----------------------------------------------------
 // 9. /app/member/newImageList.json — 스테이지 이미지 목록
 // 파라미터: imgId (클라가 마지막으로 받은 imgId, 이후 것만 반환)
-// 응답: { result, list: [{imgId, img, xSize, ySize, x, y, imgType, imageCut, urlDownload, urlDetail, urlVideo, view, viewCount, regDate}] }
+// 응답: { result, list: [{imgId, img, xSize, ySize, x, y, imgType, imageCut, urlDownload, urlDetail, urlVideo, adCaption, view, viewCount, regDate}] }
 // -----------------------------------------------------
 router.all('/member/newImageList.json', async (req, res, next) => {
   try {
@@ -447,6 +447,7 @@ router.all('/member/newImageList.json', async (req, res, next) => {
       `SELECT img_id AS imgId, img, x_size AS xSize, y_size AS ySize, x, y,
               img_type AS imgType, image_cut AS imageCut,
               url_download AS urlDownload, url_detail AS urlDetail, url_video AS urlVideo,
+              ad_caption AS adCaption,
               view, view_count AS viewCount, reg_date AS regDate
          FROM images
         WHERE img_id > ? AND view = 1

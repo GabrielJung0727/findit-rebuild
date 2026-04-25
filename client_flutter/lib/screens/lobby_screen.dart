@@ -2,8 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../game/game_controller.dart';
+import '../game/image_set.dart';
 import '../l10n/app_localizations.dart';
 import '../state/auth.dart';
+import '../state/providers.dart';
 
 /// 로그인 후 랜딩 — W2 §6 대기실 화면 들어오면 교체될 placeholder.
 /// 현재는 닉네임 + 코인/포인트/보석 + 로그아웃 버튼만.
@@ -60,12 +63,34 @@ class LobbyScreen extends ConsumerWidget {
                 onPressed: () => context.go('/waiting'),
                 label: Text(l.startgame),
               ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                icon: const Icon(Icons.smart_toy),
+                onPressed: () => _startSinglePlay(context, ref),
+                label: const Text('Play vs AI'),
+              ),
             ],
           ),
         ),
       ),
     );
   }
+}
+
+Future<void> _startSinglePlay(BuildContext context, WidgetRef ref) async {
+  final auth = ref.read(authControllerProvider);
+  if (auth.user == null) return;
+  final list = await ref.read(contentApiProvider).newImageList();
+  if (list.isEmpty) return;
+  final imageSet = ImageSet.fromJson(list.first);
+  ref.read(gameArgsProvider.notifier).state = GameStartArgs(
+    image: imageSet,
+    opponentIsAi: true,
+    opponentLevel: auth.user!.level,
+    selfHp: auth.user!.hp,
+    opponentHp: auth.user!.hp,
+  );
+  if (context.mounted) context.go('/game');
 }
 
 class _StatRow extends StatelessWidget {

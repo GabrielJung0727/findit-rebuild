@@ -2,11 +2,14 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'game/game_state.dart';
 import 'screens/battle_room_screen.dart';
+import 'screens/game_screen.dart';
 import 'screens/guest_screen.dart';
 import 'screens/join_screen.dart';
 import 'screens/lobby_screen.dart';
 import 'screens/login_screen.dart';
+import 'screens/result_screen.dart';
 import 'screens/waiting_room_screen.dart';
 import 'state/auth.dart';
 
@@ -40,6 +43,11 @@ GoRouter buildRouter(Ref ref) {
       GoRoute(path: '/lobby', builder: (_, __) => const LobbyScreen()),
       GoRoute(path: '/waiting', builder: (_, __) => const WaitingRoomScreen()),
       GoRoute(path: '/battle', builder: (_, __) => const BattleRoomScreen()),
+      GoRoute(path: '/game', builder: (_, __) => const GameScreen()),
+      GoRoute(
+        path: '/result',
+        builder: (_, st) => ResultScreen(result: st.extra! as GameResult),
+      ),
     ],
   );
 }

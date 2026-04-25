@@ -1,10 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../game/game_controller.dart';
+import '../game/image_set.dart';
 import '../l10n/app_localizations.dart';
 import '../state/auth.dart';
 import '../state/lobby.dart';
+import '../state/providers.dart';
 
 /// 배틀룸 — 캐릭터 매칭 + 스킬덱 5/8 선택 + 준비 토글.
 ///
@@ -30,15 +35,12 @@ class BattleRoomScreen extends ConsumerWidget {
       }
     });
 
-    // 양측 모두 ready + 덱 5개 → 게임 시작 (W3 §7 GameScreen 진입 예정)
-    // 현재는 SnackBar 로 placeholder
+    // 양측 모두 ready + 덱 5개 → 게임 시작
     ref.listen<LobbyState>(lobbyControllerProvider, (prev, next) {
       final bp = prev?.battleRoom;
       final bn = next.battleRoom;
       if (bn != null && bn.bothReady && (bp?.bothReady != true)) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(l.startgame)),
-        );
+        unawaited(_startMultiGame(context, ref));
       }
     });
 
@@ -126,6 +128,27 @@ class BattleRoomScreen extends ConsumerWidget {
     return l.ready;
   }
 }
+
+Future<void> _startMultiGame(BuildContext context, WidgetRef ref) async {
+  final auth = ref.read(authControllerProvider);
+  final lobby = ref.read(lobbyControllerProvider);
+  final br = lobby.battleRoom;
+  if (auth.user == null || br == null) return;
+  // 첫 사용 가능한 이미지 1건을 가져옴. 양 클라이언트가 같은 imgId 를 골라야 매칭 의미가 있음 —
+  // 정식은 서버에서 mutual image id 를 라우팅 (W3 후속). 현재는 "첫 활성 이미지" 정책으로 일치.
+  final list = await ref.read(contentApiProvider).newImageList();
+  if (list.isEmpty) return;
+  final imageSet = ImageSet.fromJson(list.first);
+  ref.read(gameArgsProvider.notifier).state = GameStartArgs(
+    image: imageSet,
+    opponentIsAi: false,
+    opponentLevel: auth.user!.level,
+    selfHp: auth.user!.hp,
+    opponentHp: auth.user!.hp,
+  );
+  if (context.mounted) context.go('/game');
+}
+
 
 enum _Side { left, right }
 

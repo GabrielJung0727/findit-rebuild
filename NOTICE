@@ -1,0 +1,148 @@
+FindIt: Rebuild
+Copyright (c) 2026 Jaewon Jung (Gabriel Jung). All Rights Reserved.
+
+This product includes software components developed by third parties.
+The original copyright notices and the licenses under which they are
+distributed are reproduced below.
+
+================================================================================
+ORIGINAL WORK
+================================================================================
+
+The original Android game "틀린그림 찾기 배틀" (FindIt Battle), released
+2012-2013, is the proprietary work of its original publisher. The decompiled
+artifacts in `android_project/` and `game.apk` are NOT redistributed under
+the FindIt: Rebuild Proprietary License. Their inclusion is for reference
+purposes only, subject to the limitations described in LEGAL.md §2.
+
+If you are a rights holder of the original work and wish to request removal,
+contact: jaewonjung1004@gmail.com (subject "[FindIt Legal — Removal]").
+
+================================================================================
+THIRD-PARTY COMPONENTS — CLIENT (client_flutter/)
+================================================================================
+
+--------------------------------------------------------------------------------
+Flutter SDK
+Copyright (c) 2014 The Flutter Authors. All rights reserved.
+License: BSD-3-Clause
+https://github.com/flutter/flutter/blob/master/LICENSE
+--------------------------------------------------------------------------------
+Dart SDK
+Copyright (c) 2012, the Dart project authors.
+License: BSD-3-Clause
+https://github.com/dart-lang/sdk/blob/main/LICENSE
+--------------------------------------------------------------------------------
+flutter_riverpod (^2.6.1)
+Copyright (c) 2020 Remi Rousselet
+License: MIT
+https://pub.dev/packages/flutter_riverpod/license
+--------------------------------------------------------------------------------
+go_router (^14.2.7)
+Copyright (c) 2013 The Flutter Authors
+License: BSD-3-Clause
+https://pub.dev/packages/go_router/license
+--------------------------------------------------------------------------------
+dio (^5.7.0)
+Copyright (c) 2018 wendux
+License: MIT
+https://pub.dev/packages/dio/license
+--------------------------------------------------------------------------------
+web_socket_channel (^3.0.1)
+Copyright (c) 2015 The Dart project authors.
+License: BSD-3-Clause
+https://pub.dev/packages/web_socket_channel/license
+--------------------------------------------------------------------------------
+flutter_secure_storage (^9.2.2)
+Copyright (c) 2017 German Saprykin
+License: BSD-3-Clause
+https://pub.dev/packages/flutter_secure_storage/license
+--------------------------------------------------------------------------------
+in_app_purchase (^3.2.0)
+Copyright (c) 2013 The Flutter Authors
+License: BSD-3-Clause
+https://pub.dev/packages/in_app_purchase/license
+--------------------------------------------------------------------------------
+firebase_messaging (^15.1.3)
+Copyright (c) 2017 The Chromium Authors / FlutterFire Authors
+License: BSD-3-Clause
+https://pub.dev/packages/firebase_messaging/license
+--------------------------------------------------------------------------------
+flutter_localizations / intl (^0.19.0)
+Copyright (c) 2013 The Dart project authors
+License: BSD-3-Clause
+https://pub.dev/packages/intl/license
+--------------------------------------------------------------------------------
+http_mock_adapter (test only)
+Copyright (c) 2020 LeanCode
+License: MIT
+https://pub.dev/packages/http_mock_adapter/license
+--------------------------------------------------------------------------------
+
+================================================================================
+THIRD-PARTY COMPONENTS — SERVER (server/)
+================================================================================
+
+--------------------------------------------------------------------------------
+Express
+Copyright (c) 2009-2014 TJ Holowaychuk; (c) 2013-2014 Roman Shtylman; (c) 2014-2015 Douglas Christopher Wilson
+License: MIT
+https://github.com/expressjs/express/blob/master/LICENSE
+--------------------------------------------------------------------------------
+ws (WebSocket library)
+Copyright (c) 2011 Einar Otto Stangvik
+License: MIT
+https://github.com/websockets/ws/blob/master/LICENSE
+--------------------------------------------------------------------------------
+mysql2
+Copyright (c) 2012-2024 Andrey Sidorov and contributors
+License: MIT
+https://github.com/sidorares/node-mysql2/blob/master/License
+--------------------------------------------------------------------------------
+bcrypt
+Copyright (c) 2010 Nicholas Campbell
+License: MIT
+https://github.com/kelektiv/node.bcrypt.js/blob/master/LICENSE
+--------------------------------------------------------------------------------
+googleapis
+Copyright (c) Google LLC
+License: Apache-2.0
+https://github.com/googleapis/google-api-nodejs-client/blob/main/LICENSE
+--------------------------------------------------------------------------------
+firebase-admin
+Copyright (c) Google LLC
+License: Apache-2.0
+https://github.com/firebase/firebase-admin-node/blob/master/LICENSE
+--------------------------------------------------------------------------------
+
+================================================================================
+DECOMPILED REFERENCE — `android_project/` AND `game.apk`
+================================================================================
+
+The `android_project/` directory and the `game.apk` file contain decompiled
+bytecode and resources extracted from the original 2012-2013 Korean Android
+game "틀린그림 찾기 배틀" (FindIt Battle), used solely as reference material
+during the development of the FindIt: Rebuild project for the purpose of
+verifying game mechanics, formulas, and protocol behavior.
+
+LIMITATIONS:
+
+  - This material is NOT licensed under the FindIt: Rebuild Proprietary
+    License and is excluded from any redistribution thereunder.
+  - All rights to the original work belong to the original publisher of
+    the 2012-2013 game.
+  - The maintainers of FindIt: Rebuild claim no ownership over, and assert
+    no rights in, the original work.
+  - Forks of this repository SHOULD remove these directories before
+    distribution, or at minimum add them to `.gitignore` for derived works.
+
+If you are a rights holder of the original work and have concerns about
+the inclusion of decompiled artifacts in this repository, please contact
+the maintainer at jaewonjung1004@gmail.com. Removal requests will be
+honored within seven (7) days of verification.
+
+See LEGAL.md §2 for the complete decompiled-content policy.
+
+================================================================================
+END OF NOTICE
+================================================================================

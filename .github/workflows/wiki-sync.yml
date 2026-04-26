@@ -1,0 +1,80 @@
+name: wiki-sync
+
+# docs/wiki/*.md → GitHub Wiki repo (findit-rebuild.wiki.git) 자동 동기화.
+# 트리거: main 브랜치에 docs/wiki/ 변경 푸시 시.
+#
+# ─── 운영자 1회성 셋업 ─────────────────────────────────────────────────────
+# 1) Wiki 활성화: repo Settings → Features → Wiki 체크 → 위키 탭에서 첫 페이지
+#    한 번 저장 (wiki repo 초기화 트리거).
+# 2) PAT 발급: github.com/settings/tokens → "Generate new token (classic)" →
+#    scope `repo` 체크 → 90일 이상 만료. 토큰 값 복사.
+#    (GITHUB_TOKEN 은 wiki repo write 권한이 없어서 PAT 필요.)
+# 3) Secret 등록: repo Settings → Secrets and variables → Actions →
+#    "New repository secret" → name `WIKI_PAT`, value 위 토큰.
+# 4) 첫 푸시: docs/wiki/ 아무 파일이나 수정 + main 머지 → 본 워크플로 자동 실행.
+#    https://github.com/GabrielJung0727/findit-rebuild/wiki 에서 결과 확인.
+#
+# ─── 동작 ──────────────────────────────────────────────────────────────────
+# - SYNC.md 는 운영자 안내 문서 — wiki 에는 푸시 안 함 (prepare 단계에서 제외).
+# - 동시 실행 방지 (concurrency): 위키 repo 는 단일 브랜치 — 충돌 방지.
+# - dry-run: workflow_dispatch 로 수동 실행 가능 (테스트용).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/wiki/**'
+      - '.github/workflows/wiki-sync.yml'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: '시험 실행 (실제 푸시 안 함)'
+        type: boolean
+        default: false
+
+concurrency:
+  group: wiki-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Sync docs/wiki → GitHub Wiki
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout main repo
+        uses: actions/checkout@v4
+
+      - name: Prepare wiki content (SYNC.md 제외)
+        run: |
+          mkdir -p _wiki_staging
+          # SYNC.md 만 빼고 docs/wiki/*.md 전부 복사 (숨김 파일 _Sidebar.md / _Footer.md 포함).
+          shopt -s nullglob dotglob
+          for f in docs/wiki/*.md; do
+            base="$(basename "$f")"
+            if [ "$base" = "SYNC.md" ]; then
+              echo "skip: $f (operator-only)"
+              continue
+            fi
+            cp "$f" "_wiki_staging/$base"
+          done
+          echo "----- staged files -----"
+          ls -la _wiki_staging/
+
+      - name: Push to wiki (dry-run)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        run: |
+          echo "DRY RUN — 실제 푸시 생략."
+          echo "푸시될 파일 목록:"
+          ls _wiki_staging/
+
+      - name: Push to wiki
+        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.dry_run }}
+        uses: Andrew-Chen-Wang/github-wiki-action@v4
+        with:
+          path: _wiki_staging/
+          token: ${{ secrets.WIKI_PAT }}
+          # 커밋 메시지 — 원 커밋 SHA 추적.
+          commit-message: 'sync: ${{ github.sha }}'

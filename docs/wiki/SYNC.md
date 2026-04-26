@@ -6,7 +6,9 @@ GitHub Wiki 는 별도 git repo (`findit-rebuild.wiki.git`). 이 디렉터리(`d
 
 GitHub repo 페이지 → 우상단 **Wiki** 탭 → "Create the first page" 클릭. 아무 내용이나 한 번 저장 → wiki repo 가 초기화됨.
 
-## 푸시 (수동)
+## 푸시 (수동) — 자동화 비활성 시 또는 긴급 백필용
+
+> 📌 자동 sync 활성 (`WIKI_PAT` 등록 완료) 후에는 일반적으로 불필요. 아래는 비상용 또는 자동화 비활성 환경에서만.
 
 ```bash
 # 1. 위키 repo clone (저장소 root 의 부모 디렉터리에서)
@@ -25,29 +27,29 @@ git commit -m "sync wiki from main"
 git push
 ```
 
-## 푸시 (자동화 — 후속)
+## 푸시 (자동화) ✅ 활성
 
-`.github/workflows/wiki-sync.yml` 추가 시 main 푸시 시 자동 sync 가능. 보안상 주의:
-- 위키 repo 는 main 과 다른 권한 — `secrets.GITHUB_TOKEN` 가 위키 push 권한 가져야 함
-- 또는 별도 PAT 발급
+`.github/workflows/wiki-sync.yml` 가 이미 추가됨 — main 브랜치에 `docs/wiki/**` 변경 푸시 시 자동 동기화. 운영자는 아래 1회성 셋업만 하면 됨.
 
-```yaml
-# .github/workflows/wiki-sync.yml (예시 — 활성화 시)
-name: Sync Wiki
-on:
-  push:
-    branches: [main]
-    paths: ['docs/wiki/**']
-jobs:
-  sync:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: Andrew-Chen-Wang/github-wiki-action@v4
-        with:
-          path: docs/wiki/
-          token: ${{ secrets.WIKI_PAT }}
-```
+### 1회성 셋업
+
+1. **Wiki 활성화**: repo Settings → Features → Wiki 체크 → 위키 탭에서 첫 페이지 한 번 저장 (wiki repo 초기화 트리거)
+2. **PAT 발급**: [github.com/settings/tokens](https://github.com/settings/tokens) → "Generate new token (classic)" → scope `repo` 체크 → 90일 이상 만료 → 토큰 복사
+   - `GITHUB_TOKEN` 은 wiki repo write 권한이 없어서 PAT 필요
+3. **Secret 등록**: repo Settings → Secrets and variables → Actions → "New repository secret" → name `WIKI_PAT`, value 위 토큰
+4. **첫 푸시 확인**: `docs/wiki/` 아무 파일 수정 + main 머지 → Actions 탭에서 `wiki-sync` 실행 확인
+
+### 자동 동작
+
+- `docs/wiki/*.md` 변경 시 자동 트리거
+- `SYNC.md` 는 자동 제외 (운영자 안내 문서 — 위키에 노출 안 함)
+- `_Sidebar.md` / `_Footer.md` 는 포함 (GitHub Wiki 특수 파일)
+- 동시 실행 방지 (`concurrency: wiki-sync`)
+- 커밋 메시지: `sync: <main repo commit SHA>`
+
+### 수동 실행 (테스트)
+
+Actions 탭 → `wiki-sync` workflow → "Run workflow" → `dry_run` 체크 시 푸시될 파일 목록만 확인.
 
 ## 위키 페이지 인덱스
 
@@ -112,10 +114,11 @@ https://github.com/GabrielJung0727/findit-rebuild/wiki
 
 ### PR 흐름 (큰 변경 권장)
 1. 메인 repo branch → `docs/wiki/<Page>.md` 수정
-2. PR + merge
-3. 위 "푸시 (수동)" 절차 실행
+2. PR + merge → main
+3. **`wiki-sync` workflow 가 자동 푸시** — 별도 작업 불필요
 
 ## 기여자에게
 
-- 위키 PR 은 `wiki-sync` workflow 가 자동 sync (활성화 시)
+- 위키 PR 은 `wiki-sync` workflow 가 자동 sync (`WIKI_PAT` secret 등록 후)
 - 직접 위키 편집한 경우 → 변경 내용을 메인 repo `docs/wiki/` 에 commit 백업 권장 (위키만 수정하면 history 분리됨)
+- 위키만 수정 + 메인 repo 미반영 시 → 다음 자동 sync 때 **메인 repo 가 위키를 덮어씀** — 양방향 sync 아님

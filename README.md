@@ -230,13 +230,31 @@ git push origin v1.0.0
 - 🚀 [docs/RELEASE.md](docs/RELEASE.md) — 출시 절차 + 시크릿 매트릭스
 - ☁️ [GCP_DEPLOYMENT.md](GCP_DEPLOYMENT.md) — Cloud Run 배포 가이드
 
-## 라이선스
+## 라이선스 / 법적 사항
 
-이 저장소의 신규 코드 (`client_flutter/`, `server/`, `docs/04-*.md`) 는 별도 명시 전까지 **All Rights Reserved**.
-디컴파일된 `android_project/` 와 `game.apk` 의 원본 저작권은 원 개발사 소유.
+본 저장소의 신규 저작물 (`client_flutter/`, `server/`, `docs/`, `.github/` 등) 은 **FindIt: Rebuild Proprietary License v1.0** 하에 배포됩니다 — **All Rights Reserved**, 제한적 fair use 만 허용.
+
+| 행위 | 허용? |
+|---|:---:|
+| GitHub 에서 소스 보기 | ✅ |
+| Fork → Pull Request | ✅ |
+| 50줄 이하 코드 인용 (출처 명시 + 교육 목적) | ✅ |
+| 상업적 사용 / GitHub 외 재배포 / ML 학습 데이터셋 사용 | ❌ — 별도 계약 필요 |
+
+**디컴파일된 `android_project/` 와 `game.apk`** 의 원본 저작권은 원 개발사에 있으며, 본 프로젝트의 라이선스 적용 대상이 아닙니다 — fair use 범위 내 reference 만 허용 ([LEGAL.md §2](LEGAL.md) 참조).
+
+| 문서 | 내용 |
+|---|---|
+| [LICENSE](LICENSE) | 라이선스 본문 (proprietary, 12 sections) |
+| [NOTICE](NOTICE) | 제3자 저작물 attribution + 디컴파일 disclosure |
+| [LEGAL.md](LEGAL.md) | 종합 법적 안내 (저작권 / 디컴파일 / 상표 / DMCA / AI opt-out) |
+| [CLA.md](CLA.md) | 기여자 라이선스 동의서 (PR 제출 시 자동 적용) |
+
+상업 라이선스 / 별도 협의: `jaewonjung1004@gmail.com` (제목 `[FindIt License Inquiry]`).
+DMCA / 저작권 침해 신고: https://github.com/contact/dmca + 위 이메일 (`[FindIt DMCA]`).
 
 ## 크레딧
 
-- 원본 게임 (2012-2013): 원 개발사 (서비스 종료)
-- 재구축 (2026-04~): @Gabriel_Jay
+- 원본 게임 (2012-2013): 원 개발사 (서비스 종료) — 모든 권리는 원 개발사 소유
+- 재구축 (2026-04~): Jaewon Jung ([@GabrielJung0727](https://github.com/GabrielJung0727))
 - 게임 룰·공식 보존 자료: `docs/findit_*.xlsx`, `docs/스킬트리_0[1-4].xlsx`, `docs/레벨별 첨수체계_기본능력치_0[1-2].xlsx`, `docs/AI_틀린부위 찾는 시간공식_01.xlsx`

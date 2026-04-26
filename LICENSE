@@ -1,0 +1,188 @@
+FindIt: Rebuild — Proprietary License v1.0
+=============================================
+
+Copyright (c) 2026 Jaewon Jung (a.k.a. Gabriel Jung, github.com/GabrielJung0727).
+All Rights Reserved.
+
+This Software ("Software") and associated documentation files, including but
+not limited to source code, design assets, configuration files, build
+scripts, schemas, and documentation contained in this repository (excluding
+the `android_project/` directory and `game.apk` file which contain
+decompiled reference material — see LEGAL.md §2), are the exclusive
+proprietary property of the copyright holder identified above.
+
+By accessing, downloading, viewing, or otherwise interacting with the
+Software, you agree to the terms below. If you do not agree, you must not
+use the Software in any way.
+
+
+1. PERMITTED USES (no prior written permission required)
+--------------------------------------------------------
+
+The following uses are explicitly permitted, subject to the conditions in
+Section 3:
+
+  (a) Viewing the Software's source code on github.com/GabrielJung0727/findit-rebuild;
+  (b) Forking the repository on GitHub for the sole purpose of preparing and
+      submitting a Pull Request back to the upstream repository;
+  (c) Cloning the repository locally for the purpose of code review,
+      contribution evaluation, or security research;
+  (d) Quoting up to fifty (50) consecutive lines of source code or up to two
+      hundred (200) words of documentation for non-commercial educational
+      purposes, provided that proper attribution is given (see Section 4);
+  (e) Building and running the Software locally for the sole purpose of
+      personal evaluation, contribution development, or security research,
+      without redistribution.
+
+
+2. PROHIBITED USES (require prior written permission)
+-----------------------------------------------------
+
+Without prior written permission from the copyright holder, you may NOT:
+
+  (a) Use the Software, in whole or in part, for any commercial purpose,
+      including but not limited to selling, licensing, leasing, hosting as
+      a paid service, or incorporating into a commercial product;
+  (b) Distribute, republish, mirror, or otherwise make the Software available
+      outside of the official GitHub repository, including but not limited
+      to package registries (npm, pub.dev, etc.), CDNs, or alternative git
+      hosts;
+  (c) Modify the Software and publish the modified version, except by
+      submitting a Pull Request to the upstream repository;
+  (d) Use the project name "FindIt: Rebuild", "FindIt", "틀린그림 찾기 배틀",
+      or any confusingly similar name, mark, or logo, for any project,
+      product, service, marketing, or domain name;
+  (e) Remove, alter, or obscure any copyright, license, attribution, or
+      trademark notices contained in the Software;
+  (f) Sublicense, transfer, or assign your rights under this License;
+  (g) Use the Software, or any portion thereof, as input to train, fine-tune,
+      or otherwise develop machine learning models, large language models,
+      or AI systems of any kind, whether commercial or non-commercial;
+  (h) Reverse engineer, decompile, or disassemble compiled artifacts beyond
+      what is permitted by applicable law;
+  (i) Use the Software in any application that violates applicable law,
+      infringes the rights of any third party, or is intended to harass,
+      harm, or deceive any person.
+
+
+3. CONDITIONS APPLYING TO ALL USES
+----------------------------------
+
+  (a) The above copyright notice and this License shall be included in all
+      copies or substantial portions of the Software;
+  (b) Where attribution is given, it shall include: (i) the project name
+      "FindIt: Rebuild"; (ii) the copyright notice from Section above;
+      (iii) a hyperlink to https://github.com/GabrielJung0727/findit-rebuild;
+  (c) These terms apply regardless of whether the user has formally accepted
+      them — accessing the Software constitutes acceptance.
+
+
+4. CONTRIBUTOR LICENSING
+------------------------
+
+By submitting any Contribution (Pull Request, commit, issue attachment, or
+wiki edit) to this repository, the contributor agrees to the terms of the
+Contributor License Agreement set forth in CLA.md, which is incorporated
+into this License by reference.
+
+In summary, contributors grant the copyright holder a perpetual, worldwide,
+non-exclusive, royalty-free, irrevocable license to use, modify, sublicense,
+and redistribute the Contribution under any present or future license terms,
+including the right to relicense the Contribution under a different license
+of the copyright holder's choosing. Contributors warrant that the
+Contribution is their original work or properly licensed for such grant.
+
+
+5. THIRD-PARTY COMPONENTS
+-------------------------
+
+The Software incorporates third-party components, each governed by its
+respective license. See the NOTICE file for the complete list of components,
+copyright notices, and license terms.
+
+The `android_project/` directory and `game.apk` file are NOT licensed under
+this License. They contain decompiled reference material whose use is
+strictly limited as described in LEGAL.md §2. Such material is excluded
+from any redistribution.
+
+
+6. TERMINATION
+--------------
+
+This License is effective until terminated. Your rights under this License
+will terminate automatically and without notice if you fail to comply with
+any term or condition. Upon termination:
+
+  (a) You must immediately cease all use of the Software;
+  (b) You must destroy all copies of the Software in your possession or
+      control, except as required for legitimate legal preservation;
+  (c) The Sections regarding Disclaimer (§7), Limitation of Liability (§8),
+      Contributor Licensing (§4 — for Contributions already submitted),
+      and Governing Law (§9) shall survive termination.
+
+
+7. DISCLAIMER OF WARRANTY
+-------------------------
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, NON-INFRINGEMENT, ACCURACY, RELIABILITY,
+OR THAT THE SOFTWARE WILL BE UNINTERRUPTED OR ERROR-FREE. THE ENTIRE RISK
+ARISING OUT OF THE USE OR PERFORMANCE OF THE SOFTWARE REMAINS WITH YOU.
+
+
+8. LIMITATION OF LIABILITY
+--------------------------
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL THE
+COPYRIGHT HOLDER, AUTHORS, OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT,
+INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
+ANY WAY OUT OF THE USE OF THE SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY
+OF SUCH DAMAGE.
+
+
+9. GOVERNING LAW AND JURISDICTION
+---------------------------------
+
+This License shall be governed by and construed in accordance with the laws
+of the Republic of Korea, without regard to its conflict of laws principles.
+Any dispute arising out of or in connection with this License shall be
+submitted to the exclusive jurisdiction of the Seoul Central District Court
+as the court of first instance.
+
+
+10. SEVERABILITY
+----------------
+
+If any provision of this License is held to be unenforceable or invalid,
+such provision shall be reformed only to the extent necessary to make it
+enforceable, and the remaining provisions shall remain in full force.
+
+
+11. ENTIRE AGREEMENT
+--------------------
+
+This License, together with the NOTICE, LEGAL.md, and CLA.md files,
+constitutes the entire agreement between you and the copyright holder
+regarding the Software and supersedes all prior or contemporaneous
+agreements, whether written or oral.
+
+
+12. COMMERCIAL LICENSING
+------------------------
+
+For commercial licensing inquiries, distribution agreements, or any use not
+permitted under this License, contact:
+
+    Jaewon Jung
+    Email: jaewonjung1004@gmail.com
+    GitHub: github.com/GabrielJung0727
+
+Subject line should begin with "[FindIt License Inquiry]".
+
+
+-- END OF LICENSE --

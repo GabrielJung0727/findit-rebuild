@@ -1,0 +1,113 @@
+# Dependabot — 의존성 자동 업데이트 + 보안 알림.
+#
+# 활성화 방법: repo Settings → Code security and analysis → Dependabot 모두 Enable.
+# 본 파일은 "version updates" 의 cadence / grouping / target 만 정의 (security
+# updates 는 위 Settings 토글로 별도 활성, 본 파일과 무관하게 즉시 PR 생성).
+#
+# 참조: https://docs.github.com/en/code-security/dependabot/working-with-dependabot/dependabot-options-reference
+
+version: 2
+
+updates:
+  # ─── 1. 서버 — Node.js / npm ────────────────────────────────────────────
+  - package-ecosystem: npm
+    directory: /server
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+      timezone: Asia/Seoul
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - server
+    commit-message:
+      prefix: chore(server)
+      include: scope
+    groups:
+      # 패치 / 마이너 — 한 PR 로 묶음 (작은 위험 + 리뷰 부담 최소화)
+      minor-and-patch:
+        applies-to: version-updates
+        update-types:
+          - minor
+          - patch
+      # 보안 업데이트 — 별도 PR (긴급 처리 추적성 확보)
+      security:
+        applies-to: security-updates
+        patterns:
+          - '*'
+    ignore:
+      # 예시 — major bump 보류 (필요 시 활성)
+      # - dependency-name: 'express'
+      #   update-types: ['version-update:semver-major']
+
+  # ─── 2. 클라 — Flutter / Dart pub ───────────────────────────────────────
+  - package-ecosystem: pub
+    directory: /client_flutter
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+      timezone: Asia/Seoul
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - client
+    commit-message:
+      prefix: chore(client)
+      include: scope
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types:
+          - minor
+          - patch
+      security:
+        applies-to: security-updates
+        patterns:
+          - '*'
+
+  # ─── 3. Android 빌드 — Gradle ──────────────────────────────────────────
+  - package-ecosystem: gradle
+    directory: /client_flutter/android
+    schedule:
+      interval: monthly
+      day: monday
+      time: '09:00'
+      timezone: Asia/Seoul
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - android
+      - build
+    commit-message:
+      prefix: chore(android)
+      include: scope
+    ignore:
+      # AGP / Kotlin / Gradle major bump — 수동 업그레이드 (호환성 검증 필요)
+      - dependency-name: 'com.android.tools.build:gradle'
+        update-types: ['version-update:semver-major']
+      - dependency-name: 'org.jetbrains.kotlin:kotlin-gradle-plugin'
+        update-types: ['version-update:semver-major']
+
+  # ─── 4. CI / 워크플로 — GitHub Actions ──────────────────────────────────
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+      timezone: Asia/Seoul
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - ci
+    commit-message:
+      prefix: chore(ci)
+      include: scope
+    groups:
+      actions:
+        applies-to: version-updates
+        update-types:
+          - minor
+          - patch

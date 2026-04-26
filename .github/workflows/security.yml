@@ -1,0 +1,153 @@
+name: security
+
+# 보안 자동 검사 — secret scanning + 의존성 vuln scanning.
+# Private repo 에서도 GHAS 없이 동작하는 OSS 도구만 사용.
+#
+# 트리거:
+#   - PR (모든 add/modify diff 검사)
+#   - main 푸시
+#   - 매일 03:00 KST (nightly — 새로 공개된 CVE 캐치)
+#   - 수동 (workflow_dispatch)
+#
+# 참조: SECURITY.md §11
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # cron: KST 03:00 = UTC 18:00 (전날)
+    - cron: '0 18 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  security-events: write   # SARIF 업로드용 (Settings → Security 탭에 표시)
+  pull-requests: read
+
+jobs:
+  # ─── 1. Secret scanning — Gitleaks ─────────────────────────────────────
+  gitleaks:
+    name: Gitleaks — secret detection
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # 전체 history 검사 (PR 의 add 커밋까지)
+
+      - name: Gitleaks scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}   # Pro 라이선스 사용 시
+          GITLEAKS_ENABLE_COMMENTS: 'true'   # PR 에 commenting
+
+  # ─── 2. Dependency vuln — OSV-Scanner (Google) ─────────────────────────
+  osv-scan:
+    name: OSV-Scanner — dependency vulnerabilities
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run OSV-Scanner
+        uses: google/osv-scanner-action/osv-scanner-action@v1.9.0
+        with:
+          scan-args: |-
+            --recursive
+            --skip-git
+            --format=sarif
+            --output=osv-results.sarif
+            ./client_flutter
+            ./server
+            ./client_flutter/android
+        continue-on-error: true
+
+      - name: Upload SARIF to Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: osv-results.sarif
+          category: osv-scanner
+
+  # ─── 3. Server — npm audit ─────────────────────────────────────────────
+  npm-audit:
+    name: npm audit — server
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: install (production)
+        run: npm ci --omit=dev
+
+      - name: audit (high+ only — CI 차단)
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: audit (전체 — informational)
+        run: npm audit --omit=dev || true
+        continue-on-error: true
+
+  # ─── 4. Client — pub outdated (informational) ──────────────────────────
+  pub-outdated:
+    name: pub outdated — client
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: client_flutter
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.27.4'
+          cache: true
+
+      - name: pub get
+        run: flutter pub get
+
+      - name: pub outdated
+        run: flutter pub outdated --mode=null-safety
+        continue-on-error: true   # 정보성 — 차단 X
+
+  # ─── 5. License compliance — 의존성 라이선스 매트릭스 ──────────────────
+  license-check:
+    name: License compatibility check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: Server — license check
+        working-directory: server
+        run: |
+          npx --yes license-checker-rseidelsohn \
+            --production \
+            --excludePackages 'findit-server@1.0.0' \
+            --failOn 'GPL-3.0;AGPL-3.0;LGPL-3.0;SSPL-1.0;BUSL-1.1;Commons-Clause;Elastic-2.0' \
+            --summary
+
+      # Flutter pub 라이선스 검증은 별도 도구 (현재는 NOTICE 수동 관리)

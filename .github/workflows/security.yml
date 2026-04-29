@@ -29,6 +29,7 @@ permissions:
   contents: read
   security-events: write   # SARIF 업로드용 (Settings → Security 탭에 표시)
   pull-requests: read
+  actions: read            # codeql-action 의 워크플로우 run 메타데이터 조회 (telemetry + SARIF fingerprinting)
 
 jobs:
   # ─── 1. Secret scanning — Gitleaks ─────────────────────────────────────
@@ -70,8 +71,9 @@ jobs:
         continue-on-error: true
 
       - name: Upload SARIF to Security tab
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        # 결과 파일이 있을 때만 업로드 (스캔 실패해도 워크플로우 성공 처리)
+        if: always() && hashFiles('osv-results.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: osv-results.sarif
           category: osv-scanner

@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>FindIt — 교수님 핸드아웃</title>
+<style>
+  @page { size: A4; margin: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', 'Pretendard', 'Segoe UI', sans-serif;
+    color: #1a1f36;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .page {
+    width: 210mm; height: 297mm;
+    padding: 10mm 12mm;
+    position: relative;
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  /* header */
+  .head {
+    background: linear-gradient(135deg, #1a1f36 0%, #2d3557 100%);
+    color: #fff; padding: 5mm 7mm; border-radius: 5px;
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 4mm;
+  }
+  .head h1 { font-size: 16pt; font-weight: 800; line-height: 1.1; }
+  .head .sub { font-size: 8.5pt; color: #b7c0d8; margin-top: 1mm; }
+  .head .meta { text-align: right; font-size: 8.5pt; color: #b7c0d8; }
+  .head .meta .v { color: #fff; font-weight: 600; font-size: 9.5pt; }
+
+  h2 {
+    font-size: 11.5pt; color: #1a1f36; margin: 0 0 2mm;
+    padding-left: 3mm; border-left: 4px solid #4a90e2; line-height: 1.2;
+  }
+
+  /* steps */
+  .steps {
+    display: grid; grid-template-columns: 1fr 1fr 1fr;
+    gap: 3mm; margin-bottom: 3mm;
+  }
+  .step {
+    border: 2px solid; border-radius: 5px;
+    padding: 4mm 4mm 4mm 4mm;
+    position: relative;
+    min-height: 78mm;
+  }
+  .step.s1 { border-color: #4a90e2; background: #fff; }
+  .step.s2 { border-color: #27ae60; background: #fff; }
+  .step.s3 { border-color: #f39c12; background: #fff; }
+
+  .step-num {
+    position: absolute; top: -7mm; left: 4mm;
+    width: 12mm; height: 12mm; border-radius: 50%;
+    color: #fff; font-size: 16pt; font-weight: 800;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .step.s1 .step-num { background: #4a90e2; }
+  .step.s2 .step-num { background: #27ae60; }
+  .step.s3 .step-num { background: #f39c12; }
+
+  .step h3 { font-size: 10.5pt; margin: 0.5mm 0 0.5mm; color: #1a1f36; }
+  .step .lbl { font-size: 7.5pt; color: #6b7285; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+  .step .url {
+    font-family: 'Consolas', monospace; font-size: 7.5pt;
+    background: #f0f3f8; padding: 1mm 2mm; border-radius: 3px;
+    margin: 1.5mm 0 3mm; word-break: break-all;
+  }
+  .step .cost {
+    background: #f5f7fa; border-radius: 4px; padding: 1.5mm 2.5mm;
+    margin-bottom: 2.5mm; font-size: 9pt;
+  }
+  .step .cost .when { color: #6b7285; font-size: 8pt; }
+  .step .cost .what { font-weight: 700; }
+
+  .step ol { padding-left: 4.5mm; font-size: 8.5pt; line-height: 1.45; }
+  .step ol li { margin-bottom: 1mm; }
+  .step ol li b { color: #1a1f36; }
+  .step ol li small { color: #6b7285; font-size: 7.8pt; display: block; margin-top: 0.3mm; }
+
+  /* warning box */
+  .warn {
+    background: #fceae8; border-left: 4px solid #c0392b;
+    padding: 2mm 3mm; border-radius: 0 4px 4px 0;
+    font-size: 8.5pt; line-height: 1.45;
+    margin-bottom: 3mm;
+  }
+  .warn b { color: #b53030; }
+
+  /* cost summary */
+  .summary-row {
+    display: grid; grid-template-columns: 2fr 1fr 2fr 1fr; gap: 2.5mm;
+    margin-bottom: 3mm;
+  }
+  .ss-card {
+    background: #f5f7fa; border: 1px solid #e5e8ef; border-radius: 4px;
+    padding: 2mm 3mm; font-size: 9pt;
+  }
+  .ss-card .lbl { font-size: 7.5pt; color: #6b7285; text-transform: uppercase; font-weight: 600; }
+  .ss-card .val { font-size: 11pt; font-weight: 700; color: #1a1f36; margin-top: 0.5mm; }
+  .ss-card .val small { font-size: 8.5pt; font-weight: 400; color: #8a93b0; }
+  .ss-card.total { background: linear-gradient(135deg, #1a1f36, #2d3557); color: #fff; border: none; }
+  .ss-card.total .lbl { color: #b7c0d8; }
+  .ss-card.total .val { color: #fff; }
+
+  /* timeline */
+  .tl {
+    display: grid; grid-template-columns: repeat(5, 1fr); gap: 2mm;
+    margin-bottom: 3mm;
+  }
+  .tl-item {
+    border-top: 3px solid #4a90e2; padding-top: 1.5mm;
+    font-size: 8pt; line-height: 1.35;
+  }
+  .tl-item.gray { border-color: #d7dce8; }
+  .tl-item .when { font-size: 8pt; color: #4a90e2; font-weight: 700; }
+  .tl-item.gray .when { color: #8a93b0; }
+  .tl-item .what { font-weight: 700; color: #1a1f36; margin: 0.5mm 0; }
+  .tl-item .who { color: #6b7285; font-size: 7.5pt; }
+
+  /* report row */
+  .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 3mm; }
+  .small-card {
+    background: #fafbfd; border: 1px solid #e5e8ef; border-radius: 4px;
+    padding: 2mm 3mm; font-size: 8.5pt; line-height: 1.45;
+  }
+  .small-card h3 { font-size: 9.5pt; color: #1a1f36; margin-bottom: 1mm; }
+
+  /* footer */
+  .foot {
+    margin-top: auto; padding-top: 3mm; border-top: 1px solid #e5e8ef;
+    display: flex; justify-content: space-between;
+    font-size: 8pt; color: #6b7285;
+  }
+</style>
+</head>
+<body>
+
+<div class="page">
+
+  <!-- HEAD -->
+  <div class="head">
+    <div>
+      <h1>FindIt 리빌드 — 교수님 핸드아웃</h1>
+      <div class="sub">출시 직전 액션 아이템 · 카드 한 장으로 정리</div>
+    </div>
+    <div class="meta">
+      <div>2026-04-30 미팅</div>
+      <div class="v">개발팀 · FindIt Rebuild</div>
+    </div>
+  </div>
+
+  <!-- STEPS -->
+  <h2 style="margin-top:3mm">교수님께서 해주실 일 — 3가지</h2>
+
+  <div class="steps" style="margin-top:8mm">
+
+    <!-- STEP 1 -->
+    <div class="step s1">
+      <div class="step-num">1</div>
+      <div class="lbl" style="margin-top:1mm">GCP 무료 평가판 가입</div>
+      <h3>Google Cloud Platform</h3>
+      <div class="url">console.cloud.google.com</div>
+      <div class="cost">
+        <div class="when">소요 / 비용</div>
+        <div class="what">15분 · $0</div>
+      </div>
+      <ol>
+        <li><b>Google 계정 로그인</b></li>
+        <li><b>"무료로 시작하기"</b> → 카드 등록<small>$300 크레딧 + 90일 자동 부여 / 자동결제 X</small></li>
+        <li><b>예산 알림 설정</b><small>결제 → 예산 및 알림 → $1 / 50·90·100% 메일</small></li>
+        <li><b>우리 Gmail 에 권한 부여</b><small>결제 → 결제 계정 관리 → 권한 → 추가 / 역할: <b>"결제 계정 사용자"</b></small></li>
+      </ol>
+    </div>
+
+    <!-- STEP 2 -->
+    <div class="step s2">
+      <div class="step-num">2</div>
+      <div class="lbl" style="margin-top:1mm">Google Play Console 가입</div>
+      <h3>Android 출시 (필수)</h3>
+      <div class="url">play.google.com/console</div>
+      <div class="cost">
+        <div class="when">소요 / 비용</div>
+        <div class="what">20분 + 1~3일 심사 · $25 (1회 평생)</div>
+      </div>
+      <ol>
+        <li><b>Google 계정 로그인</b></li>
+        <li><b>$25 결제</b> (1회 평생 사용)</li>
+        <li><b>신원 확인</b><small>학교 사업자등록 가능 / 1~3일 소요</small></li>
+        <li><b>우리 관리자로 초대</b><small>사용자 및 권한 → 사용자 초대 / 권한: 관리자</small></li>
+      </ol>
+    </div>
+
+    <!-- STEP 3 -->
+    <div class="step s3">
+      <div class="step-num">3</div>
+      <div class="lbl" style="margin-top:1mm">Apple Developer Program (선택)</div>
+      <h3>iOS 출시 시</h3>
+      <div class="url">developer.apple.com/programs</div>
+      <div class="cost">
+        <div class="when">소요 / 비용</div>
+        <div class="what">30분 ~ 2주 · $99/년 또는 $0 (면제)</div>
+      </div>
+      <ol>
+        <li><b>Apple ID 로그인</b></li>
+        <li><b>가입 유형 선택</b><small>개인 / 조직 / 기관(면제)</small></li>
+        <li><b>학교 면제 신청</b><small>Apple Developer for Educational Institutions / 학교 IT팀 통해</small></li>
+        <li><b>App Manager 로 우리 초대</b><small>People → Invite People</small></li>
+      </ol>
+    </div>
+
+  </div>
+
+  <!-- WARNING -->
+  <div class="warn">
+    <b>⚠️ 권한 주의 — "관리자" 가 아닌 "사용자"</b><br>
+    GCP 권한은 반드시 <b>"결제 계정 사용자"</b>(Billing Account User) 부여. → 카드 정보 / CVC / 명세서 접근 불가, 프로젝트 연결만 가능.
+    카드는 안전합니다.
+  </div>
+
+  <!-- COST SUMMARY -->
+  <h2>💰 1년 비용 요약</h2>
+  <div class="summary-row" style="margin-top:3mm">
+    <div class="ss-card">
+      <div class="lbl">GCP (서버)</div>
+      <div class="val">$0<small> / 월</small></div>
+    </div>
+    <div class="ss-card">
+      <div class="lbl">Android</div>
+      <div class="val">$25<small> / 1회</small></div>
+    </div>
+    <div class="ss-card">
+      <div class="lbl">iOS (선택)</div>
+      <div class="val">$99<small> / 년 또는 $0</small></div>
+    </div>
+    <div class="ss-card total">
+      <div class="lbl">합계 (Android+iOS)</div>
+      <div class="val">$25 ~ $124</div>
+    </div>
+  </div>
+
+  <!-- TIMELINE -->
+  <h2 style="margin-top:3mm">📅 출시 일정 — Android 4주, iOS +2주</h2>
+  <div class="tl" style="margin-top:3mm">
+    <div class="tl-item">
+      <div class="when">Week 1</div>
+      <div class="what">교수님 가입</div>
+      <div class="who">GCP + Play / 우리 GCP 배포</div>
+    </div>
+    <div class="tl-item">
+      <div class="when">Week 2</div>
+      <div class="what">내부 테스트</div>
+      <div class="who">교수님 검수</div>
+    </div>
+    <div class="tl-item">
+      <div class="when">Week 3</div>
+      <div class="what">검수 신청</div>
+      <div class="who">Play 심사 1~7일</div>
+    </div>
+    <div class="tl-item">
+      <div class="when">Week 4 🚀</div>
+      <div class="what">Android 출시</div>
+      <div class="who">2026-05-28 목표</div>
+    </div>
+    <div class="tl-item gray">
+      <div class="when">W5+ 선택</div>
+      <div class="what">iOS 추가</div>
+      <div class="who">TestFlight → 출시</div>
+    </div>
+  </div>
+
+  <!-- WEEKLY REPORT + NEXT MEETING -->
+  <div class="row-2" style="margin-top:3mm">
+    <div class="small-card">
+      <h3>📊 매주 보고드릴 사항</h3>
+      ① <b>GCP 사용량</b> (Cloud Run / Storage / 네트워크)<br>
+      ② <b>무료 한도 잔여</b> (예산 알림 상황)<br>
+      ③ <b>다음 주 작업 계획</b><br>
+      <small style="color:#6b7285">— 카톡으로 매주 월요일 발송</small>
+    </div>
+    <div class="small-card">
+      <h3>📅 다음 미팅</h3>
+      <b>2026-05-07 (목) — Cloud Run 배포 데모</b><br>
+      교수님 휴대폰에서 직접 동작 확인 예정<br>
+      <small style="color:#6b7285">Google Play 내부 테스트 설치 링크 전달</small>
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <div class="foot">
+    <div>FindIt Rebuild · Educational Project</div>
+    <div>v1.0 · 2026-04-30 · 카톡 문의 환영</div>
+  </div>
+</div>
+
+</body>
+</html>

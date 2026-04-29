@@ -1,0 +1,746 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>FindIt 리빌드 — 미팅 슬라이드 2026-04-30</title>
+<style>
+  @page { size: A4 landscape; margin: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', 'Pretendard', 'Segoe UI', sans-serif;
+    color: #1a1f36;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  /* slide: 297 x 210 mm */
+  .slide {
+    width: 297mm; height: 210mm;
+    page-break-after: always;
+    page-break-inside: avoid;
+    padding: 18mm 22mm;
+    position: relative;
+    background: #fff;
+    display: flex; flex-direction: column;
+  }
+  .slide:last-child { page-break-after: auto; }
+
+  /* header / footer */
+  .slide-num {
+    position: absolute; right: 22mm; bottom: 10mm;
+    font-size: 9pt; color: #8a93b0; font-weight: 600;
+  }
+  .slide-foot {
+    position: absolute; left: 22mm; bottom: 10mm;
+    font-size: 9pt; color: #8a93b0;
+  }
+  .slide-tag {
+    position: absolute; right: 22mm; top: 10mm;
+    font-size: 8.5pt; color: #4a90e2; font-weight: 700;
+    letter-spacing: 1.5px; text-transform: uppercase;
+  }
+
+  /* typography */
+  h1.slide-title {
+    font-size: 32pt; font-weight: 800; line-height: 1.15;
+    color: #1a1f36; margin-bottom: 4mm;
+  }
+  h2.slide-title { font-size: 24pt; font-weight: 700; color: #1a1f36; line-height: 1.2; margin-bottom: 6mm; }
+  .slide-sub { font-size: 13pt; color: #6b7285; margin-bottom: 10mm; font-weight: 400; }
+  .slide-rule {
+    width: 28mm; height: 4px; background: #4a90e2; border-radius: 2px;
+    margin-bottom: 8mm;
+  }
+
+  /* layout helpers */
+  .row { display: flex; gap: 8mm; }
+  .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8mm; }
+  .row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6mm; }
+  .row-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 5mm; }
+  .grow { flex: 1; }
+
+  /* boxes */
+  .card {
+    background: #f5f7fa; border: 1px solid #e5e8ef; border-radius: 8px;
+    padding: 6mm 7mm;
+  }
+  .card.accent { background: linear-gradient(135deg, #e8f1fc 0%, #fff 100%); border-color: #b8d4f0; }
+  .card.success { background: linear-gradient(135deg, #e4f6ec 0%, #fff 100%); border-color: #b8e0c8; }
+  .card.warn { background: linear-gradient(135deg, #fdf3e0 0%, #fff 100%); border-color: #f0d098; }
+  .card.danger { background: linear-gradient(135deg, #fceae8 0%, #fff 100%); border-color: #e6a8a4; }
+  .card.dark { background: #1a1f36; color: #fff; border: none; }
+  .card.dark .k { color: #8a93b0; }
+  .card-title { font-size: 14pt; font-weight: 700; color: #1a1f36; margin-bottom: 3mm; }
+
+  .stat-big { font-size: 38pt; font-weight: 800; line-height: 1; color: #1a1f36; }
+  .stat-big small { font-size: 14pt; font-weight: 400; color: #6b7285; }
+  .stat-mid { font-size: 22pt; font-weight: 700; line-height: 1.1; color: #1a1f36; }
+  .stat-lbl { font-size: 9.5pt; color: #6b7285; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 1mm; font-weight: 600; }
+
+  .pill {
+    display: inline-block; padding: 1.5mm 4mm; border-radius: 30px; font-size: 10pt;
+    font-weight: 600;
+  }
+  .pill.green { background: #e4f6ec; color: #1f7a3e; }
+  .pill.red { background: #fceae8; color: #b53030; }
+  .pill.yellow { background: #fef5d7; color: #8a6516; }
+  .pill.blue { background: #e8f1fc; color: #1f5a99; }
+
+  ul.b { list-style: none; padding-left: 0; }
+  ul.b li {
+    padding: 1.5mm 0 1.5mm 8mm; position: relative; font-size: 12pt; line-height: 1.45;
+  }
+  ul.b li::before {
+    content: '▸'; position: absolute; left: 0; color: #4a90e2; font-weight: 700;
+  }
+  ul.check li::before { content: '✓'; color: #27ae60; font-size: 14pt; line-height: 1; top: 2mm; }
+  ul.cross li::before { content: '○'; color: #f39c12; font-weight: 600; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 11pt; }
+  table th { background: #1a1f36; color: #fff; text-align: left; padding: 2.5mm 4mm; font-weight: 600; font-size: 10.5pt; }
+  table td { padding: 2.5mm 4mm; border-bottom: 1px solid #e5e8ef; }
+  table tr:nth-child(even) td { background: #fafbfd; }
+  table.big td, table.big th { padding: 3.5mm 5mm; font-size: 12pt; }
+
+  .arch {
+    background: #f5f7fa; border: 1px solid #e5e8ef; border-radius: 8px;
+    padding: 6mm 8mm; font-family: 'Consolas', monospace; font-size: 10pt; line-height: 1.6;
+    white-space: pre; color: #1a1f36;
+  }
+
+  /* cover */
+  .cover {
+    background: linear-gradient(135deg, #1a1f36 0%, #2d3557 60%, #4a5680 100%);
+    color: #fff; padding: 30mm 25mm;
+  }
+  .cover .badge {
+    display: inline-block; padding: 2mm 6mm;
+    background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3);
+    border-radius: 30px; font-size: 10pt; letter-spacing: 1.5px; margin-bottom: 14mm;
+    font-weight: 600;
+  }
+  .cover h1 { font-size: 48pt; line-height: 1.1; margin-bottom: 8mm; font-weight: 800; }
+  .cover h2 { font-size: 18pt; color: #b7c0d8; font-weight: 400; margin-bottom: 18mm; line-height: 1.5; }
+  .cover .meta { display: grid; grid-template-columns: 28mm 1fr 28mm 1fr; gap: 3mm 6mm; font-size: 12pt; color: #d0d6e8; max-width: 200mm; }
+  .cover .meta .k { color: #8a93b0; font-weight: 600; }
+  .cover::after {
+    content: ''; position: absolute; right: -30mm; bottom: -30mm; width: 100mm; height: 100mm;
+    background: rgba(255,255,255,0.05); border-radius: 50%;
+  }
+
+  /* step number */
+  .step-circle {
+    width: 18mm; height: 18mm; border-radius: 50%;
+    background: #4a90e2; color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22pt; font-weight: 800; margin-bottom: 4mm;
+  }
+
+  /* timeline */
+  .tl { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4mm; margin-top: 6mm; }
+  .tl-item {
+    border-top: 4px solid #4a90e2; padding-top: 4mm;
+  }
+  .tl-item.gray { border-color: #d7dce8; }
+  .tl-item.green { border-color: #27ae60; }
+  .tl-item .when { font-size: 10pt; color: #8a93b0; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
+  .tl-item .what { font-size: 12pt; font-weight: 700; color: #1a1f36; margin: 1mm 0 2mm; }
+  .tl-item .who { font-size: 10pt; color: #6b7285; }
+
+</style>
+</head>
+<body>
+
+<!-- ════════════ Slide 1: Cover ════════════ -->
+<div class="slide cover">
+  <div class="badge">PROJECT MEETING · 2026-04-30</div>
+  <h1>FindIt 리빌드<br>진행 보고 &amp; 배포 협의</h1>
+  <h2>GCP 무료 한도 배포 전략 + iOS/Android 스토어 등록 + 향후 개발 일정</h2>
+  <div class="meta">
+    <div class="k">일시</div><div>2026-04-30 (목) 오전</div>
+    <div class="k">장소</div><div>회의실 / 온라인</div>
+    <div class="k">참석</div><div>교수님 + 개발팀</div>
+    <div class="k">소요</div><div>약 45분 ~ 1시간</div>
+    <div class="k">자료</div><div>슬라이드 / 핸드아웃 / 회의록</div>
+    <div class="k">결정사항</div><div>GCP 가입 / 스토어 가입 / 일정 합의</div>
+  </div>
+</div>
+
+<!-- ════════════ Slide 2: Agenda ════════════ -->
+<div class="slide">
+  <div class="slide-tag">AGENDA</div>
+  <h1 class="slide-title">오늘의 어젠다</h1>
+  <div class="slide-rule"></div>
+  <div class="slide-sub">총 6개 섹션 · 약 50분</div>
+
+  <table class="big">
+    <thead><tr><th style="width:14mm">#</th><th>주제</th><th style="width:20mm">시간</th><th style="width:30mm">화자</th></tr></thead>
+    <tbody>
+      <tr><td><b>1</b></td><td>현재 진행 상황 — "코드는 다 됐다"</td><td>5분</td><td>개발팀</td></tr>
+      <tr><td><b>2</b></td><td>GCP 배포 — 무료 한도 전략</td><td>10분</td><td>개발팀</td></tr>
+      <tr><td><b>3</b></td><td>iOS / Android 스토어 등록</td><td>10분</td><td>개발팀</td></tr>
+      <tr><td><b>4</b></td><td>⭐ 교수님께서 해주실 일</td><td>10분</td><td>교수님 + 개발팀</td></tr>
+      <tr><td><b>5</b></td><td>향후 개발 일정 / 일정 합의</td><td>10분</td><td>전원</td></tr>
+      <tr><td><b>6</b></td><td>Q&amp;A · 다음 미팅</td><td>5분</td><td>전원</td></tr>
+    </tbody>
+  </table>
+
+  <div class="slide-foot">FindIt Rebuild Meeting</div>
+  <div class="slide-num">2 / 15</div>
+</div>
+
+<!-- ════════════ Slide 3: 현재 상태 ════════════ -->
+<div class="slide">
+  <div class="slide-tag">SECTION 1 · STATUS</div>
+  <h1 class="slide-title">현재 상태</h1>
+  <div class="slide-rule"></div>
+  <div class="slide-sub">한 줄 요약: <b>코드는 다 됐고, 외부 계정 발급만 남았습니다.</b></div>
+
+  <div class="row-4" style="margin-top:8mm">
+    <div class="card accent">
+      <div class="stat-lbl">디컴파일 Java</div>
+      <div class="stat-big">21,678<small> 줄</small></div>
+    </div>
+    <div class="card accent">
+      <div class="stat-lbl">신규 서버</div>
+      <div class="stat-big">2,500<small> 줄 / 17 모듈</small></div>
+    </div>
+    <div class="card success">
+      <div class="stat-lbl">REST 엔드포인트</div>
+      <div class="stat-big">21<small> 개</small></div>
+    </div>
+    <div class="card success">
+      <div class="stat-lbl">DB 테이블</div>
+      <div class="stat-big">16<small> 개</small></div>
+    </div>
+  </div>
+
+  <div class="row-4" style="margin-top:5mm">
+    <div class="card warn">
+      <div class="stat-lbl">스킬 트리</div>
+      <div class="stat-big">44<small> / 8 (현재)</small></div>
+    </div>
+    <div class="card warn">
+      <div class="stat-lbl">소켓 코드</div>
+      <div class="stat-big">7<small> 개 (100~107)</small></div>
+    </div>
+    <div class="card">
+      <div class="stat-lbl">유닛 테스트</div>
+      <div class="stat-big">26<small> 통과 / 26</small></div>
+    </div>
+    <div class="card">
+      <div class="stat-lbl">작업 기간</div>
+      <div class="stat-big">1<small> 주 (4/24~4/29)</small></div>
+    </div>
+  </div>
+
+  <div class="slide-foot">FindIt Rebuild Meeting</div>
+  <div class="slide-num">3 / 15</div>
+</div>
+
+<!-- ════════════ Slide 4: 완료 vs 남은 일 ════════════ -->
+<div class="slide">
+  <div class="slide-tag">SECTION 1 · STATUS</div>
+  <h1 class="slide-title">완료 vs 남은 일</h1>
+  <div class="slide-rule"></div>
+
+  <div class="row-2" style="flex:1">
+    <div class="card success">
+      <div class="card-title">🟢 완료 (1순위 + 2순위 전체)</div>
+      <ul class="b check">
+        <li>원본 디컴파일 21,678줄 → 빌드 가능 상태로 복원</li>
+        <li>서버 재구축 — REST 21개 + 소켓 7코드</li>
+        <li>2013 기획 반영 — 44 스킬 / 100 레벨 / 콤보 / AI / HP</li>
+        <li>결제 보안 — Google/Apple/Samsung 영수증 서버 재검증</li>
+        <li>운영 도구 — 어드민 대시보드 8탭 / 통계 / FCM 푸시</li>
+        <li>보안 — reCAPTCHA / 세션 토큰 / 중복 로그인 차단</li>
+        <li>Flutter 클라 부트스트랩 + REST/WS 통합</li>
+        <li>유닛 테스트 26/26 통과</li>
+      </ul>
+    </div>
+    <div class="card warn">
+      <div class="card-title">🟡 남은 일 = 외부 계정 발급</div>
+      <ul class="b cross">
+        <li><b>교수님:</b> GCP 결제 계정 등록</li>
+        <li><b>교수님:</b> Google Play Console 가입 ($25)</li>
+        <li><b>교수님:</b> Apple Developer (선택, $99 또는 면제)</li>
+        <li><b>우리:</b> Firebase 콘솔 + 서비스 계정 키 발급</li>
+        <li><b>우리:</b> Google Play Developer API 키</li>
+        <li><b>우리:</b> Apple Shared Secret</li>
+        <li><b>우리:</b> reCAPTCHA Site / Secret Key</li>
+        <li><b>우리:</b> Cloud Run 배포 + 운영 URL 반영</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="slide-foot">FindIt Rebuild Meeting</div>
+  <div class="slide-num">4 / 15</div>
+</div>
+
+<!-- ════════════ Slide 5: GCP 전략 ════════════ -->
+<div class="slide">
+  <div class="slide-tag">SECTION 2 · GCP</div>
+  <h1 class="slide-title">GCP 무료 운영 전략</h1>
+  <div class="slide-rule"></div>
+  <div class="slide-sub"><b>Always Free 영구 무료 + $300 신규 가입 크레딧</b> 조합 → 월 $0 운영 가능</div>
+
+  <table class="big" style="margin-top:6mm">
+    <thead><tr><th>리소스</th><th>용도</th><th>무료 한도</th><th>예상 사용량</th></tr></thead>
+    <tbody>
+      <tr><td><b>Cloud Run</b></td><td>REST API 서버</td><td>월 200만 요청</td><td>~50만 요청</td></tr>
+      <tr><td><b>Compute Engine</b> (e2-micro)</td><td>TCP 멀티플레이 소켓</td><td>1대 영구 무료</td><td>1대 사용</td></tr>
+      <tr><td><b>Cloud Storage</b></td><td>이미지 / 사운드 에셋</td><td>5 GB</td><td>~2 GB</td></tr>
+      <tr><td><b>Cloud SQL</b> (옵션)</td><td>MySQL DB</td><td>$9/월 → $300 크레딧 사용</td><td>db-f1-micro</td></tr>
+      <tr><td><b>네트워크</b></td><td>API 응답</td><td>외부 송신 1 GB/월</td><td>~500 MB</td></tr>
+    </tbody>
+  </table>
+
+  <div class="card accent" style="margin-top:8mm">
+    <div class="card-title">🌎 왜 미국 리전(us-central1)?</div>
+    <p style="font-size:11pt;color:#4a5680;line-height:1.6">
+      서울 리전(asia-northeast3)은 무료 한도가 미적용 → 부득이 미국 사용.
+      한국 ↔ 미국 응답 지연 80~120ms 로 게임 플레이에 무리 없는 수준이며,
+      DAU 5,000+ 단계에서 서울 이전 검토 (월 $35~).
+    </p>
+  </div>
+
+  <div class="slide-foot">FindIt Rebuild Meeting</div>
+  <div class="slide-num">5 / 15</div>
+</div>
+
+<!-- ════════════ Slide 6: GCP 비용 시나리오 ════════════ -->
+<div class="slide">
+  <div class="slide-tag">SECTION 2 · GCP</div>
+  <h1 class="slide-title">비용 시나리오 — 3가지 옵션</h1>
+  <div class="slide-rule"></div>
+
+  <div class="row-3" style="margin-top:8mm">
+    <div class="card success">
+      <div class="pill green">옵션 A · 추천</div>
+      <div class="stat-big" style="margin:6mm 0 2mm">$0<small> / 월</small></div>
+      <div class="stat-lbl">100% 무료</div>
+      <ul class="b" style="margin-top:4mm">
+        <li>e2-micro VM + SQLite</li>
+        <li>Cloud SQL 미사용</li>
+        <li>영구 0원 운영</li>
+        <li>단점: 백업 수동</li>
+      </ul>
+    </div>
+    <div class="card accent">
+      <div class="pill blue">옵션 B · 안정</div>
+      <div class="stat-big" style="margin:6mm 0 2mm">$9~12<small> / 월</small></div>
+      <div class="stat-lbl">초기 90일 무료</div>
+      <ul class="b" style="margin-top:4mm">
+        <li>Cloud Run + Cloud SQL</li>
+        <li>$300 크레딧 25개월</li>
+        <li>운영 안정성 확보</li>
+        <li>크레딧 후 월 $9~</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="pill yellow">옵션 C · 성장</div>
+      <div class="stat-big" style="margin:6mm 0 2mm">$35~55<small> / 월</small></div>
+      <div class="stat-lbl">DAU 1,000+</div>
+      <ul class="b" style="margin-top:4mm">
+        <li>서울 리전 이전</li>
+        <li>Memorystore Redis</li>
+        <li>광고/IAP 매출이 비용 상회</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="card warn" style="margin-top:10mm">
+    <div class="card-title">🛡️ 비용 안전장치</div>
+    <ul class="b" style="font-size:11pt">
+      <li>월 예산 알림 $1 — 50% / 90% / 100% 도달 시 메일</li>
+      <li>Cloud Run min-instances=0 — 트래픽 없으면 자동 0원</li>
+      <li>매주 사용량 카톡 보고 — 이상 감지 시 즉시 보고</li>
+    </ul>
+  </div>
+
+  <div class="slide-foot">FindIt Rebuild Meeting</div>
+  <div class="slide-num">6 / 15</div>
+</div>
+
+<!-- ════════════ Slide 7: 스토어 비교 ════════════ -->
+<div class="slide">
+  <div class="slide-tag">SECTION 3 · STORES</div>
+  <h1 class="slide-title">iOS / Android 스토어 등록 비교</h1>
+  <div class="slide-rule"></div>
+
+  <div class="row-3" style="margin-top:8mm">
+    <div class="card accent">
+      <div class="pill blue">Google Play</div>
+      <div class="stat-big" style="margin:6mm 0 2mm">$25<small> / 1회</small></div>
+      <div class="stat-lbl">Android · 평생 사용</div>
+      <ul class="b" style="margin-top:4mm">
+        <li>심사 1~7일</li>
+        <li>학교 사업자등록 가능</li>
+        <li>내부 / 비공개 / 공개 테스트 트랙</li>
+        <li><b>우선 배포 권장</b></li>
+      </ul>
+    </div>
+    <div class="card warn">
+      <div class="pill yellow">Apple App Store</div>
+      <div class="stat-big" style="margin:6mm 0 2mm">$99<small> / 년</small></div>
+      <div class="stat-lbl">iOS · 학교 면제 가능</div>
+      <ul class="b" style="margin-top:4mm">
+        <li>심사 1~14일</li>
+        <li>TestFlight 베타 → 정식</li>
+        <li>학교 기관 면제 신청</li>
+        <li>면제 시 무료</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="pill green">Samsung Galaxy</div>
+      <div class="stat-big" style="margin:6mm 0 2mm">$0<small> (무료)</small></div>
+      <div class="stat-lbl">갤럭시 추가 노출</div>
+      <ul class="b" style="margin-top:4mm">
+        <li>심사 1~3일</li>
+        <li>Android 자동 호환</li>
+        <li>(선택) — 출시 후</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="card dark" style="margin-top:10mm">
+    <div class="card-title" style="color:#fff">🎓 Apple 학교 기관 면제 확인 사항</div>
+    <p style="font-size:11pt;line-height:1.6">
+      <b>Apple Developer Program for Educational Institutions</b> — 비영리 교육기관 무료.
+      학교 IT/행정실에 신청 가능 여부 문의 필요. 우리가 신청서 작성 가이드 + 학교에 보낼 메일 템플릿 제공.
+    </p>
+  </div>
+
+  <div class="slide-foot">FindIt Rebuild Meeting</div>
+  <div class="slide-num">7 / 15</div>
+</div>
+
+<!-- ════════════ Slide 8: 출시 순서 ════════════ -->
+<div class="slide">
+  <div class="slide-tag">SECTION 3 · STORES</div>
+  <h1 class="slide-title">출시 순서 — Android 우선</h1>
+  <div class="slide-rule"></div>
+  <div class="slide-sub">$25 결제 한 번이면 평생 사용 가능한 Google Play 부터 출시</div>
+
+  <div class="tl">
+    <div class="tl-item green">
+      <div class="when">Week 1</div>
+      <div class="what">Google Play<br>가입 ($25)</div>
+      <div class="who">교수님 → 우리 초대</div>
+    </div>
+    <div class="tl-item green">
+      <div class="when">Week 2</div>
+      <div class="what">내부 테스트<br>트랙 업로드</div>
+      <div class="who">교수님 검수</div>
+    </div>
+    <div class="tl-item green">
+      <div class="when">Week 3</div>
+      <div class="what">공개 테스트<br>+ 검수 신청</div>
+      <div class="who">Google 심사 1~7일</div>
+    </div>
+    <div class="tl-item green">
+      <div class="when">Week 4</div>
+      <div class="what">🚀 Android<br>정식 출시</div>
+      <div class="who">모니터링</div>
+    </div>
+    <div class="tl-item gray">
+      <div class="when">Week 5+</div>
+      <div class="what">Apple<br>가입 → 출시</div>
+      <div class="who">선택 진행</div>
+    </div>
+  </div>
+
+  <div class="row-2" style="margin-top:12mm">
+    <div class="card success">
+      <div class="card-title">✓ Android 우선 출시 이유</div>
+      <ul class="b">
+        <li>원본이 Android 게임 → 코드 완성도 높음</li>
+        <li>$25 1회 결제로 평생 사용</li>
+        <li>심사 1~7일로 짧음</li>
+        <li>학생/교육 예산 절약</li>
+      </ul>
+    </div>
+    <div class="card accent">
+      <div class="card-title">📅 출시 목표일</div>
+      <div class="stat-mid" style="margin-top:4mm">2026-05-28<small style="display:block;font-size:11pt;color:#6b7285;margin-top:2mm">Android 정식 출시</small></div>
+      <div class="stat-mid" style="margin-top:6mm">2026-06-15<small style="display:block;font-size:11pt;color:#6b7285;margin-top:2mm">iOS 정식 출시 (선택)</small></div>
+    </div>
+  </div>
+
+  <div class="slide-foot">FindIt Rebuild Meeting</div>
+  <div class="slide-num">8 / 15</div>
+</div>
+
+<!-- ════════════ Slide 9: 교수님 액션 Step 1 ════════════ -->
+<div class="slide">
+  <div class="slide-tag">SECTION 4 · ACTION ITEMS</div>
+  <h1 class="slide-title">교수님 Step 1 — GCP 가입</h1>
+  <div class="slide-rule"></div>
+  <div class="slide-sub">소요: 약 15분 · 비용: $0 (카드 등록만)</div>
+
+  <div class="row" style="margin-top:8mm;align-items:flex-start">
+    <div class="step-circle">1</div>
+    <div class="grow">
+      <div class="card-title">https://console.cloud.google.com</div>
+
+      <ul class="b" style="font-size:12.5pt;margin-top:5mm">
+        <li><b>Google 계정 로그인</b> (평소 쓰시는 Gmail)</li>
+        <li><b>"무료로 시작하기"</b> 클릭 → 국가: 대한민국 → 카드 등록<br>
+            <span style="color:#6b7285;font-size:10.5pt">→ $300 크레딧 + 90일 자동 부여 / 평가판 종료 시 자동결제 X</span></li>
+        <li><b>예산 알림 설정</b> (필수, 5분)<br>
+            <span style="color:#6b7285;font-size:10.5pt">결제 → 예산 및 알림 → 새 예산: findit-budget / $1 / 50·90·100% 알림</span></li>
+        <li><b>저희에게 결제 권한 부여</b><br>
+            <span style="color:#6b7285;font-size:10.5pt">결제 → 결제 계정 관리 → 권한 → 추가 → 우리 Gmail / 역할: <b>"결제 계정 사용자"</b></span></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="card danger" style="margin-top:8mm">
+    <div class="card-title" style="color:#b53030">⚠️ 권한 주의 — "관리자" 가 아닌 "사용자"</div>
+    <p style="font-size:11pt;color:#4a5680;line-height:1.6">
+      "결제 계정 사용자"(Billing Account User) 권한만 부여 → 카드 정보 / CVC / 명세서 접근 불가.
+      프로젝트를 결제 계정에 연결하는 것만 가능. 교수님 카드는 안전합니다.
+    </p>
+  </div>
+
+  <div class="slide-foot">FindIt Rebuild Meeting</div>
+  <div class="slide-num">9 / 15</div>
+</div>
+
+<!-- ════════════ Slide 10: 교수님 액션 Step 2 ════════════ -->
+<div class="slide">
+  <div class="slide-tag">SECTION 4 · ACTION ITEMS</div>
+  <h1 class="slide-title">교수님 Step 2 — Google Play</h1>
+  <div class="slide-rule"></div>
+  <div class="slide-sub">소요: 약 20분 가입 + 1~3일 신원 확인 · 비용: $25 (1회 평생)</div>
+
+  <div class="row" style="margin-top:8mm;align-items:flex-start">
+    <div class="step-circle" style="background:#27ae60">2</div>
+    <div class="grow">
+      <div class="card-title">https://play.google.com/console</div>
+
+      <ul class="b" style="font-size:12.5pt;margin-top:5mm">
+        <li><b>Google 계정 로그인</b> + <b>$25 결제</b> (1회, 평생 사용)</li>
+        <li><b>계정 유형 선택</b><br>
+            <span style="color:#6b7285;font-size:10.5pt">개인 / 조직 — 학교 사업자등록 시 조직 가입 추천</span></li>
+        <li><b>신원 확인</b><br>
+            <span style="color:#6b7285;font-size:10.5pt">1~3일 소요. 여권 / 신분증 사본 업로드</span></li>
+        <li><b>저희를 관리자로 초대</b><br>
+            <span style="color:#6b7285;font-size:10.5pt">사용자 및 권한 → 사용자 초대 → 우리 Gmail / 권한: 관리자 또는 앱 게시 전용</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="card success" style="margin-top:8mm">
+    <div class="card-title">💡 학교 사업자등록 가능 여부 미리 확인</div>
+    <p style="font-size:11pt;color:#4a5680;line-height:1.6">
+      학교 명의로 가입 시 영수증 처리 / 결제 / 행정 절차가 깔끔합니다.
+      학교 행정실에 "Google Play Console 등록을 위한 사업자번호 사용" 가능 여부 문의 권장.
+    </p>
+  </div>
+
+  <div class="slide-foot">FindIt Rebuild Meeting</div>
+  <div class="slide-num">10 / 15</div>
+</div>
+
+<!-- ════════════ Slide 11: 교수님 액션 Step 3 ════════════ -->
+<div class="slide">
+  <div class="slide-tag">SECTION 4 · ACTION ITEMS</div>
+  <h1 class="slide-title">교수님 Step 3 — Apple Developer</h1>
+  <div class="slide-rule"></div>
+  <div class="slide-sub">소요: 30분 ~ 2주 (면제 신청 시) · 비용: $99/년 또는 $0 (면제) · <b>iOS 진행 시만</b></div>
+
+  <div class="row" style="margin-top:8mm;align-items:flex-start">
+    <div class="step-circle" style="background:#f39c12">3</div>
+    <div class="grow">
+      <div class="card-title">https://developer.apple.com/programs/</div>
+
+      <ul class="b" style="font-size:12.5pt;margin-top:5mm">
+        <li><b>Apple ID 로그인</b></li>
+        <li><b>가입 유형 선택</b><br>
+            <span style="color:#6b7285;font-size:10.5pt">개인 ($99/년) / 조직 ($99/년) / 기관 (무료, 학교 면제)</span></li>
+        <li><b>본인 인증 + 결제</b> (혹은 면제 신청)</li>
+        <li><b>저희를 App Manager 로 초대</b><br>
+            <span style="color:#6b7285;font-size:10.5pt">People → Invite People → 우리 Apple ID 추가</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="card accent" style="margin-top:8mm">
+    <div class="card-title">🎓 학교 면제 = Apple Developer Program for Educational Institutions</div>
+    <ul class="b" style="font-size:11pt">
+      <li>자격: 비영리 교육기관 (대학 포함)</li>
+      <li>신청 주체: 학교 IT 또는 행정실</li>
+      <li>효과: $99/년 → $0 (영구)</li>
+      <li>소요: 1~2주 (서류 검토)</li>
+      <li>우리가 도와드릴 부분: 신청서 작성 가이드 + 학교에 보낼 메일 템플릿</li>
+    </ul>
+  </div>
+
+  <div class="slide-foot">FindIt Rebuild Meeting</div>
+  <div class="slide-num">11 / 15</div>
+</div>
+
+<!-- ════════════ Slide 12: 우리 작업 ════════════ -->
+<div class="slide">
+  <div class="slide-tag">SECTION 5 · OUR WORK</div>
+  <h1 class="slide-title">출시 전 우리가 마무리할 작업</h1>
+  <div class="slide-rule"></div>
+  <div class="slide-sub">교수님이 가입 완료해주시면 즉시 진행 가능</div>
+
+  <table class="big" style="margin-top:6mm">
+    <thead><tr><th>작업</th><th style="width:30mm">소요</th><th style="width:30mm">상태</th></tr></thead>
+    <tbody>
+      <tr><td>GCP 프로젝트 생성 + Cloud Run 배포</td><td>2시간</td><td><span class="pill blue">대기 (가입 후)</span></td></tr>
+      <tr><td>Cloud Storage 에셋 업로드 + Cloud SQL 셋업</td><td>2시간</td><td><span class="pill blue">대기</span></td></tr>
+      <tr><td>클라 SERVER_DOMAIN 운영 URL 반영</td><td>30분</td><td><span class="pill blue">대기</span></td></tr>
+      <tr><td>Release APK 서명 + keystore 생성</td><td>1시간</td><td><span class="pill blue">대기</span></td></tr>
+      <tr><td>Google Play 스토어 등록 정보 (스크린샷, 설명)</td><td>4시간</td><td><span class="pill yellow">진행 중</span></td></tr>
+      <tr><td>개인정보 처리방침 URL 작성 + 호스팅</td><td>2시간</td><td><span class="pill yellow">진행 중</span></td></tr>
+      <tr><td>Firebase 프로젝트 + FCM 서비스 계정 키</td><td>1시간</td><td><span class="pill blue">대기</span></td></tr>
+      <tr><td>Google Play Developer API 서비스 계정</td><td>1시간</td><td><span class="pill blue">대기</span></td></tr>
+      <tr><td>Apple Shared Secret + reCAPTCHA 키 발급</td><td>1시간</td><td><span class="pill blue">대기</span></td></tr>
+    </tbody>
+  </table>
+
+  <div class="slide-foot">FindIt Rebuild Meeting</div>
+  <div class="slide-num">12 / 15</div>
+</div>
+
+<!-- ════════════ Slide 13: 출시 후 추가 개발 ════════════ -->
+<div class="slide">
+  <div class="slide-tag">SECTION 5 · ROADMAP</div>
+  <h1 class="slide-title">출시 후 추가 개발 (선택)</h1>
+  <div class="slide-rule"></div>
+  <div class="slide-sub">정식 출시 후 사용자 피드백을 보면서 우선순위 결정</div>
+
+  <div class="row-2" style="margin-top:8mm">
+    <div class="card accent">
+      <div class="card-title">🟡 단기 (출시 1~2개월)</div>
+      <ul class="b">
+        <li>클라 스킬 트리 44개 풀 렌더링<br>
+            <span style="color:#6b7285;font-size:10pt">현재 8개 하드코딩 → 서버 기반 동적 로딩</span></li>
+        <li>HP 기반 게임플레이 룰 설계<br>
+            <span style="color:#6b7285;font-size:10pt">스킬이 HP 차감 / 0 시 패배 등</span></li>
+        <li>광고 배너 클라 렌더링 + 인텐트</li>
+        <li>한글 → 영문 번역 (135줄, 해외 출시용)</li>
+        <li>Facebook SDK 클라 통합 (소셜 로그인)</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-title">🟢 중장기 (3~6개월)</div>
+      <ul class="b">
+        <li>KT/SKT IAP 코드 제거 (서비스 종료)</li>
+        <li>디자이너 정식 에셋 입수 + 교체</li>
+        <li>Redis 도입 (DAU 1,000+ 시)</li>
+        <li>Cloud CDN (이미지 가속)</li>
+        <li>BigQuery 연동 (장기 분석)</li>
+        <li>Cloud Armor (DDoS 방어)</li>
+        <li>iOS 정식 출시 (선택)</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="card dark" style="margin-top:8mm">
+    <div class="card-title" style="color:#fff">📊 매주 보고드릴 사항</div>
+    <p style="font-size:11pt;line-height:1.7">
+      ① <b>GCP 사용량</b> (Cloud Run 요청수 / Storage 사용량 / 네트워크) &nbsp;
+      ② <b>무료 한도 잔여량</b> (예산 알림 상황) &nbsp;
+      ③ <b>다음 주 작업 계획</b>
+    </p>
+  </div>
+
+  <div class="slide-foot">FindIt Rebuild Meeting</div>
+  <div class="slide-num">13 / 15</div>
+</div>
+
+<!-- ════════════ Slide 14: Q&A ════════════ -->
+<div class="slide">
+  <div class="slide-tag">SECTION 6 · Q&amp;A</div>
+  <h1 class="slide-title">예상 질문 — 미리 준비</h1>
+  <div class="slide-rule"></div>
+
+  <div class="row-2" style="margin-top:6mm">
+    <div class="card">
+      <div class="card-title">Q1. 카드 정보 누가 보나요?</div>
+      <p style="font-size:10.5pt;line-height:1.5">교수님만 보십니다. 우리에게 부여되는 권한은 *프로젝트 연결*만 가능, 카드/명세서 접근 불가.</p>
+    </div>
+    <div class="card">
+      <div class="card-title">Q2. 무료 초과 시 어떻게 되나요?</div>
+      <p style="font-size:10.5pt;line-height:1.5">자동 차단 X, 알림만. 그래서 (1) 월 예산 $1 알림 + (2) 매주 카톡 보고. 초과 우려 시 즉시 일시중단 가능.</p>
+    </div>
+    <div class="card">
+      <div class="card-title">Q3. 사용자 늘면 비용은?</div>
+      <p style="font-size:10.5pt;line-height:1.5">DAU 100 = $0 / 1,000 = $9~12 / 5,000 = $35~55 / 10,000+ = $200~ (이때부터 매출이 비용 상회).</p>
+    </div>
+    <div class="card">
+      <div class="card-title">Q4. 라이선스는?</div>
+      <p style="font-size:10.5pt;line-height:1.5">원본 APK 운영 종료 → 학술 목적 디컴파일. 신규 서버 코드는 신규 작성. 출시 시 LICENSE 파일 명시.</p>
+    </div>
+    <div class="card">
+      <div class="card-title">Q5. Play 거절되면?</div>
+      <p style="font-size:10.5pt;line-height:1.5">사유 보통 (1) 개인정보처리방침 (2) 권한 과다 (3) 부정 콘텐츠. 사전 체크리스트 준비 + 1~2일 내 수정 가능.</p>
+    </div>
+    <div class="card">
+      <div class="card-title">Q6. 졸업 후 운영은?</div>
+      <p style="font-size:10.5pt;line-height:1.5">코드 + 운영 가이드 GitHub Wiki / docs/ 정리. 후배 또는 외주 인수인계 가능 수준.</p>
+    </div>
+  </div>
+
+  <div class="slide-foot">FindIt Rebuild Meeting</div>
+  <div class="slide-num">14 / 15</div>
+</div>
+
+<!-- ════════════ Slide 15: 한 장 요약 ════════════ -->
+<div class="slide">
+  <div class="slide-tag">SUMMARY · NEXT STEPS</div>
+  <h1 class="slide-title">한 장 요약 + 다음 미팅</h1>
+  <div class="slide-rule"></div>
+
+  <div class="card dark" style="margin-top:6mm">
+    <div class="card-title" style="color:#fff;font-size:16pt;margin-bottom:5mm">📋 교수님 액션 — 3가지</div>
+    <div class="row-3">
+      <div>
+        <div class="pill blue" style="margin-bottom:3mm">Step 1 · GCP</div>
+        <div style="font-size:14pt;font-weight:700;margin-bottom:2mm">15분 · 무료</div>
+        <div style="font-size:10.5pt;color:#b7c0d8">카드 등록 + 예산 알림 + 우리 Gmail 권한 부여</div>
+      </div>
+      <div>
+        <div class="pill green" style="margin-bottom:3mm">Step 2 · Google Play</div>
+        <div style="font-size:14pt;font-weight:700;margin-bottom:2mm">20분 · $25</div>
+        <div style="font-size:10.5pt;color:#b7c0d8">결제 + 신원 확인 + 우리 관리자 초대</div>
+      </div>
+      <div>
+        <div class="pill yellow" style="margin-bottom:3mm">Step 3 · Apple (선택)</div>
+        <div style="font-size:14pt;font-weight:700;margin-bottom:2mm">30분 · $99 / $0</div>
+        <div style="font-size:10.5pt;color:#b7c0d8">$99/년 또는 학교 면제 신청</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row-2" style="margin-top:8mm">
+    <div class="card success">
+      <div class="card-title">🎯 합의해야 할 것</div>
+      <ul class="b">
+        <li>교수님 GCP 가입 시점 (오늘? 내일?)</li>
+        <li>iOS 면제 신청 가능 여부 (학교 IT팀 문의)</li>
+        <li>출시 일정 합의 (목표: 2026-05-28)</li>
+        <li>사업자등록 번호 사용 가능 여부</li>
+      </ul>
+    </div>
+    <div class="card accent">
+      <div class="card-title">📅 다음 미팅</div>
+      <div class="stat-mid" style="margin-top:4mm">2026-05-07 (목)</div>
+      <div style="font-size:11pt;color:#4a5680;margin-top:3mm;line-height:1.6">
+        Cloud Run 배포 데모<br>
+        Google Play 내부 테스트 설치<br>
+        교수님 휴대폰에서 직접 동작 확인
+      </div>
+    </div>
+  </div>
+
+  <div class="slide-foot">FindIt Rebuild Meeting · 감사합니다 🙏</div>
+  <div class="slide-num">15 / 15</div>
+</div>
+
+</body>
+</html>

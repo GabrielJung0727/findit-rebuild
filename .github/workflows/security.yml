@@ -27,9 +27,9 @@ concurrency:
 
 permissions:
   contents: read
-  security-events: write   # SARIF 업로드용 (Settings → Security 탭에 표시)
-  pull-requests: read
-  actions: read            # codeql-action 의 워크플로우 run 메타데이터 조회 (telemetry + SARIF fingerprinting)
+  pull-requests: read       # gitleaks PR 코멘트
+  # SECURITY.md §11 — Private repo + GHAS 미적용 → SARIF 업로드 미사용
+  # 결과는 워크플로우 Artifacts 로 다운로드 (osv-scan-results)
 
 jobs:
   # ─── 1. Secret scanning — Gitleaks ─────────────────────────────────────
@@ -70,13 +70,38 @@ jobs:
             ./client_flutter/android
         continue-on-error: true
 
-      - name: Upload SARIF to Security tab
-        # 결과 파일이 있을 때만 업로드 (스캔 실패해도 워크플로우 성공 처리)
+      # GHAS(Code Scanning) 미적용 private repo 에서는 SARIF 업로드 불가능
+      # → SECURITY.md §11 원칙대로 OSS 도구만 사용 + 아티팩트로 전환
+      # → workflow run 화면 → "Artifacts" 섹션에서 다운로드 가능
+      - name: Upload SARIF as workflow artifact
         if: always() && hashFiles('osv-results.sarif') != ''
-        uses: github/codeql-action/upload-sarif@v4
+        uses: actions/upload-artifact@v4
         with:
-          sarif_file: osv-results.sarif
-          category: osv-scanner
+          name: osv-scan-results
+          path: osv-results.sarif
+          retention-days: 30
+          if-no-files-found: ignore
+
+      # 콘솔 요약 — 워크플로우 Summary 페이지에 취약점 갯수 표시
+      - name: Summarize OSV findings
+        if: always() && hashFiles('osv-results.sarif') != ''
+        shell: bash
+        run: |
+          set -e
+          if command -v jq >/dev/null 2>&1; then
+            COUNT=$(jq '[.runs[].results[]] | length' osv-results.sarif 2>/dev/null || echo 0)
+          else
+            COUNT=$(grep -o '"ruleId"' osv-results.sarif | wc -l || echo 0)
+          fi
+          echo "## 🔍 OSV-Scanner Results" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$COUNT" -eq 0 ]; then
+            echo "✅ **취약점 없음** — 모든 의존성이 OSV.dev DB 기준 안전" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "⚠️  **${COUNT} 개 취약점 발견** — Artifacts 의 \`osv-scan-results\` 다운로드해 확인" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Private repo + GHAS 미적용 환경 — Security 탭 대신 워크플로우 Artifacts 로 결과 보존." >> "$GITHUB_STEP_SUMMARY"
 
   # ─── 3. Server — npm audit ─────────────────────────────────────────────
   npm-audit:

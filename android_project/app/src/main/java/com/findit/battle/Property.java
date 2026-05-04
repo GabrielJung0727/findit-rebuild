@@ -3,30 +3,43 @@ package com.findit.battle;
 /**
  * 전역 상수 — 서버 주소 / 외부 서비스 ID 등.
  *
- * 원본 서버 {@code 14.63.220.39} 는 2014 년 이후 서비스 종료됨.
- * 신규 서버는 {@code server/} 디렉터리의 Node.js 구현을 사용.
- *
- * <h3>배포 환경별 값</h3>
+ * <h3>GCP 프로젝트</h3>
  * <ul>
- *   <li>로컬 개발 (Android 에뮬레이터): SERVER_DOMAIN=http://10.0.2.2:8080/, SERVER_IP=10.0.2.2</li>
- *   <li>로컬 개발 (실기기 + 같은 Wi-Fi): 호스트 PC 의 LAN IP 사용</li>
- *   <li>운영: GCP Cloud Run HTTPS URL (소켓은 별도 GCE/GKE)</li>
+ *   <li>프로젝트 이름: <b>Findit</b></li>
+ *   <li>프로젝트 번호: <b>434469624646</b></li>
+ *   <li>프로젝트 ID:   <b>findit-494900</b></li>
+ *   <li>리전: <b>us-central1</b> (Always Free 적용)</li>
  * </ul>
  *
- * <p>HTTPS 전환 시 {@link #USES_CLEARTEXT_TRAFFIC} 을 false 로 설정하고
- * {@code AndroidManifest.xml} 의 {@code android:usesCleartextTraffic} 도 맞춰야 함.
+ * <h3>배포 환경별 빌드 (gradle 빌드 시 BuildConfig 로 분기 권장)</h3>
+ * <ul>
+ *   <li>로컬 개발 (Android 에뮬레이터): SERVER_DOMAIN=http://10.0.2.2:8080/</li>
+ *   <li>로컬 개발 (실기기 + 같은 Wi-Fi): 호스트 PC LAN IP</li>
+ *   <li>운영 (GCP Cloud Run): SERVER_DOMAIN_PROD 사용</li>
+ * </ul>
+ *
+ * <p>현재는 GCP 운영 URL 을 기본값으로 사용. 로컬 디버그 시 SERVER_DOMAIN_LOCAL 로 교체.
+ * 향후 product flavor 분리 권장 (debug/release).
  */
 public class Property {
     // =====================================================
-    // 서버 — HTTP/REST
+    // 서버 URL — GCP Cloud Run (us-central1)
     // =====================================================
-    /** 기본 도메인. 말미 슬래시 필수. 엔드포인트 경로와 결합됨. */
-    public static final String SERVER_DOMAIN = "http://10.0.2.2:8080/";
+    /** GCP 운영 서버. Cloud Run 배포 후 실제 URL 로 교체 필요. */
+    public static final String SERVER_DOMAIN_PROD = "https://findit-api-434469624646.us-central1.run.app/";
+    /** 로컬 개발 — Android 에뮬레이터 호스트 루프백. */
+    public static final String SERVER_DOMAIN_LOCAL = "http://10.0.2.2:8080/";
+
+    /** 실제 사용되는 도메인. release 빌드 시 PROD, debug 시 LOCAL 로 교체. */
+    public static final String SERVER_DOMAIN = SERVER_DOMAIN_PROD;
 
     // =====================================================
     // 서버 — TCP 소켓 (멀티플레이 매칭/중계)
     // =====================================================
-    public static final String SERVER_IP = "10.0.2.2";
+    /** GCP GCE e2-micro VM 또는 Cloud Run with WebSocket. */
+    public static final String SERVER_IP_PROD  = "findit-socket.findit-494900.example.com";
+    public static final String SERVER_IP_LOCAL = "10.0.2.2";
+    public static final String SERVER_IP = SERVER_IP_PROD;
     public static final int    SERVER_SOCKET_PORT = 22131;
 
     // =====================================================
@@ -37,10 +50,9 @@ public class Property {
     public static final String SERVER_URL_RANK    = "app/member/rankList?userId=";
 
     // =====================================================
-    // 네트워크 보안
+    // 네트워크 보안 — HTTPS 강제 (Cloud Run 기본)
     // =====================================================
-    /** HTTPS 전환 완료 시 false 로 설정. 현재는 로컬 개발용 HTTP 허용. */
-    public static final boolean USES_CLEARTEXT_TRAFFIC = true;
+    public static final boolean USES_CLEARTEXT_TRAFFIC = false;
 
     // =====================================================
     // 외부 서비스 ID (원본 APK 그대로 유지)
@@ -52,4 +64,11 @@ public class Property {
     public static final String SAMSUNG_IAP_ITEM_ID_COIN5500 = "000001005360";
     public static final String SAMSUNG_IAP_ITEM_ID_COIN8500 = "000001005361";
     public static final int SAMSUNG_IAP_MODE = 0;
+
+    // =====================================================
+    // GCP 프로젝트 메타 (모니터링 / 로그용)
+    // =====================================================
+    public static final String GCP_PROJECT_ID     = "findit-494900";
+    public static final String GCP_PROJECT_NUMBER = "434469624646";
+    public static final String GCP_REGION         = "us-central1";
 }

@@ -1,0 +1,471 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>FindIt: The Battle — 테스트 빌드 다운로드</title>
+<meta name="description" content="FindIt 리빌드 테스트 빌드 — GCP 운영 서버 연동 APK 배포 페이지">
+<meta name="theme-color" content="#1a1f36">
+
+<!-- Open Graph -->
+<meta property="og:title" content="FindIt: The Battle — 테스트 빌드">
+<meta property="og:description" content="GCP 서버와 연동된 안드로이드 테스트 APK 다운로드">
+<meta property="og:type" content="website">
+
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --navy: #1a1f36;
+    --navy-2: #2d3557;
+    --blue: #4a90e2;
+    --green: #27ae60;
+    --yellow: #f39c12;
+    --red: #c0392b;
+    --gray-100: #f5f7fa;
+    --gray-200: #e5e8ef;
+    --gray-300: #d7dce8;
+    --gray-500: #6b7285;
+    --gray-700: #4a5680;
+  }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Pretendard', 'Apple SD Gothic Neo',
+                 'Malgun Gothic', 'Segoe UI', sans-serif;
+    color: var(--navy); background: #fff; line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--blue); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .container { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+
+  /* ─── Header ─── */
+  header {
+    position: sticky; top: 0; z-index: 100;
+    background: rgba(26,31,54,0.96); backdrop-filter: blur(8px);
+    color: #fff; padding: 14px 0;
+  }
+  header .nav {
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  header .logo {
+    font-size: 18px; font-weight: 800; letter-spacing: 0.5px;
+  }
+  header .logo .v { color: var(--blue); font-weight: 600; font-size: 13px; margin-left: 8px;
+                    background: rgba(74,144,226,0.2); padding: 2px 8px; border-radius: 10px;}
+  header nav a { color: #b7c0d8; font-size: 14px; margin-left: 24px; }
+  header nav a:hover { color: #fff; text-decoration: none; }
+
+  /* ─── Hero ─── */
+  .hero {
+    background: linear-gradient(135deg, #1a1f36 0%, #2d3557 60%, #4a5680 100%);
+    color: #fff; padding: 80px 0 100px; position: relative; overflow: hidden;
+  }
+  .hero::after {
+    content: ''; position: absolute; right: -150px; bottom: -150px;
+    width: 400px; height: 400px;
+    background: radial-gradient(circle, rgba(74,144,226,0.3) 0%, transparent 70%);
+  }
+  .hero-grid {
+    display: grid; grid-template-columns: 1fr auto; gap: 60px; align-items: center;
+    position: relative; z-index: 1;
+  }
+  .hero-badge {
+    display: inline-block; padding: 6px 16px;
+    background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.25);
+    border-radius: 30px; font-size: 12px; letter-spacing: 1.5px; font-weight: 600;
+    margin-bottom: 24px; color: #b7c0d8;
+  }
+  .hero h1 {
+    font-size: 56px; font-weight: 800; line-height: 1.1; margin-bottom: 20px;
+  }
+  .hero h1 .accent { color: var(--blue); }
+  .hero .sub {
+    font-size: 19px; color: #c8d0e0; margin-bottom: 36px; max-width: 540px; line-height: 1.5;
+  }
+  .hero .meta {
+    display: grid; grid-template-columns: auto 1fr; gap: 8px 20px;
+    font-size: 13px; color: #8a93b0; max-width: 540px;
+    margin-bottom: 40px;
+  }
+  .hero .meta .k { color: #6b7285; font-weight: 600; }
+  .hero .meta .v { color: #d0d6e8; font-family: 'Consolas', monospace; }
+
+  /* ─── Download Card ─── */
+  .dl-card {
+    background: #fff; color: var(--navy); border-radius: 16px;
+    padding: 36px 32px; min-width: 340px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.05);
+  }
+  .dl-card .platform { font-size: 13px; color: var(--gray-500); font-weight: 700;
+                       text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 6px; }
+  .dl-card .title { font-size: 22px; font-weight: 800; margin-bottom: 4px; }
+  .dl-card .ver { font-size: 13px; color: var(--gray-500); margin-bottom: 22px; font-family: 'Consolas', monospace; }
+  .dl-btn {
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    width: 100%; padding: 16px 20px;
+    background: linear-gradient(135deg, #27ae60 0%, #1f7a3e 100%);
+    color: #fff !important; font-size: 16px; font-weight: 700; border-radius: 10px;
+    text-decoration: none !important; transition: transform 0.1s, box-shadow 0.2s;
+    margin-bottom: 14px;
+    box-shadow: 0 6px 20px rgba(39,174,96,0.4);
+  }
+  .dl-btn:hover { transform: translateY(-2px); box-shadow: 0 10px 30px rgba(39,174,96,0.5); }
+  .dl-btn .icon { font-size: 22px; }
+  .dl-meta {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+    font-size: 12px; color: var(--gray-500); padding-top: 14px;
+    border-top: 1px solid var(--gray-200);
+  }
+  .dl-meta .k { color: var(--gray-500); }
+  .dl-meta .v { color: var(--navy); font-weight: 600; text-align: right; }
+  .dl-warn {
+    margin-top: 14px; padding: 10px 12px;
+    background: #fef5d7; color: #8a6516; border-radius: 6px; font-size: 12px;
+    line-height: 1.5;
+  }
+
+  /* ─── Section ─── */
+  section.block { padding: 70px 0; }
+  section.block.alt { background: var(--gray-100); }
+  section h2 {
+    font-size: 32px; font-weight: 800; margin-bottom: 12px;
+  }
+  section .lead {
+    font-size: 17px; color: var(--gray-700); margin-bottom: 40px; max-width: 700px;
+  }
+
+  /* ─── Cards Grid ─── */
+  .cards-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+  .card {
+    background: #fff; border: 1px solid var(--gray-200); border-radius: 12px;
+    padding: 28px 24px; transition: border-color 0.2s, transform 0.15s, box-shadow 0.2s;
+  }
+  .card:hover { border-color: var(--blue); transform: translateY(-4px);
+                box-shadow: 0 10px 30px rgba(0,0,0,0.06); }
+  .card .icon { font-size: 28px; margin-bottom: 14px; display: block; }
+  .card h3 { font-size: 18px; margin-bottom: 8px; font-weight: 700; }
+  .card p { color: var(--gray-700); font-size: 14px; line-height: 1.6; }
+
+  /* ─── Steps ─── */
+  .steps { display: grid; gap: 16px; }
+  .step {
+    display: grid; grid-template-columns: 60px 1fr;
+    gap: 20px; padding: 20px 0; border-top: 1px solid var(--gray-200);
+  }
+  .step:first-child { border-top: none; padding-top: 0; }
+  .step-num {
+    width: 44px; height: 44px; border-radius: 50%;
+    background: var(--navy); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; font-weight: 800;
+  }
+  .step-body h3 { font-size: 17px; margin-bottom: 6px; font-weight: 700; }
+  .step-body p { color: var(--gray-700); font-size: 14.5px; line-height: 1.65; }
+  .step-body code {
+    background: var(--gray-100); padding: 2px 8px; border-radius: 4px;
+    font-family: 'Consolas', monospace; font-size: 13px; color: var(--red);
+  }
+
+  /* ─── Server Status ─── */
+  .status-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+  .status {
+    background: #fff; border: 1px solid var(--gray-200); border-radius: 8px;
+    padding: 18px 20px;
+  }
+  .status .lbl { font-size: 11px; color: var(--gray-500); text-transform: uppercase;
+                 font-weight: 700; letter-spacing: 1px; margin-bottom: 6px; }
+  .status .val { font-size: 18px; font-weight: 700; color: var(--navy); }
+  .status .val small { font-size: 12px; font-weight: 400; color: var(--gray-500); display: block; margin-top: 2px; }
+  .status.ok .val { color: var(--green); }
+  .status.dot::before {
+    content: ''; display: inline-block; width: 8px; height: 8px;
+    background: var(--green); border-radius: 50%; margin-right: 6px;
+    box-shadow: 0 0 8px rgba(39,174,96,0.5);
+  }
+
+  /* ─── Footer ─── */
+  footer {
+    background: var(--navy); color: #b7c0d8; padding: 40px 0 32px;
+    font-size: 13px;
+  }
+  footer .grid { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 40px; }
+  footer h4 { color: #fff; font-size: 14px; margin-bottom: 12px; font-weight: 700; }
+  footer ul { list-style: none; }
+  footer li { margin-bottom: 6px; }
+  footer a { color: #8a93b0; }
+  footer a:hover { color: #fff; }
+  footer .bottom {
+    margin-top: 30px; padding-top: 20px; border-top: 1px solid #2d3557;
+    display: flex; justify-content: space-between;
+    color: #6b7285; font-size: 12px;
+  }
+
+  /* ─── Mobile ─── */
+  @media (max-width: 800px) {
+    .hero { padding: 50px 0 60px; }
+    .hero-grid { grid-template-columns: 1fr; gap: 40px; }
+    .hero h1 { font-size: 36px; }
+    .hero .sub { font-size: 16px; }
+    .dl-card { min-width: 0; padding: 28px 24px; }
+    .cards-3, .status-grid { grid-template-columns: 1fr; }
+    section.block { padding: 50px 0; }
+    section h2 { font-size: 26px; }
+    footer .grid { grid-template-columns: 1fr; gap: 24px; }
+    footer .bottom { flex-direction: column; gap: 8px; }
+    header nav a { margin-left: 14px; font-size: 13px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header>
+  <div class="container nav">
+    <div class="logo">FindIt: The Battle <span class="v">테스트 빌드</span></div>
+    <nav>
+      <a href="#download">다운로드</a>
+      <a href="#how">설치 방법</a>
+      <a href="#status">서버 상태</a>
+      <a href="#about">소개</a>
+    </nav>
+  </div>
+</header>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="container hero-grid">
+    <div>
+      <div class="hero-badge">FINDIT REBUILD · TEST BUILD</div>
+      <h1>다른 그림 찾기<br>1:1 <span class="accent">실시간 배틀</span></h1>
+      <p class="sub">
+        2014년 운영 종료된 한국형 모바일 게임 FindIt: The Battle 의 리빌드 테스트 빌드입니다.
+        GCP Cloud Run 위에서 동작하는 신규 서버에 연결되어 있으며, 멀티플레이까지 동작합니다.
+      </p>
+      <div class="meta">
+        <div class="k">GCP 프로젝트</div><div class="v">findit-494900</div>
+        <div class="k">서버 리전</div><div class="v">us-central1 (Iowa)</div>
+        <div class="k">서버 URL</div><div class="v">findit-api-434469624646.us-central1.run.app</div>
+        <div class="k">평균 응답 (한국)</div><div class="v">80~120 ms</div>
+      </div>
+    </div>
+
+    <!-- DOWNLOAD CARD -->
+    <div class="dl-card" id="download">
+      <div class="platform">Android · APK</div>
+      <div class="title">FindIt 테스트 빌드</div>
+      <div class="ver">v1.01-test · 약 28MB</div>
+
+      <a class="dl-btn" href="findit-test.apk" download>
+        <span class="icon">📥</span>
+        <span>APK 다운로드</span>
+      </a>
+
+      <div class="dl-meta">
+        <div class="k">패키지</div><div class="v">com.findit.battle</div>
+        <div class="k">최소 Android</div><div class="v">5.0 (API 21)</div>
+        <div class="k">서명</div><div class="v">debug</div>
+        <div class="k">서버 연결</div><div class="v">GCP Cloud Run</div>
+      </div>
+
+      <div class="dl-warn">
+        ⚠️ 테스트 빌드는 디버그 서명이라 Play Store 설치된 버전과 함께 설치할 수 없습니다.
+        설치 시 "출처를 알 수 없는 앱" 허용 필요.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- INSTALL STEPS -->
+<section class="block" id="how">
+  <div class="container">
+    <h2>📲 설치 방법</h2>
+    <p class="lead">3단계로 끝나는 안드로이드 설치 절차. 설치 후 바로 GCP 서버에 연결되어 다른 그림 찾기 배틀을 즐길 수 있습니다.</p>
+
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <h3>APK 다운로드</h3>
+          <p>위 다운로드 버튼을 누르거나, 안드로이드 폰 브라우저에서 이 페이지에 직접 접속해 다운로드하세요.
+             다운로드된 파일명: <code>findit-test.apk</code></p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <h3>"출처를 알 수 없는 앱" 허용</h3>
+          <p>안드로이드 설정 → 보안 → "알 수 없는 출처에서 설치 허용" 또는 설치 진행 중 권한 요청 시 허용.
+             브라우저별로 한 번씩 허용해주시면 됩니다 (Chrome / Samsung Internet 등).</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <h3>설치 + 실행</h3>
+          <p>다운로드 완료 후 알림에서 APK 탭하거나, 파일 관리자로 열어 설치 진행.
+             첫 실행 시 자동으로 GCP 서버에 연결되며, Guest 입장으로 바로 게임 가능.
+             또는 회원가입 후 진행상황을 저장할 수 있습니다.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section class="block alt">
+  <div class="container">
+    <h2>🎮 게임 특징</h2>
+    <p class="lead">2013-07 최종 기획서 + 2026 신규 서버 인프라가 결합된 리빌드 빌드입니다.</p>
+
+    <div class="cards-3">
+      <div class="card">
+        <span class="icon">🔍</span>
+        <h3>다른 그림 찾기</h3>
+        <p>한 이미지에서 7개 차이 중 5개 선착으로 찾기. 40초 제한 시간 안에 상대보다 빨리 발견하는 1:1 배틀.</p>
+      </div>
+      <div class="card">
+        <span class="icon">⚔️</span>
+        <h3>실시간 멀티플레이</h3>
+        <p>친구 초대 + 랜덤 매칭. 콤보 보너스로 +100~700점 추가, 스킬/아이템으로 상대 화면 방해.</p>
+      </div>
+      <div class="card">
+        <span class="icon">🎯</span>
+        <h3>44 스킬 트리</h3>
+        <p>고양이발톱, 강아지발자국, 폭발, 불꽃, 눈꽃, 강력 ×3 — 8 계열 44 스킬을 레벨업으로 학습.</p>
+      </div>
+      <div class="card">
+        <span class="icon">💎</span>
+        <h3>3 재화 시스템</h3>
+        <p>코인 (전투 보상) / 포인트 (스킬) / 보석 (프리미엄). 아이템 9단계 강화, 인벤토리 30칸 확장.</p>
+      </div>
+      <div class="card">
+        <span class="icon">📊</span>
+        <h3>친구 랭킹</h3>
+        <p>Facebook 친구 그룹 랭킹 + 어제 대비 순위 변동 (delta) 표시. 일/주/월 단위 집계.</p>
+      </div>
+      <div class="card">
+        <span class="icon">🛡️</span>
+        <h3>보안 강화</h3>
+        <p>HTTPS 강제 + reCAPTCHA + 영수증 서버 검증. Guest/이메일/Facebook 3개 로그인 방식.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SERVER STATUS -->
+<section class="block" id="status">
+  <div class="container">
+    <h2>🟢 서버 상태</h2>
+    <p class="lead">GCP Cloud Run 위에서 동작 중인 테스트 서버 실시간 상태. 무료 티어 한도 내에서 운영.</p>
+
+    <div class="status-grid">
+      <div class="status ok dot">
+        <div class="lbl">API 서버</div>
+        <div class="val">정상 <small>Cloud Run · us-central1</small></div>
+      </div>
+      <div class="status ok dot">
+        <div class="lbl">멀티플레이 소켓</div>
+        <div class="val">정상 <small>GCE e2-micro · 22131</small></div>
+      </div>
+      <div class="status ok dot">
+        <div class="lbl">데이터베이스</div>
+        <div class="val">정상 <small>Cloud SQL · MySQL 8</small></div>
+      </div>
+      <div class="status ok dot">
+        <div class="lbl">에셋 CDN</div>
+        <div class="val">정상 <small>Cloud Storage · 5GB</small></div>
+      </div>
+    </div>
+
+    <p style="margin-top: 24px; font-size: 13px; color: var(--gray-500);">
+      ※ 헬스체크: <a href="https://findit-api-434469624646.us-central1.run.app/healthz" target="_blank" rel="noopener">/healthz</a>
+      &nbsp;·&nbsp; 어드민 대시보드: <code>/admin/ui</code> (인증 필요)
+    </p>
+  </div>
+</section>
+
+<!-- ABOUT -->
+<section class="block alt" id="about">
+  <div class="container">
+    <h2>📖 프로젝트 소개</h2>
+    <p class="lead">FindIt 리빌드 — 2014년 운영 종료된 게임의 디컴파일 + 신규 서버 + GCP 배포 학술 프로젝트.</p>
+
+    <div class="cards-3">
+      <div class="card">
+        <span class="icon">📜</span>
+        <h3>원본 (2012~2014)</h3>
+        <p>KT olleh / SKT T-Store / Samsung Galaxy Store / Google Play 4 스토어 동시 출시.
+           원본 서버 14.63.220.39 는 2014년 이후 서비스 종료.</p>
+      </div>
+      <div class="card">
+        <span class="icon">🔧</span>
+        <h3>리빌드 (2026)</h3>
+        <p>jadx 디컴파일 21,678줄 빌드 가능 상태로 복원 + Node.js 서버 2,500줄 신규 작성 +
+           기획서 2013-07 최종 밸런스 모두 적용.</p>
+      </div>
+      <div class="card">
+        <span class="icon">☁️</span>
+        <h3>GCP 운영 (현재)</h3>
+        <p>findit-494900 프로젝트 / us-central1 / Always Free 한도 내 운영.
+           Cloud Run + Cloud Storage + Cloud SQL 조합으로 월 $0~12 비용.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="container">
+    <div class="grid">
+      <div>
+        <h4>FindIt: The Battle — Rebuild</h4>
+        <p style="color: #8a93b0; font-size: 12.5px; line-height: 1.7;">
+          2012~2014 운영 종료된 한국형 다른그림찾기 모바일 게임의 리빌드.
+          학술/연구 목적의 디컴파일 + 신규 서버 + GCP 배포 프로젝트.
+        </p>
+      </div>
+      <div>
+        <h4>리소스</h4>
+        <ul>
+          <li><a href="https://github.com/GabrielJung0727/findit-rebuild">GitHub Repo</a></li>
+          <li><a href="https://github.com/GabrielJung0727/findit-rebuild/tree/main/docs">문서 (docs/)</a></li>
+          <li><a href="findit-test.apk" download>테스트 APK</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>GCP</h4>
+        <ul>
+          <li>프로젝트 ID: findit-494900</li>
+          <li>리전: us-central1</li>
+          <li>운영: Always Free</li>
+        </ul>
+      </div>
+    </div>
+    <div class="bottom">
+      <div>© 2026 FindIt Rebuild Project · 학술 비영리</div>
+      <div>v1.01-test · build 2026-04-30</div>
+    </div>
+  </div>
+</footer>
+
+<script>
+  // 다운로드 버튼 클릭 추적 (간단한 fetch ping)
+  document.querySelectorAll('a[href$=".apk"]').forEach(a => {
+    a.addEventListener('click', () => {
+      try {
+        // GCP 서버에 다운로드 이벤트 보고 (실패해도 다운로드는 진행)
+        fetch('https://findit-api-434469624646.us-central1.run.app/app/member/event.json', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ eventName: 'apk_download', payload: { from: 'site' } }),
+          keepalive: true,
+        }).catch(() => {});
+      } catch (_) {}
+    });
+  });
+</script>
+
+</body>
+</html>

@@ -46,6 +46,21 @@ app.get('/healthz', async (_req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────────────
+// /assets/:filename — 게임 에셋 프록시 (Cloud Storage → 클라)
+// 원본 클라는 `URL.replace(SERVER_DOMAIN, localPath)` 로 이미지 다운로드 →
+// 로컬 캐시 매핑하므로, URL 이 SERVER_DOMAIN 으로 시작해야 함.
+// 따라서 GCS 직접 URL 대신 Cloud Run 의 /assets/ 경유.
+// ─────────────────────────────────────────────────────────────────────
+app.get('/assets/:filename', (req, res) => {
+  const f = req.params.filename;
+  if (!/^[a-zA-Z0-9._-]+$/.test(f)) {
+    return res.status(400).json({ error: 'invalid_filename' });
+  }
+  // 302 redirect — GCS 가 응답 (Cloud CDN 캐시 추가 시 더 빠름)
+  res.redirect(302, `https://storage.googleapis.com/findit-assets-findit-494900/images/${f}`);
+});
+
 // -----------------------------------------------------
 // 공개 경로: /app/*
 // -----------------------------------------------------

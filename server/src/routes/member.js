@@ -496,6 +496,24 @@ router.all('/member/newImageList.json', async (req, res, next) => {
         LIMIT 200`,
       [since]
     );
+    // ⚠ 원본 클라(Objects.java loadFindImages)는 imageCut 을 JSON Array 로 기대 +
+    //   각 rect 항목에 {x, y, xSize, ySize, img} 키 필요.
+    // DB 에는 {x, y, w, h} 형식 TEXT 로 저장 → 응답 직전에 변환.
+    for (const r of rows) {
+      let cut = r.imageCut;
+      if (typeof cut === 'string') {
+        try { cut = JSON.parse(cut); } catch (_) { cut = []; }
+      }
+      r.imageCut = (cut || []).map((c) => ({
+        x: c.x ?? 0,
+        y: c.y ?? 0,
+        xSize: c.xSize ?? c.w ?? 0,
+        ySize: c.ySize ?? c.h ?? 0,
+        // 각 find rect 의 이미지 URL — 부모 이미지(차이가 표시된 버전)를 그대로 사용.
+        // 추후 디자이너 정식 에셋 입수 시 rect-별 cropped image 로 교체.
+        img: c.img ?? r.urlDetail ?? r.urlDownload ?? '',
+      }));
+    }
     ok(res, { list: rows });
   } catch (e) { next(e); }
 });

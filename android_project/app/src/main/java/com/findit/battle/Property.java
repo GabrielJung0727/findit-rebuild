@@ -36,8 +36,8 @@ public class Property {
     // =====================================================
     // 서버 — TCP 소켓 (멀티플레이 매칭/중계)
     // =====================================================
-    /** GCP GCE e2-micro VM 또는 Cloud Run with WebSocket. */
-    public static final String SERVER_IP_PROD  = "findit-socket.findit-494900.example.com";
+    /** GCP GCE e2-micro VM (us-central1-a, findit-socket, static IP) — 멀티플레이 TCP 소켓 22131. */
+    public static final String SERVER_IP_PROD  = "34.59.185.105";
     public static final String SERVER_IP_LOCAL = "10.0.2.2";
     public static final String SERVER_IP = SERVER_IP_PROD;
     public static final int    SERVER_SOCKET_PORT = 22131;

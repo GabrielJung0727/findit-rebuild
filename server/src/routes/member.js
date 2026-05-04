@@ -594,7 +594,9 @@ router.get('/member/notice.json', async (req, res, next) => {
     );
     // 클라는 WebView.loadUrl 로 로딩 → HTML 반환
     const html = renderNoticeHtml(rows);
-    res.type('html').send(html);
+    // Content-Type 에 charset 명시 — Android WebView 가 Latin-1 로 잘못 디코딩하는 문제 차단
+    res.set('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
   } catch (e) { next(e); }
 });
 

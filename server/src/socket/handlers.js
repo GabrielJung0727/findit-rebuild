@@ -14,6 +14,15 @@
 
 const fcm = require('../util/fcm');
 
+// 토큰 검증기 — 기본은 session.verifyToken(DB 조회), 테스트는 setTokenVerifier 로 주입.
+// lazy-require 라 DB/모듈 로드를 인증이 실제로 일어날 때까지 미룸.
+let _tokenVerifier = null;
+function getTokenVerifier() {
+  if (!_tokenVerifier) _tokenVerifier = require('../util/session').verifyToken;
+  return _tokenVerifier;
+}
+function setTokenVerifier(fn) { _tokenVerifier = fn; }
+
 const CODES = {
   USERLIST: '100',
   CREATEBATTLEROOM: '101',
@@ -24,6 +33,8 @@ const CODES = {
   INVITE: '107',
 };
 const OK = '000';
+const AUTH = 'auth';
+const FAIL_NOID = '999';
 const FAIL_ALREADYEXIT = '900';
 const FAIL_ALREADYGAME = '911';
 
@@ -60,6 +71,12 @@ function onMessage(conn, body) {
   const fields = (body || '').split('|'); // ['', code, ...args]
   const code = fields[1];
   const args = fields.slice(2);
+  if (code === AUTH) return onAuth(conn, args);
+  // 인증 필수 연결(WS)은 auth 성공 전까지 게임 코드를 무시 (ws_server.js 가 requireAuth 설정).
+  if (conn.requireAuth && !conn.authed) {
+    console.warn(`[socket] drop pre-auth code=${code}`);
+    return;
+  }
   switch (code) {
     case CODES.USERLIST: return onUserList(conn, args);
     case CODES.CREATEBATTLEROOM: return onCreateRoom(conn, args);
@@ -71,6 +88,28 @@ function onMessage(conn, body) {
     default:
       console.warn(`[socket] unknown code: ${code} body: ${body}`);
   }
+}
+
+// auth: 첫 메시지 `|auth|<token>` 또는 WS 쿼리스트링 ?token= 에서 호출.
+// 검증 성공 시 conn.authed=true + userId 바인딩. Promise 를 반환해 테스트에서 await 가능.
+function onAuth(conn, [token]) {
+  return Promise.resolve()
+    .then(() => getTokenVerifier()(token))
+    .then((userId) => {
+      if (userId) {
+        conn.authed = true;
+        const s = sessions.get(conn) || {};
+        s.userId = userId;
+        sessions.set(conn, s);
+        send(conn, `|${AUTH}|${OK}|${userId}`);
+      } else {
+        send(conn, `|${AUTH}|${FAIL_NOID}`);
+      }
+    })
+    .catch((e) => {
+      console.warn('[socket] auth error:', e.message);
+      send(conn, `|${AUTH}|${FAIL_NOID}`);
+    });
 }
 
 function onClose(conn) {
@@ -202,6 +241,8 @@ module.exports = {
   onConnect,
   onMessage,
   onClose,
+  onAuth,
+  setTokenVerifier,
   // 테스트용
   _state: { sessions, waiting, rooms },
 };

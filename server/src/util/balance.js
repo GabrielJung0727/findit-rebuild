@@ -74,6 +74,24 @@ function gradeForLevel(level) {
   return b ? b.grade : 'J';
 }
 
+/**
+ * 매치 결과로 점수가 누적될 때의 서버 권위 레벨업 계산.
+ * 클라가 보낸 level/point 를 신뢰하지 않고 score 만으로 재계산한다.
+ *  - 레벨이 오른 만큼 스킬 포인트(point)를 1레벨당 1씩 지급.
+ * @param {number} oldScore 기존 누적 점수
+ * @param {number} addScore 이번 매치로 얻은 점수(증분)
+ * @returns {{newScore:number, oldLevel:number, newLevel:number, pointAward:number}}
+ */
+function levelUpResult(oldScore, addScore) {
+  const prev = Math.max(0, Number(oldScore) || 0);
+  const add = Math.max(0, Number(addScore) || 0);
+  const newScore = prev + add;
+  const oldLevel = levelForScore(prev);
+  const newLevel = levelForScore(newScore);
+  const pointAward = Math.max(0, newLevel - oldLevel);
+  return { newScore, oldLevel, newLevel, pointAward };
+}
+
 function abilityForLevel(level) {
   const clamped = Math.max(0, Math.min(100, level));
   const [attack, defense, hp] = LEVEL_ABILITY[clamped];
@@ -131,6 +149,7 @@ module.exports = {
   levelForScore,
   gradeForLevel,
   abilityForLevel,
+  levelUpResult,
   UPGRADE_MAX_LEVEL,
   upgradeCost,
   upgradeRate,

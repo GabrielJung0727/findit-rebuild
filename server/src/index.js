@@ -16,6 +16,7 @@ const iapModule = require('./routes/iap');
 const fcmUtil = require('./util/fcm');
 const socketServer = require('./socket/server');
 const wsServer = require('./socket/ws_server');
+const rankingCron = require('./util/rankingCron');
 
 const HTTP_PORT = Number(process.env.HTTP_PORT || 8080);
 const TCP_PORT = Number(process.env.TCP_PORT || 22131);
@@ -106,6 +107,9 @@ async function main() {
 
   // 레거시 raw TCP — 디컴파일된 안드 APK 호환용. WS 마이그레이션 완료 후 제거 가능.
   socketServer.start({ host: TCP_HOST, port: TCP_PORT });
+
+  // 인프로세스 랭킹 크론 — 일/주 스냅샷 생성 (RANKING_CRON=0 으로 비활성).
+  rankingCron.start();
 
   process.on('SIGTERM', () => {
     console.log('[app] SIGTERM, exiting.');

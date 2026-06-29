@@ -17,8 +17,9 @@
 #   GOOGLE_PLAY_SERVICE_ACCOUNT_JSON     gcloud-style 서비스 계정 JSON
 #
 #   app_runtime 그룹 (런타임 dart-define — 빌드가 서버를 찾는 값):
-#     FINDIT_SERVER_DOMAIN   운영 서버 HTTPS URL, 말미 / 포함 (예: https://findit-xxxx.run.app/)
-#     FINDIT_WS_URL          WebSocket URL (예: wss://findit-xxxx.run.app/ws)
+#     FINDIT_SERVER_DOMAIN   운영 서버 HTTPS URL, 말미 / 포함
+#                            현재: https://findit-api-eji53tb2ka-uc.a.run.app/  (findit-494900, us-central1)
+#     FINDIT_WS_URL          WebSocket URL: wss://findit-api-eji53tb2ka-uc.a.run.app/ws
 #   ※ 미설정 시 빌드는 되지만 lib/util/property.dart 의 기본값(에뮬레이터 localhost)로 빌드되어
 #     실기기/TestFlight 에서 서버에 못 붙음.
 #

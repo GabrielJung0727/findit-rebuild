@@ -28,8 +28,8 @@ Windows 개발 머신에서 iOS 앱을 아이폰에 올려 테스트하는 절�
 3. **환경변수 그룹** (Dashboard → Environment variables, Encrypted):
    | 그룹 | 변수 | 값 |
    |---|---|---|
-   | `app_runtime` | `FINDIT_SERVER_DOMAIN` | `https://<cloud-run>/` (말미 `/`) |
-   | `app_runtime` | `FINDIT_WS_URL` | `wss://<host>/ws` |
+   | `app_runtime` | `FINDIT_SERVER_DOMAIN` | `https://findit-api-eji53tb2ka-uc.a.run.app/` (말미 `/`) |
+   | `app_runtime` | `FINDIT_WS_URL` | `wss://findit-api-eji53tb2ka-uc.a.run.app/ws` |
    | `app_store_connect` | (App Store Connect API 통합) | — |
    | `findit-keystore` / `google_play` | (안드 서명/배포) | — |
 
@@ -73,8 +73,8 @@ flutter pub get
 open ios/Runner.xcworkspace      # Signing & Capabilities → Team 선택(본인 Apple 계정)
 # 실기기 USB 연결 후:
 flutter run --release \
-  --dart-define=FINDIT_SERVER_DOMAIN=https://<cloud-run>/ \
-  --dart-define=FINDIT_WS_URL=wss://<host>/ws \
+  --dart-define=FINDIT_SERVER_DOMAIN=https://findit-api-eji53tb2ka-uc.a.run.app/ \
+  --dart-define=FINDIT_WS_URL=wss://findit-api-eji53tb2ka-uc.a.run.app/ws \
   --dart-define=FINDIT_CLEARTEXT=false
 ```
 

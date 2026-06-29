@@ -14,6 +14,7 @@ const V = require('../util/validation');
 const session = require('../util/session');
 const recaptcha = require('../util/recaptcha');
 const balance = require('../util/balance');
+const { buildAppConfig } = require('../util/appConfig');
 
 const router = express.Router();
 
@@ -611,6 +612,15 @@ router.get('/member/notice.json', async (req, res, next) => {
     const html = renderNoticeHtml(rows);
     res.type('html').send(html);
   } catch (e) { next(e); }
+});
+
+// -----------------------------------------------------
+// 13.5 /app/member/appConfig.json — 강제 업데이트 게이트 + 운영 플래그
+// 응답: { result, minBuild, latestBuild, storeUrl:{ios,android}, message }
+// 클라가 자신의 빌드번호 < minBuild 이면 강제 업데이트 다이얼로그. env 로 운영 조정(DB 불필요).
+// -----------------------------------------------------
+router.get('/member/appConfig.json', (req, res) => {
+  res.json({ result: C.RESULT_PASS, ...buildAppConfig() });
 });
 
 // -----------------------------------------------------

@@ -9,6 +9,7 @@ const skillRoutes = require('./routes/skills');
 const economyRoutes = require('./routes/economy');
 const adRoutes = require('./routes/ads');
 const rankRoutes = require('./routes/ranks');
+const giftRoutes = require('./routes/gifts');
 const adminRoutes = require('./routes/admin');
 const analytics = require('./routes/analytics');
 const fcmRoutes = require('./routes/fcm');
@@ -55,6 +56,7 @@ app.use('/app', skillRoutes);
 app.use('/app', economyRoutes);
 app.use('/app', adRoutes);
 app.use('/app', rankRoutes);
+app.use('/app', giftRoutes);                // /app/member/gift{Send,List,Claim}.json
 app.use('/app', analytics.publicRouter);   // /app/member/event.json
 app.use('/app', fcmRoutes.publicRouter);   // /app/member/registerFcmToken.json
 app.use('/app', iapModule.router);         // /app/member/verifyIap.json

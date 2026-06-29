@@ -49,6 +49,14 @@ class ResultScreen extends ConsumerWidget {
               const Divider(),
               _Row(label: '+Coin', value: '${result.coinReward}'),
               _Row(label: '+Point', value: '${result.pointReward}'),
+              if (result.leveledUp) ...<Widget>[
+                const SizedBox(height: 12),
+                _LevelUpBanner(
+                  from: result.levelFrom!,
+                  to: result.levelTo!,
+                  pointAwarded: result.pointAwarded ?? 0,
+                ),
+              ],
               if (auth.user != null) ...<Widget>[
                 const Divider(),
                 _Row(
@@ -81,6 +89,51 @@ class ResultScreen extends ConsumerWidget {
       case GameEndReason.hpZero:
         return 'HP 0';
     }
+  }
+}
+
+class _LevelUpBanner extends StatelessWidget {
+  const _LevelUpBanner({
+    required this.from,
+    required this.to,
+    required this.pointAwarded,
+  });
+
+  final int from;
+  final int to;
+  final int pointAwarded;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: scheme.tertiaryContainer,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: <Widget>[
+          Icon(Icons.arrow_circle_up, color: scheme.onTertiaryContainer),
+          const SizedBox(width: 8),
+          Text(
+            'LEVEL UP!  Lv $from → $to',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: scheme.onTertiaryContainer,
+                  fontWeight: FontWeight.bold,
+                ),
+          ),
+          if (pointAwarded > 0) ...<Widget>[
+            const SizedBox(width: 8),
+            Text(
+              '+${pointAwarded}P',
+              style: TextStyle(color: scheme.onTertiaryContainer),
+            ),
+          ],
+        ],
+      ),
+    );
   }
 }
 

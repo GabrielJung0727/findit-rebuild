@@ -129,6 +129,13 @@ class MemberApi {
     return unwrapResult(res.data);
   }
 
+  /// 앱 강제 업데이트 게이트 설정 — `{minBuild, latestBuild, storeUrl, message}`.
+  Future<Map<String, dynamic>> appConfig() async {
+    final res =
+        await _dio.get<Map<String, dynamic>>('app/member/appConfig.json');
+    return unwrapResult(res.data);
+  }
+
   Future<void> _persistToken(Map<String, dynamic> body) async {
     final token = body['token'] as String?;
     if (token != null && token.isNotEmpty) {

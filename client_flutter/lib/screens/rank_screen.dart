@@ -5,13 +5,13 @@ import '../l10n/app_localizations.dart';
 import '../state/auth.dart';
 import '../state/providers.dart';
 
-/// 랭킹 — 친구 / 전체 토글 + 어제 대비 delta.
+/// 랭킹 — 친구 / 전체 + 전체 탭의 일간·주간 토글 + 어제 대비 delta.
 ///
 /// - 친구: `rankListFriends.json?fbFriends=<csv>` — Facebook UID 미연동 시 본인만 표시.
-/// - 전체: `rankListTop.json?limit=50`.
-///
-/// 일/주 토글은 안드 원본 UI 대비 placeholder. 서버는 현재 일일 snapshot 만 지원
-/// (`rankings.period='daily'`); 주간은 후속 (cron 으로 weekly snapshot 생성).
+/// - 전체(일간): `rankListTop.json?limit=50` (실시간 wallets.score).
+/// - 전체(주간): `rankListWeekly.json?limit=50` (주간 스냅샷, util/rankingSnapshot.js).
+enum _TopPeriod { daily, weekly }
+
 class RankScreen extends ConsumerStatefulWidget {
   const RankScreen({super.key});
 
@@ -24,18 +24,34 @@ class _RankScreenState extends ConsumerState<RankScreen>
   late final TabController _tab;
   Future<List<Map<String, dynamic>>>? _topFuture;
   Future<List<Map<String, dynamic>>>? _friendsFuture;
+  _TopPeriod _topPeriod = _TopPeriod.daily;
 
   @override
   void initState() {
     super.initState();
     _tab = TabController(length: 2, vsync: this);
-    _topFuture = ref.read(gameApiProvider).rankListTop();
+    _topFuture = _loadTop();
     final user = ref.read(authControllerProvider).user;
     if (user != null) {
       _friendsFuture = ref
           .read(gameApiProvider)
           .rankListFriends(userId: user.userId, fbFriends: const <String>[]);
     }
+  }
+
+  Future<List<Map<String, dynamic>>> _loadTop() {
+    final api = ref.read(gameApiProvider);
+    return _topPeriod == _TopPeriod.weekly
+        ? api.rankListWeekly()
+        : api.rankListTop();
+  }
+
+  void _setTopPeriod(_TopPeriod p) {
+    if (p == _topPeriod) return;
+    setState(() {
+      _topPeriod = p;
+      _topFuture = _loadTop();
+    });
   }
 
   @override
@@ -46,7 +62,7 @@ class _RankScreenState extends ConsumerState<RankScreen>
 
   Future<void> _refreshTop() async {
     setState(() {
-      _topFuture = ref.read(gameApiProvider).rankListTop();
+      _topFuture = _loadTop();
     });
     await _topFuture;
   }
@@ -56,9 +72,9 @@ class _RankScreenState extends ConsumerState<RankScreen>
     if (user == null) return;
     setState(() {
       _friendsFuture = ref.read(gameApiProvider).rankListFriends(
-            userId: user.userId,
-            fbFriends: const <String>[],
-          );
+        userId: user.userId,
+        fbFriends: const <String>[],
+      );
     });
     await _friendsFuture;
   }
@@ -82,10 +98,30 @@ class _RankScreenState extends ConsumerState<RankScreen>
         child: TabBarView(
           controller: _tab,
           children: <Widget>[
-            _RankList(
-              future: _topFuture,
-              onRefresh: _refreshTop,
-              currentUserId: auth.user?.userId,
+            Column(
+              children: <Widget>[
+                Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: SegmentedButton<_TopPeriod>(
+                    segments: const <ButtonSegment<_TopPeriod>>[
+                      ButtonSegment<_TopPeriod>(
+                          value: _TopPeriod.daily, label: Text('일간')),
+                      ButtonSegment<_TopPeriod>(
+                          value: _TopPeriod.weekly, label: Text('주간')),
+                    ],
+                    selected: <_TopPeriod>{_topPeriod},
+                    onSelectionChanged: (s) => _setTopPeriod(s.first),
+                  ),
+                ),
+                Expanded(
+                  child: _RankList(
+                    future: _topFuture,
+                    onRefresh: _refreshTop,
+                    currentUserId: auth.user?.userId,
+                    showDelta: _topPeriod == _TopPeriod.weekly,
+                  ),
+                ),
+              ],
             ),
             _RankList(
               future: _friendsFuture,
@@ -128,17 +164,21 @@ class _RankList extends StatelessWidget {
             return const Center(child: CircularProgressIndicator());
           }
           if (snap.hasError) {
-            return ListView(children: <Widget>[
-              const SizedBox(height: 80),
-              Center(child: Text(l.noticeMsgNetworkfail)),
-            ],);
+            return ListView(
+              children: <Widget>[
+                const SizedBox(height: 80),
+                Center(child: Text(l.noticeMsgNetworkfail)),
+              ],
+            );
           }
           final list = snap.data ?? const <Map<String, dynamic>>[];
           if (list.isEmpty) {
-            return ListView(children: <Widget>[
-              const SizedBox(height: 80),
-              Center(child: Text(emptyHint ?? l.noticeMsgNotUsers)),
-            ],);
+            return ListView(
+              children: <Widget>[
+                const SizedBox(height: 80),
+                Center(child: Text(emptyHint ?? l.noticeMsgNotUsers)),
+              ],
+            );
           }
           return _Header(
             child: ListView.separated(

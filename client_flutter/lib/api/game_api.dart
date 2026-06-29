@@ -74,10 +74,22 @@ class GameApi {
     return _list(body);
   }
 
+  /// 주간 랭킹 — 최신 weekly 스냅샷 (서버 `util/rankingSnapshot.js` 가 생성).
+  /// 항목: `{ranking, friendId, userNick, level, sumpoint, delta}`.
+  Future<List<Map<String, dynamic>>> rankListWeekly({int limit = 50}) async {
+    final res = await _dio.get<Map<String, dynamic>>(
+      'app/member/rankListWeekly.json',
+      queryParameters: <String, dynamic>{'limit': limit},
+    );
+    final body = unwrapResult(res.data);
+    return _list(body);
+  }
+
   /// 구매 내역. `result` 없이 list 만 반환됨.
   ///
   /// 응답 list 항목: `{regDate, itemName, quantity}`
-  Future<List<Map<String, dynamic>>> itemPurchaseHistList({required String userId}) async {
+  Future<List<Map<String, dynamic>>> itemPurchaseHistList(
+      {required String userId}) async {
     final res = await _dio.get<Map<String, dynamic>>(
       'app/member/itemPurchaseHistList',
       queryParameters: <String, dynamic>{'userId': userId},

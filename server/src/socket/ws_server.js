@@ -6,10 +6,10 @@
 //   서버→클라: 동일 포맷.
 //
 // 인증: 첫 메시지가 `|auth|<token>` 이거나, 또는 connection-time 쿼리스트링 `?token=<t>`.
-//        토큰 미검증인 동안엔 다른 코드를 무시. (TODO: session.js 와 결합해 실제 검증)
+//        handlers.js 가 conn.requireAuth 동안 토큰 검증 전 게임 코드를 무시 (session.verifyToken 결합 완료).
 //
-// keepalive: ws 의 ping/pong 자동 + 30s timeout. iOS 백그라운드에서도 OS 가 push 로 깨우는
-//            패턴이 일반적이므로 클라가 명시적으로 reconnect 하면 충분.
+// keepalive: 아래 heartbeatSweep 가 30s 마다 ping → pong 없는 연결 terminate.
+//            iOS 백그라운드로 유실된 소켓도 다음 스윕에서 회수됨.
 
 let WSServer;
 try {

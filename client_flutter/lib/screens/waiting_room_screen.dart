@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../api/api_client.dart';
 import '../l10n/app_localizations.dart';
 import '../state/auth.dart';
 import '../state/lobby.dart';
@@ -142,6 +143,14 @@ class _WaitingRoomScreenState extends ConsumerState<WaitingRoomScreen>
         title: Text(l.waitingroom),
         actions: <Widget>[
           IconButton(
+            icon: const Icon(Icons.card_giftcard),
+            tooltip: '받은 선물',
+            onPressed: () => showModalBottomSheet<void>(
+              context: context,
+              builder: (_) => const _GiftInboxSheet(),
+            ),
+          ),
+          IconButton(
             icon: const Icon(Icons.refresh),
             tooltip: l.identifyOverlap,
             onPressed: () =>
@@ -234,6 +243,122 @@ class _Header extends StatelessWidget {
   }
 }
 
+Future<void> _sendGift(
+    BuildContext context, WidgetRef ref, String toUser) async {
+  final me = ref.read(authControllerProvider).user;
+  if (me == null) return;
+  final messenger = ScaffoldMessenger.of(context);
+  try {
+    await ref
+        .read(giftApiProvider)
+        .sendCoin(fromUser: me.userId, toUser: toUser, coin: 10);
+    messenger.showSnackBar(SnackBar(content: Text('$toUser 님에게 코인 10 선물!')));
+  } on ApiResultException catch (e) {
+    messenger.showSnackBar(SnackBar(content: Text('선물 실패: ${e.reason ?? ''}')));
+  } catch (_) {
+    messenger.showSnackBar(const SnackBar(content: Text('선물을 보내지 못했습니다.')));
+  }
+}
+
+/// 받은 선물 목록 + 수령. 수령 시 서버가 지갑에 적립 → 로컬 지갑도 동기화.
+class _GiftInboxSheet extends ConsumerStatefulWidget {
+  const _GiftInboxSheet();
+
+  @override
+  ConsumerState<_GiftInboxSheet> createState() => _GiftInboxSheetState();
+}
+
+class _GiftInboxSheetState extends ConsumerState<_GiftInboxSheet> {
+  late Future<List<Map<String, dynamic>>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _load();
+  }
+
+  Future<List<Map<String, dynamic>>> _load() {
+    final me = ref.read(authControllerProvider).user;
+    if (me == null)
+      return Future<List<Map<String, dynamic>>>.value(
+          const <Map<String, dynamic>>[]);
+    return ref.read(giftApiProvider).list(userId: me.userId);
+  }
+
+  Future<void> _claim(int giftId) async {
+    final me = ref.read(authControllerProvider).user;
+    if (me == null) return;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final out = await ref
+          .read(giftApiProvider)
+          .claim(userId: me.userId, giftId: giftId);
+      final kind = out['kind'] as String?;
+      final amount = (out['amount'] as num?)?.toInt() ?? 0;
+      if (kind == 'coin') {
+        ref
+            .read(authControllerProvider.notifier)
+            .applyWalletDelta(coin: me.coin + amount);
+      }
+      messenger.showSnackBar(SnackBar(
+          content: Text('선물 수령: ${kind == 'coin' ? '코인 $amount' : '아이템'}')));
+      setState(() => _future = _load());
+    } on ApiResultException catch (e) {
+      messenger
+          .showSnackBar(SnackBar(content: Text('수령 실패: ${e.reason ?? ''}')));
+    } catch (_) {
+      messenger.showSnackBar(const SnackBar(content: Text('수령하지 못했습니다.')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: FutureBuilder<List<Map<String, dynamic>>>(
+        future: _future,
+        builder: (ctx, snap) {
+          if (snap.connectionState != ConnectionState.done) {
+            return const Padding(
+              padding: EdgeInsets.all(32),
+              child: Center(child: CircularProgressIndicator()),
+            );
+          }
+          final list = snap.data ?? const <Map<String, dynamic>>[];
+          if (list.isEmpty) {
+            return const Padding(
+              padding: EdgeInsets.all(32),
+              child: Center(child: Text('받은 선물이 없습니다.')),
+            );
+          }
+          return ListView(
+            shrinkWrap: true,
+            children: <Widget>[
+              const Padding(
+                padding: EdgeInsets.all(16),
+                child: Text('받은 선물',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+              for (final g in list)
+                ListTile(
+                  leading: const Icon(Icons.card_giftcard),
+                  title: Text(g['kind'] == 'coin'
+                      ? '코인 ${(g['amount'] as num?)?.toInt() ?? 0}'
+                      : '아이템 #${(g['itemNo'] as num?)?.toInt() ?? 0}'),
+                  subtitle:
+                      Text('${g['fromUser'] ?? ''} · ${g['regDate'] ?? ''}'),
+                  trailing: FilledButton(
+                    onPressed: () => _claim((g['id'] as num).toInt()),
+                    child: const Text('받기'),
+                  ),
+                ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
 class _UserList extends ConsumerWidget {
   const _UserList({required this.users});
 
@@ -258,18 +383,28 @@ class _UserList extends ConsumerWidget {
           leading: CircleAvatar(child: Text('${u.character + 1}')),
           title: Text(u.userId),
           subtitle: Text('${l.id}: ${u.userId}'),
-          trailing: FilledButton.tonal(
-            onPressed: () {
-              // 친구가 만든 방 이름은 userId 자체로 가정 (안드 원본 정책: enterBattleRoom(userId)).
-              // 실제 방 이름은 createRoom 후 서버가 발급 → 친구가 invite 보내야 정확한 roomName 확보.
-              // 직접 입장 시도 (이름 = userId) 는 다음 단계에서 정식 invite 플로우로 교체.
-              ref.read(lobbyControllerProvider.notifier).enterRoom(u.userId);
-            },
-            child: Text(l.startgame),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              IconButton(
+                icon: const Icon(Icons.card_giftcard, size: 20),
+                tooltip: '코인 선물',
+                onPressed: () => _sendGift(context, ref, u.userId),
+              ),
+              FilledButton.tonal(
+                onPressed: () {
+                  // 친구가 만든 방 이름은 userId 자체로 가정 (안드 원본: enterBattleRoom(userId)).
+                  // 실제 방 이름은 createRoom 후 서버가 발급 → invite 플로우로 교체 예정.
+                  ref
+                      .read(lobbyControllerProvider.notifier)
+                      .enterRoom(u.userId);
+                },
+                child: Text(l.startgame),
+              ),
+            ],
           ),
         );
       },
     );
   }
 }
-

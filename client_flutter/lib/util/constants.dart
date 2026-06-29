@@ -1,3 +1,7 @@
+/// 앱 빌드 번호 — 서버 `appConfig.json` 의 minBuild 와 비교해 강제 업데이트 판정.
+/// 스토어 배포 시 pubspec `version: x.y.z+BUILD` 의 BUILD 와 동기화할 것.
+const int kAppBuildNumber = 1;
+
 /// 게임 룰 상수 — Android `GameView.java` / `Objects.java` / 서버 `balance.js` 와 일치.
 ///
 /// 진실 자료(Source of Truth)는 서버 `balance.js`. 클라는 fallback 값.

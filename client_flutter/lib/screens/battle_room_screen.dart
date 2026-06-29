@@ -50,12 +50,39 @@ class BattleRoomScreen extends ConsumerWidget {
       );
     }
 
+    // 덱 선택 풀 — 서버 스킬 카탈로그(이름) + 내가 학습한 스킬. 기본 8개는 항상 포함(덱 구성 보장).
+    final catalog = ref.watch(skillCatalogProvider).asData?.value ??
+        const <Map<String, dynamic>>[];
+    final nameById = <int, String>{
+      for (final s in catalog)
+        if (s['skillId'] is num)
+          (s['skillId'] as num).toInt(): (s['nameKo'] as String? ?? ''),
+    };
+    final basicIds = _kSkillPool.map((e) => e.id).toList();
+    final orderedIds = <int>[
+      ...basicIds,
+      ...auth.skills.where((id) => !basicIds.contains(id)),
+    ];
+    final pool = <({int id, String label})>[
+      for (final id in orderedIds)
+        (
+          id: id,
+          label: (nameById[id] != null && nameById[id]!.isNotEmpty)
+              ? nameById[id]!
+              : _kSkillPool
+                  .firstWhere((e) => e.id == id,
+                      orElse: () => (id: id, code: '#$id'))
+                  .code,
+        ),
+    ];
+
     return Scaffold(
       appBar: AppBar(
         title: Text(br.roomName),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          onPressed: () => ref.read(lobbyControllerProvider.notifier).leaveRoom(),
+          onPressed: () =>
+              ref.read(lobbyControllerProvider.notifier).leaveRoom(),
         ),
       ),
       body: SafeArea(
@@ -83,9 +110,7 @@ class BattleRoomScreen extends ConsumerWidget {
                   ),
                   Expanded(
                     child: _PlayerCard(
-                      label: br.opponentCharacter == null
-                          ? l.wait
-                          : 'P2',
+                      label: br.opponentCharacter == null ? l.wait : 'P2',
                       character: br.opponentCharacter ?? 0,
                       ready: br.opponentReady,
                       side: _Side.right,
@@ -98,21 +123,27 @@ class BattleRoomScreen extends ConsumerWidget {
             // 스킬덱 picker
             Expanded(
               child: _SkillDeckPicker(
+                pool: pool,
                 selected: br.skillDeck,
                 locked: br.selfReady,
-                onToggle: (skillId) =>
-                    ref.read(lobbyControllerProvider.notifier).toggleSkill(skillId),
+                onToggle: (skillId) => ref
+                    .read(lobbyControllerProvider.notifier)
+                    .toggleSkill(skillId),
               ),
             ),
             const Divider(height: 1),
             Padding(
               padding: const EdgeInsets.all(16),
               child: FilledButton(
-                onPressed: br.deckValid
-                    ? () => ref
-                        .read(lobbyControllerProvider.notifier)
-                        .setReady(!br.selfReady)
-                    : null,
+                // 양측 ready 시엔 자동 시작(ref.listen) 중이므로 버튼이 ready 를 토글해
+                // 게임을 취소하지 않도록 비활성화.
+                onPressed: br.bothReady
+                    ? null
+                    : br.deckValid
+                        ? () => ref
+                            .read(lobbyControllerProvider.notifier)
+                            .setReady(!br.selfReady)
+                        : null,
                 child: Text(_buttonLabel(l, br)),
               ),
             ),
@@ -152,7 +183,6 @@ Future<void> _startMultiGame(BuildContext context, WidgetRef ref) async {
       );
   if (context.mounted) context.go('/game');
 }
-
 
 enum _Side { left, right }
 
@@ -213,14 +243,14 @@ class _PlayerCard extends StatelessWidget {
   }
 }
 
-/// 스킬 풀 — 안드 원본 8개 (`SKILLWINDOW_TOTALNUM`) + 04-24.md §1.5 기획의 스킬 ID.
-/// 실제 레벨 잠금/요건은 §8 (스킬트리) 에서 catalog 데이터로 강화 예정.
+/// 기본 스킬 풀 — 안드 원본 8개 (`SKILLWINDOW_TOTALNUM`). 카탈로그/학습 스킬 미수신 시 fallback.
+/// 표시 이름은 서버 `skillCatalog.json` 에서 resolve (battle_room build 에서 합성).
 const List<({int id, String code})> _kSkillPool = <({int id, String code})>[
-  (id: 14, code: 'cats_claw_1'),       // 고양이발톱 (기본)
-  (id: 13, code: 'puppy_print_1'),     // 강아지발자국
-  (id: 15, code: 'explosion_1'),       // 폭발
-  (id: 16, code: 'flame_1'),           // 불꽃
-  (id: 17, code: 'snowflake_1'),       // 눈꽃
+  (id: 14, code: 'cats_claw_1'), // 고양이발톱 (기본)
+  (id: 13, code: 'puppy_print_1'), // 강아지발자국
+  (id: 15, code: 'explosion_1'), // 폭발
+  (id: 16, code: 'flame_1'), // 불꽃
+  (id: 17, code: 'snowflake_1'), // 눈꽃
   (id: 18, code: 'powerful_explosion_1'),
   (id: 19, code: 'powerful_flame_1'),
   (id: 90, code: 'powerful_snowflake_1'),
@@ -228,11 +258,13 @@ const List<({int id, String code})> _kSkillPool = <({int id, String code})>[
 
 class _SkillDeckPicker extends StatelessWidget {
   const _SkillDeckPicker({
+    required this.pool,
     required this.selected,
     required this.locked,
     required this.onToggle,
   });
 
+  final List<({int id, String label})> pool;
   final Set<int> selected;
   final bool locked;
   final ValueChanged<int> onToggle;
@@ -267,13 +299,15 @@ class _SkillDeckPicker extends StatelessWidget {
                 crossAxisSpacing: 8,
                 childAspectRatio: 1,
               ),
-              itemCount: _kSkillPool.length,
+              itemCount: pool.length,
               itemBuilder: (ctx, i) {
-                final s = _kSkillPool[i];
+                final s = pool[i];
                 final picked = selected.contains(s.id);
-                final disabled = locked || (!picked && selected.length >= kSkillDeckSize);
+                final disabled =
+                    locked || (!picked && selected.length >= kSkillDeckSize);
                 return _SkillTile(
                   index: i,
+                  label: s.label,
                   selected: picked,
                   disabled: disabled,
                   onTap: () => onToggle(s.id),
@@ -290,12 +324,14 @@ class _SkillDeckPicker extends StatelessWidget {
 class _SkillTile extends StatelessWidget {
   const _SkillTile({
     required this.index,
+    required this.label,
     required this.selected,
     required this.disabled,
     required this.onTap,
   });
 
   final int index;
+  final String label;
   final bool selected;
   final bool disabled;
   final VoidCallback onTap;
@@ -332,8 +368,11 @@ class _SkillTile extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               Text(
-                'S${index + 1}',
-                style: Theme.of(context).textTheme.labelMedium,
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.labelSmall,
               ),
             ],
           ),
@@ -345,14 +384,14 @@ class _SkillTile extends StatelessWidget {
   IconData _iconFor(int i) {
     // §13 자산 입수 전 임시 — 5계열 분기
     const icons = <IconData>[
-      Icons.pets,           // 고양이
-      Icons.pets,           // 강아지
-      Icons.local_fire_department,  // 폭발
-      Icons.whatshot,       // 불꽃
-      Icons.ac_unit,        // 눈꽃
-      Icons.bolt,           // 강력폭발
-      Icons.flash_on,       // 강력불꽃
-      Icons.severe_cold,    // 강력눈꽃
+      Icons.pets, // 고양이
+      Icons.pets, // 강아지
+      Icons.local_fire_department, // 폭발
+      Icons.whatshot, // 불꽃
+      Icons.ac_unit, // 눈꽃
+      Icons.bolt, // 강력폭발
+      Icons.flash_on, // 강력불꽃
+      Icons.severe_cold, // 강력눈꽃
     ];
     return icons[i % icons.length];
   }

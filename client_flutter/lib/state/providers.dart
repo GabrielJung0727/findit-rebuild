@@ -6,6 +6,7 @@ import '../api/api_client.dart';
 import '../api/catalog_api.dart';
 import '../api/content_api.dart';
 import '../api/game_api.dart';
+import '../api/gift_api.dart';
 import '../api/iap_api.dart';
 import '../api/iap_service.dart';
 import '../api/member_api.dart';
@@ -31,6 +32,14 @@ final contentApiProvider = Provider<ContentApi>(
 );
 final gameApiProvider = Provider<GameApi>(
   (ref) => GameApi(ref.watch(apiClientProvider)),
+);
+final giftApiProvider = Provider<GiftApi>(
+  (ref) => GiftApi(ref.watch(apiClientProvider)),
+);
+
+/// 스킬 카탈로그(44개) — 로그인 후 1회 로딩 캐시. 배틀룸 덱/스킬트리가 공유.
+final skillCatalogProvider = FutureProvider<List<Map<String, dynamic>>>(
+  (ref) => ref.watch(catalogApiProvider).skillCatalog(),
 );
 final analyticsApiProvider = Provider<AnalyticsApi>(
   (ref) => AnalyticsApi(ref.watch(apiClientProvider)),

@@ -8,17 +8,32 @@ android {
 
     useLibrary 'org.apache.http.legacy'
 
+    buildFeatures {
+        buildConfig true
+    }
+
     defaultConfig {
         applicationId "com.findit.battle"
         minSdk 21
         targetSdk 34
         versionCode 1
         versionName "1.01"
+
+        // 디버그 기본값 (에뮬레이터 로컬)
+        buildConfigField "String", "SERVER_URL",    '"http://10.0.2.2:8080/"'
+        buildConfigField "String", "SERVER_IP",     '"10.0.2.2"'
+        buildConfigField "boolean","CLEARTEXT",     "true"
     }
 
     buildTypes {
         release {
             minifyEnabled false
+            // 빌드 시 -PSERVER_URL=https://... 로 주입
+            def prodUrl = project.findProperty("SERVER_URL") ?: "http://10.0.2.2:8080/"
+            def prodIp  = prodUrl.replaceAll("https?://", "").split("/")[0]
+            buildConfigField "String",  "SERVER_URL", "\"${prodUrl}\""
+            buildConfigField "String",  "SERVER_IP",  "\"${prodIp}\""
+            buildConfigField "boolean", "CLEARTEXT",  "false"
         }
     }
 

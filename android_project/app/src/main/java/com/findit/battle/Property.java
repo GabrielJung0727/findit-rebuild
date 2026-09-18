@@ -21,12 +21,12 @@ public class Property {
     // 서버 — HTTP/REST
     // =====================================================
     /** 기본 도메인. 말미 슬래시 필수. 엔드포인트 경로와 결합됨. */
-    public static final String SERVER_DOMAIN = "http://10.0.2.2:8080/";
+    public static final String SERVER_DOMAIN = BuildConfig.SERVER_URL;
 
     // =====================================================
     // 서버 — TCP 소켓 (멀티플레이 매칭/중계)
     // =====================================================
-    public static final String SERVER_IP = "10.0.2.2";
+    public static final String SERVER_IP = BuildConfig.SERVER_IP;
     public static final int    SERVER_SOCKET_PORT = 22131;
 
     // =====================================================

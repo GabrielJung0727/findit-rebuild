@@ -1,5 +1,9 @@
+import 'dart:io' show Platform;
+
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../util/property.dart';
 
@@ -8,6 +12,9 @@ import '../util/property.dart';
 /// 인터셉터:
 /// - 세션 토큰 자동 첨부 (`Authorization: Bearer <token>`) — flutter_secure_storage 에서 로드
 /// - 401 시 토큰 폐기 + 등록된 [onUnauthorized] 콜백 호출 (라우터가 로그인 화면으로 이동)
+///
+/// macOS 는 샌드박스 키체인 엔타이틀먼트 없이 SecureStorage 를 쓸 수 없으므로
+/// SharedPreferences 로 폴백 (테스트 빌드용).
 class ApiClient {
   ApiClient({Dio? dio, FlutterSecureStorage? storage})
       : _dio = dio ?? Dio(),
@@ -22,7 +29,7 @@ class ApiClient {
     _dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) async {
-          final token = await _storage.read(key: _kSessionToken);
+          final token = await readSessionToken();
           if (token != null && token.isNotEmpty) {
             options.headers['Authorization'] = 'Bearer $token';
           }
@@ -30,7 +37,7 @@ class ApiClient {
         },
         onError: (err, handler) async {
           if (err.response?.statusCode == 401) {
-            await _storage.delete(key: _kSessionToken);
+            await clearSessionToken();
             _onUnauthorized?.call();
           }
           handler.next(err);
@@ -40,6 +47,9 @@ class ApiClient {
   }
 
   static const String _kSessionToken = 'session_token';
+  // macOS 에서는 SharedPreferences 사용 (Keychain 엔타이틀먼트 불필요)
+  static bool get _usePref =>
+      !kIsWeb && Platform.isMacOS;
 
   final Dio _dio;
   final FlutterSecureStorage _storage;
@@ -52,12 +62,31 @@ class ApiClient {
     _onUnauthorized = handler;
   }
 
-  Future<void> setSessionToken(String token) =>
-      _storage.write(key: _kSessionToken, value: token);
+  Future<void> setSessionToken(String token) async {
+    if (_usePref) {
+      final p = await SharedPreferences.getInstance();
+      await p.setString(_kSessionToken, token);
+    } else {
+      await _storage.write(key: _kSessionToken, value: token);
+    }
+  }
 
-  Future<void> clearSessionToken() => _storage.delete(key: _kSessionToken);
+  Future<void> clearSessionToken() async {
+    if (_usePref) {
+      final p = await SharedPreferences.getInstance();
+      await p.remove(_kSessionToken);
+    } else {
+      await _storage.delete(key: _kSessionToken);
+    }
+  }
 
-  Future<String?> readSessionToken() => _storage.read(key: _kSessionToken);
+  Future<String?> readSessionToken() async {
+    if (_usePref) {
+      final p = await SharedPreferences.getInstance();
+      return p.getString(_kSessionToken);
+    }
+    return _storage.read(key: _kSessionToken);
+  }
 }
 
 /// 서버 공통 응답 result code — `server/src/util/codes.js` 와 일치.

@@ -4,12 +4,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../api/api_client.dart';
 import '../l10n/app_localizations.dart';
 import '../state/auth.dart';
+import '../util/legacy_theme.dart';
+import '../util/legacy_widgets.dart';
 import 'login_messages.dart';
 
 /// Guest 입장 — 약관/안내 + 즉시 입장 버튼.
 ///
-/// 정책: Guest 는 자동로그인/캐릭터 저장 X, 게임 진행 + 광고/컨텐츠 노출만.
-/// 가입을 유도하기 위해 안내 문구 (`guestMsg`) 노출.
+/// 디자인: 원본 안드 톤 — `main_bg.png` 위에 베이지 popup, 노랑 GUEST 버튼.
 class GuestScreen extends ConsumerStatefulWidget {
   const GuestScreen({super.key});
 
@@ -24,7 +25,6 @@ class _GuestScreenState extends ConsumerState<GuestScreen> {
     final l = AppLocalizations.of(context);
     setState(() => _submitting = true);
     try {
-      // deviceId 는 후속 — 현재는 random guest_<rand12> 가 서버에서 발급됨.
       await ref.read(authControllerProvider.notifier).guest();
     } on ApiResultException catch (e) {
       if (!mounted) return;
@@ -41,12 +41,43 @@ class _GuestScreenState extends ConsumerState<GuestScreen> {
     final l = AppLocalizations.of(context);
     showDialog<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(l.notice),
-        content: Text(message),
-        actions: <Widget>[
-          TextButton(onPressed: () => Navigator.pop(ctx), child: Text(l.ok)),
-        ],
+      barrierColor: Colors.black54,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        child: LegacyPopup(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Text(
+                l.notice,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                  color: LegacyColors.textBrown,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(message, style: LegacyTextStyles.body),
+              const SizedBox(height: 16),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: Text(
+                    l.ok,
+                    style: const TextStyle(
+                      color: LegacyColors.orangeBottom,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 16,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -55,47 +86,86 @@ class _GuestScreenState extends ConsumerState<GuestScreen> {
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
     return Scaffold(
-      appBar: AppBar(title: Text(l.guestTitle)),
-      body: SafeArea(
+      body: LegacyBackground(
         child: Padding(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
+              // 상단 뒤로가기 버튼
+              Align(
+                alignment: Alignment.centerLeft,
+                child: IconButton(
+                  icon: const Icon(
+                    Icons.arrow_back_ios_new,
+                    color: LegacyColors.textBrown,
+                    size: 22,
+                  ),
+                  onPressed: () => Navigator.maybePop(context),
+                ),
+              ),
+              const SizedBox(height: 160),
+              // 안내 popup
+              LegacyPopup(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    Text(
+                      l.guestTitle,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                        color: LegacyColors.textBrown,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      l.guestMsg,
+                      textAlign: TextAlign.center,
+                      style: LegacyTextStyles.body,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      l.guestMsgLogin.trim(),
+                      textAlign: TextAlign.center,
+                      style: LegacyTextStyles.body.copyWith(
+                        color: LegacyColors.orangeBottom,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
               const Spacer(),
-              Icon(
-                Icons.person_outline,
-                size: 96,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-              const SizedBox(height: 24),
-              Text(
-                l.guestMsg,
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyLarge,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                l.guestMsgLogin.trim(),
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-              const Spacer(),
-              FilledButton(
-                onPressed: _submitting ? null : _enter,
+              // 노랑 GUEST 버튼 — 원본 login_btn_guest.png
+              Center(
                 child: _submitting
                     ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
+                        height: 60,
+                        child: Center(
+                          child: CircularProgressIndicator(
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              LegacyColors.yellowBottom,
+                            ),
+                          ),
+                        ),
                       )
-                    : Text(l.admission),
+                    : LegacyImageButton(
+                        asset: 'assets/legacy/login_btn_guest.png',
+                        onPressed: _enter,
+                        height: 64,
+                      ),
               ),
-              const SizedBox(height: 8),
-              OutlinedButton(
-                onPressed: _submitting ? null : () => Navigator.pop(context),
-                child: Text(l.cancel),
+              const SizedBox(height: 12),
+              LegacyGradientButton(
+                label: l.cancel,
+                color: LegacyButtonColor.yellow,
+                onPressed: _submitting
+                    ? null
+                    : () => Navigator.maybePop(context),
               ),
+              const SizedBox(height: 24),
             ],
           ),
         ),

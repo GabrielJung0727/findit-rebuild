@@ -22,3 +22,22 @@ out/
 
 # Logs
 *.log
+
+# 서명 키스토어 — 절대 커밋 금지
+*.keystore
+*.jks
+legacy/android_project/local.properties
+
+# Flutter / Dart 빌드 산출물
+legacy/client_flutter/build/
+legacy/client_flutter/.dart_tool/
+app/build/
+app/.dart_tool/
+
+# Node
+node_modules/
+
+# 에셋 파이프라인 산출물 (tools 로 재생성 가능)
+content/images/
+app/assets/legacy/
+app/assets/audio/

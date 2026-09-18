@@ -1,3 +1,5 @@
+// ignore: unused_import
+import 'package:intl/intl.dart' as intl;
 import 'app_localizations.dart';
 
 // ignore_for_file: type=lint
@@ -73,7 +75,8 @@ class AppLocalizationsKo extends AppLocalizations {
   String get downloadAfter => '나중에 다운로드';
 
   @override
-  String get downloadMsg => 'Battle game을 위해 새로운 이미지를 다운로드 하십시오.\n3G, 4G 사용 시 요금이 부과될 수 있습니다.';
+  String get downloadMsg =>
+      'Battle game을 위해 새로운 이미지를 다운로드 하십시오.\n3G, 4G 사용 시 요금이 부과될 수 있습니다.';
 
   @override
   String get downloadNow => '지금 다운로드';
@@ -142,7 +145,8 @@ class AppLocalizationsKo extends AppLocalizations {
   String get itemBerry21 => '강력폭발열매\n강력한 폭발열매를 이용한 공격으로 상대방의 게임화면에 폭발물이 터진다.';
 
   @override
-  String get itemBerry22 => '강력불꽃열매\n강력한 도깨비 불꽃열매를 이용한 공격으로 상대방의 게임화면에 도깨비 불이 나타난다.';
+  String get itemBerry22 =>
+      '강력불꽃열매\n강력한 도깨비 불꽃열매를 이용한 공격으로 상대방의 게임화면에 도깨비 불이 나타난다.';
 
   @override
   String get itemBerry23 => '강력눈꽃열매\n강력 눈꽃열매를 이용한 공격으로 상대방의 게임화면에 눈 결정이 내린다.';
@@ -280,16 +284,19 @@ class AppLocalizationsKo extends AppLocalizations {
   String get noticeMsgAlreadyid => '이미 가입된 아이디입니다.';
 
   @override
-  String get noticeMsgBuyfail => '네트워크가 원활하지 않아 구매에 실패하였습니다. 조금 있다 다시 시도하여 주십시오.';
+  String get noticeMsgBuyfail =>
+      '네트워크가 원활하지 않아 구매에 실패하였습니다. 조금 있다 다시 시도하여 주십시오.';
 
   @override
   String get noticeMsgInvite => '님이 초대 요청을 하셨습니다.';
 
   @override
-  String get noticeMsgNetworkerrorDownload => '네트워크가 원활하지 않습니다. 나중에 다시 다운로드 하십시오.';
+  String get noticeMsgNetworkerrorDownload =>
+      '네트워크가 원활하지 않습니다. 나중에 다시 다운로드 하십시오.';
 
   @override
-  String get noticeMsgNetworkerrorJoin => '네트워크가 원활하지 않아 회원가입이 되지 않습니다. 다시 시도하여 주십시오.';
+  String get noticeMsgNetworkerrorJoin =>
+      '네트워크가 원활하지 않아 회원가입이 되지 않습니다. 다시 시도하여 주십시오.';
 
   @override
   String get noticeMsgNetworkerrorRelease => '상대방 유저의 접속이 끊겼습니다.';

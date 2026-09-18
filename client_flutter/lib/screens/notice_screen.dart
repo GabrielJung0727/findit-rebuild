@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../l10n/app_localizations.dart';
 import '../state/providers.dart';
+import '../util/legacy_theme.dart';
+import '../util/legacy_widgets.dart';
 
 /// 공지사항 — 서버 [`/app/member/notice.json`](../../../../server/src/routes/member.js)
 /// 가 HTML 을 그대로 반환. `flutter_html` 위젯이 렌더.
@@ -35,29 +37,43 @@ class _NoticeScreenState extends ConsumerState<NoticeScreen> {
     final l = AppLocalizations.of(context);
     return Scaffold(
       appBar: AppBar(title: Text(l.notice)),
-      body: SafeArea(
+      body: LegacyBackground(
         child: RefreshIndicator(
+          color: LegacyColors.orangeBottom,
           onRefresh: _refresh,
-          child: FutureBuilder<String>(
-            future: _future,
-            builder: (ctx, snap) {
-              if (snap.connectionState != ConnectionState.done) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              if (snap.hasError) {
-                return ListView(children: <Widget>[
-                  const SizedBox(height: 80),
-                  Center(child: Text(l.noticeMsgNetworkfail)),
-                ],);
-              }
-              return SingleChildScrollView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                child: Padding(
-                  padding: const EdgeInsets.all(8),
-                  child: Html(data: snap.data ?? ''),
-                ),
-              );
-            },
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: LegacyPopup(
+              padding: const EdgeInsets.all(16),
+              child: FutureBuilder<String>(
+                future: _future,
+                builder: (ctx, snap) {
+                  if (snap.connectionState != ConnectionState.done) {
+                    return const Center(
+                      child: CircularProgressIndicator(
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                            LegacyColors.orangeBottom),
+                      ),
+                    );
+                  }
+                  if (snap.hasError) {
+                    return ListView(children: <Widget>[
+                      const SizedBox(height: 80),
+                      Center(
+                        child: Text(
+                          l.noticeMsgNetworkfail,
+                          style: LegacyTextStyles.body,
+                        ),
+                      ),
+                    ]);
+                  }
+                  return SingleChildScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    child: Html(data: snap.data ?? ''),
+                  );
+                },
+              ),
+            ),
           ),
         ),
       ),

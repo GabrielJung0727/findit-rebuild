@@ -11,6 +11,7 @@ import '../l10n/app_localizations.dart';
 import '../state/auth.dart';
 import '../state/providers.dart';
 import '../util/asset_paths.dart';
+import '../util/legacy_widgets.dart';
 
 /// 상점 — `Items.java` 의 2013 가격 그대로. 5개 일반 카테고리(PEN/RING/BERRY/POTION/ETC)
 /// + 코인팩(GOLD) 4종 IAP 분리 탭.
@@ -117,7 +118,7 @@ class _ShopScreenState extends ConsumerState<ShopScreen>
           ],
         ),
       ),
-      body: SafeArea(
+      body: LegacyBackground(
         child: Column(
           children: <Widget>[
             _Balances(user: user),

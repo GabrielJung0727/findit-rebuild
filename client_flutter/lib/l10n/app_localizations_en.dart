@@ -1,3 +1,5 @@
+// ignore: unused_import
+import 'package:intl/intl.dart' as intl;
 import 'app_localizations.dart';
 
 // ignore_for_file: type=lint
@@ -31,10 +33,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get buy => 'Purchase';
 
   @override
-  String get buyitem => 'You need coins to buy items. Do you wish to purchase coins?';
+  String get buyitem =>
+      'You need coins to buy items. Do you wish to purchase coins?';
 
   @override
-  String get buyitem1 => 'The cost will be KRW. Do you wish to make this purchase?';
+  String get buyitem1 =>
+      'The cost will be KRW. Do you wish to make this purchase?';
 
   @override
   String get buylistTitle => ' purchase details';
@@ -67,13 +71,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String get dlgTitlePaymentSuccess => 'Payment success';
 
   @override
-  String get dlgTitleSamsungaccountAuthentication => 'SamsungAccount authentication';
+  String get dlgTitleSamsungaccountAuthentication =>
+      'SamsungAccount authentication';
 
   @override
   String get downloadAfter => 'Download later';
 
   @override
-  String get downloadMsg => 'Please download a new battle game image. Costs may be incurred when using 3G or 4G.';
+  String get downloadMsg =>
+      'Please download a new battle game image. Costs may be incurred when using 3G or 4G.';
 
   @override
   String get downloadNow => 'Download now';
@@ -121,7 +127,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get inAppPurchase => 'In-app purchase';
 
   @override
-  String get invalidIapPackage => 'IAP Application installed in your device is not valid!!';
+  String get invalidIapPackage =>
+      'IAP Application installed in your device is not valid!!';
 
   @override
   String get invite => 'Invite';
@@ -130,22 +137,28 @@ class AppLocalizationsEn extends AppLocalizations {
   String get item => 'Item';
 
   @override
-  String get itemBerry01 => 'Exploding berry\nThis attack uses an exploding berry. Bombs explode on your opponent’s game screen.';
+  String get itemBerry01 =>
+      'Exploding berry\nThis attack uses an exploding berry. Bombs explode on your opponent’s game screen.';
 
   @override
-  String get itemBerry02 => 'Flame berry\nThis attack uses a flame berry. Flames appear on your opponent’s game screen';
+  String get itemBerry02 =>
+      'Flame berry\nThis attack uses a flame berry. Flames appear on your opponent’s game screen';
 
   @override
-  String get itemBerry03 => 'Snowflake berry\nThis attack uses a snowflake berry. Snowflakes fall on your opponent’s game screen.';
+  String get itemBerry03 =>
+      'Snowflake berry\nThis attack uses a snowflake berry. Snowflakes fall on your opponent’s game screen.';
 
   @override
-  String get itemBerry21 => 'Powerful exploding berry\nThis attack uses a powerful exploding berry. Bombs explode on your opponent’s game screen.';
+  String get itemBerry21 =>
+      'Powerful exploding berry\nThis attack uses a powerful exploding berry. Bombs explode on your opponent’s game screen.';
 
   @override
-  String get itemBerry22 => 'Powerful flame berry\nThis attack uses a powerful flame berry. Flames appear on your opponent’s game screen.';
+  String get itemBerry22 =>
+      'Powerful flame berry\nThis attack uses a powerful flame berry. Flames appear on your opponent’s game screen.';
 
   @override
-  String get itemBerry23 => 'Powerful snowflake berry\nThis attack uses a powerful snowflake berry. Snowflakes fall on the opposition\'s game screen.';
+  String get itemBerry23 =>
+      'Powerful snowflake berry\nThis attack uses a powerful snowflake berry. Snowflakes fall on the opposition\'s game screen.';
 
   @override
   String get itemEtc0 => 'Other items 0';
@@ -169,34 +182,44 @@ class AppLocalizationsEn extends AppLocalizations {
   String get itemGold3 => '650 coin';
 
   @override
-  String get itemPen01 => 'General pen\nThis is a general pen and increases your skill attack effects.';
+  String get itemPen01 =>
+      'General pen\nThis is a general pen and increases your skill attack effects.';
 
   @override
-  String get itemPen02 => 'Winged pen\nThis pen has wings attached. It increases your skill attack effects by a lot.';
+  String get itemPen02 =>
+      'Winged pen\nThis pen has wings attached. It increases your skill attack effects by a lot.';
 
   @override
-  String get itemPen03 => 'Rainbow pen\nThis pen shines with the mysterious colors of rainbow. It increases your skill attack effects remarkably.';
+  String get itemPen03 =>
+      'Rainbow pen\nThis pen shines with the mysterious colors of rainbow. It increases your skill attack effects remarkably.';
 
   @override
-  String get itemPotion01 => 'Defense potion\nThis potion increases defensive effects a little bit during a single game.';
+  String get itemPotion01 =>
+      'Defense potion\nThis potion increases defensive effects a little bit during a single game.';
 
   @override
-  String get itemPotion02 => 'Good defense potion\nThis potion increases defensive effects during a single game.';
+  String get itemPotion02 =>
+      'Good defense potion\nThis potion increases defensive effects during a single game.';
 
   @override
-  String get itemPotion03 => 'Premium defense potion\nThis potion increases defensive effects by a little for one week.';
+  String get itemPotion03 =>
+      'Premium defense potion\nThis potion increases defensive effects by a little for one week.';
 
   @override
-  String get itemPotion21 => 'Large good defense potion\nThis potion increases defensive effects significantly during a single game.';
+  String get itemPotion21 =>
+      'Large good defense potion\nThis potion increases defensive effects significantly during a single game.';
 
   @override
-  String get itemPotion22 => 'Large premium defense potion\nThis potion increases defensive effects significantly for one week.';
+  String get itemPotion22 =>
+      'Large premium defense potion\nThis potion increases defensive effects significantly for one week.';
 
   @override
-  String get itemRing01 => 'Silver ring\nMade with shining silver, this ring slightly reduces your opponent\'s attack effects.';
+  String get itemRing01 =>
+      'Silver ring\nMade with shining silver, this ring slightly reduces your opponent\'s attack effects.';
 
   @override
-  String get itemRing02 => 'Gold ring\nMade with brilliant gold, this ring greatly reduces your opponent\'s attack effects.';
+  String get itemRing02 =>
+      'Gold ring\nMade with brilliant gold, this ring greatly reduces your opponent\'s attack effects.';
 
   @override
   String get itemRing03 => 'Ring item 2';
@@ -217,7 +240,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get learn => 'Learn';
 
   @override
-  String get learnskill => 'Points will be consumed. Do you wish to learn this?';
+  String get learnskill =>
+      'Points will be consumed. Do you wish to learn this?';
 
   @override
   String get list => 'List';
@@ -235,10 +259,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get makebattleroom => 'Create\nbattle room';
 
   @override
-  String get msgAuthenticationHasBeenCancelled => 'SamsungAccount authentication has been cancelled';
+  String get msgAuthenticationHasBeenCancelled =>
+      'SamsungAccount authentication has been cancelled';
 
   @override
-  String get msgFailedToInitializeIap => 'Failed to initialize the in-app purchase.';
+  String get msgFailedToInitializeIap =>
+      'Failed to initialize the in-app purchase.';
 
   @override
   String get msgFailedToLoadListOfProduct => 'Failed to load list of product';
@@ -259,7 +285,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get msgInvalidPurchase => 'Payment is not valid!!';
 
   @override
-  String get msgPaymentWasNotProcessedSuccessfully => 'The payment was not processed successfully.';
+  String get msgPaymentWasNotProcessedSuccessfully =>
+      'The payment was not processed successfully.';
 
   @override
   String get nickname => 'Nickname';
@@ -280,22 +307,27 @@ class AppLocalizationsEn extends AppLocalizations {
   String get noticeMsgAlreadyid => 'ID already exists.';
 
   @override
-  String get noticeMsgBuyfail => 'Purchase failed, as network status is unsatisfactory. Please try again in a little while.';
+  String get noticeMsgBuyfail =>
+      'Purchase failed, as network status is unsatisfactory. Please try again in a little while.';
 
   @override
   String get noticeMsgInvite => 'has invited you.';
 
   @override
-  String get noticeMsgNetworkerrorDownload => 'Network status is unsatisfactory. Please try downloading again later.';
+  String get noticeMsgNetworkerrorDownload =>
+      'Network status is unsatisfactory. Please try downloading again later.';
 
   @override
-  String get noticeMsgNetworkerrorJoin => 'Signing up cannot be processed as network status is unsatisfactory. Please try again.';
+  String get noticeMsgNetworkerrorJoin =>
+      'Signing up cannot be processed as network status is unsatisfactory. Please try again.';
 
   @override
-  String get noticeMsgNetworkerrorRelease => 'Your opponent has been disconnected.';
+  String get noticeMsgNetworkerrorRelease =>
+      'Your opponent has been disconnected.';
 
   @override
-  String get noticeMsgNetworkfail => 'Unable to connect to server. Please try again in a little while.';
+  String get noticeMsgNetworkfail =>
+      'Unable to connect to server. Please try again in a little while.';
 
   @override
   String get noticeMsgNicknamelength => 'No nicknames or excess characters.';
@@ -316,7 +348,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get noticeMsgNopasswd => 'Incorrect password.';
 
   @override
-  String get noticeMsgNotUser => 'The user has not connected or the ID does not exist.';
+  String get noticeMsgNotUser =>
+      'The user has not connected or the ID does not exist.';
 
   @override
   String get noticeMsgNotUsers => 'No connected user.';
@@ -328,10 +361,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get noticeMsgNotpasswd => 'No Password entered.';
 
   @override
-  String get noticeMsgNotsupportedChord => 'Is not supported. Or is not connected to Wi-Fi';
+  String get noticeMsgNotsupportedChord =>
+      'Is not supported. Or is not connected to Wi-Fi';
 
   @override
-  String get noticeMsgOverlapuserid => 'Login is repeated or the room does not exist.';
+  String get noticeMsgOverlapuserid =>
+      'Login is repeated or the room does not exist.';
 
   @override
   String get noticeMsgRewirtepasswd => 'Password must be 4 - 12 digits.';
@@ -394,28 +429,36 @@ class AppLocalizationsEn extends AppLocalizations {
   String get skillName7 => 'Powerful snowflake';
 
   @override
-  String get skillText0 => 'This is a basic technique. The puppy walks across your opponent’s game screen leaving footprints.';
+  String get skillText0 =>
+      'This is a basic technique. The puppy walks across your opponent’s game screen leaving footprints.';
 
   @override
-  String get skillText1 => 'This is a basic technique. The angry cat scratched claw marks on your opponent’s game screen.';
+  String get skillText1 =>
+      'This is a basic technique. The angry cat scratched claw marks on your opponent’s game screen.';
 
   @override
-  String get skillText2 => 'This attack uses explosives. Bombs explode on your opponent’s game screen.';
+  String get skillText2 =>
+      'This attack uses explosives. Bombs explode on your opponent’s game screen.';
 
   @override
-  String get skillText3 => 'This attack uses flame. Flames appear on your opponent’s game screen.';
+  String get skillText3 =>
+      'This attack uses flame. Flames appear on your opponent’s game screen.';
 
   @override
-  String get skillText4 => 'This attack uses snowflakes. Snowflakes fall on your opponent’s game screen.';
+  String get skillText4 =>
+      'This attack uses snowflakes. Snowflakes fall on your opponent’s game screen.';
 
   @override
-  String get skillText5 => 'This attack uses powerful explosives. Bombs explode on your opponent’s game screen.';
+  String get skillText5 =>
+      'This attack uses powerful explosives. Bombs explode on your opponent’s game screen.';
 
   @override
-  String get skillText6 => 'This attack uses powerful flame. Flames appear on your opponent’s game screen.';
+  String get skillText6 =>
+      'This attack uses powerful flame. Flames appear on your opponent’s game screen.';
 
   @override
-  String get skillText7 => 'This attack uses powerful snowflakes. Snowflakes fall on your opponent’s game screen.';
+  String get skillText7 =>
+      'This attack uses powerful snowflakes. Snowflakes fall on your opponent’s game screen.';
 
   @override
   String get sound => 'Sound';

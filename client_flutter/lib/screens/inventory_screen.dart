@@ -7,6 +7,7 @@ import '../l10n/app_localizations.dart';
 import '../state/auth.dart';
 import '../state/providers.dart';
 import '../util/asset_paths.dart';
+import '../util/legacy_widgets.dart';
 
 /// 보유 아이템 화면 — 6 카테고리 탭, 그리드 표시, 사용/강화/버리기.
 ///
@@ -52,7 +53,7 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen>
               .toList(growable: false),
         ),
       ),
-      body: SafeArea(
+      body: LegacyBackground(
         child: Column(
           children: <Widget>[
             _WalletBar(user: user, deck: auth.skillDeckCount),

@@ -30,7 +30,7 @@ android {
     defaultConfig {
         applicationId = "com.findit.battle"
         // 04-26.md §0 — minSdk 21 (Android 5.0 Lollipop), targetSdk 따라감
-        minSdk = 21
+        minSdkVersion = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName

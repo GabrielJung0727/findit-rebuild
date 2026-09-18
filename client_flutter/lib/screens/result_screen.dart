@@ -5,6 +5,8 @@ import 'package:go_router/go_router.dart';
 import '../game/game_state.dart';
 import '../l10n/app_localizations.dart';
 import '../state/auth.dart';
+import '../util/legacy_theme.dart';
+import '../util/legacy_widgets.dart';
 
 /// 게임 종료 화면 — 승/패 + 획득 코인/포인트 + 레벨업 안내.
 class ResultScreen extends ConsumerWidget {
@@ -17,49 +19,62 @@ class ResultScreen extends ConsumerWidget {
     final l = AppLocalizations.of(context);
     final auth = ref.watch(authControllerProvider);
     return Scaffold(
-      body: SafeArea(
+      body: LegacyBackground(
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
               const Spacer(),
-              Icon(
-                result.won ? Icons.emoji_events : Icons.favorite_border,
-                size: 96,
-                color: result.won
-                    ? Colors.amber
-                    : Theme.of(context).colorScheme.outline,
-              ),
-              const SizedBox(height: 16),
-              Text(
-                result.won ? '🏆 WIN' : 'LOSE',
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.headlineMedium,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                _reasonLabel(l, result.reason),
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-              const SizedBox(height: 32),
-              _Row(label: 'Score', value: '${result.selfScore}'),
-              _Row(label: 'Opp.', value: '${result.opponentScore}'),
-              const Divider(),
-              _Row(label: '+Coin', value: '${result.coinReward}'),
-              _Row(label: '+Point', value: '${result.pointReward}'),
-              if (auth.user != null) ...<Widget>[
-                const Divider(),
-                _Row(
-                  label: 'Lv ${auth.user!.level}',
-                  value: auth.user!.userNick,
+              LegacyPopup(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    Icon(
+                      result.won ? Icons.emoji_events : Icons.favorite_border,
+                      size: 80,
+                      color: result.won
+                          ? const Color(0xFFFFC93C)
+                          : LegacyColors.border,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      result.won ? '🏆 WIN' : 'LOSE',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.w900,
+                        color: LegacyColors.textBrown,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _reasonLabel(l, result.reason),
+                      textAlign: TextAlign.center,
+                      style: LegacyTextStyles.body,
+                    ),
+                    const SizedBox(height: 24),
+                    _Row(label: 'Score', value: '${result.selfScore}'),
+                    _Row(label: 'Opp.', value: '${result.opponentScore}'),
+                    const Divider(color: LegacyColors.border, thickness: 0.5),
+                    _Row(label: '+Coin', value: '${result.coinReward}'),
+                    _Row(label: '+Point', value: '${result.pointReward}'),
+                    if (auth.user != null) ...<Widget>[
+                      const Divider(
+                          color: LegacyColors.border, thickness: 0.5),
+                      _Row(
+                        label: 'Lv ${auth.user!.level}',
+                        value: auth.user!.userNick,
+                      ),
+                    ],
+                  ],
                 ),
-              ],
+              ),
               const Spacer(),
-              FilledButton(
+              LegacyGradientButton(
+                label: l.ok,
                 onPressed: () => context.go('/lobby'),
-                child: Text(l.ok),
               ),
             ],
           ),
@@ -97,8 +112,13 @@ class _Row extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: <Widget>[
-          Text(label, style: Theme.of(context).textTheme.bodyMedium),
-          Text(value, style: Theme.of(context).textTheme.titleMedium),
+          Text(label, style: LegacyTextStyles.body),
+          Text(value,
+              style: const TextStyle(
+                color: LegacyColors.textBrown,
+                fontSize: 16,
+                fontWeight: FontWeight.w900,
+              ),),
         ],
       ),
     );

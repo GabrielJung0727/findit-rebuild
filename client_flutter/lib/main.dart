@@ -10,6 +10,7 @@ import 'router.dart';
 import 'state/auth.dart';
 import 'state/lobby.dart';
 import 'state/providers.dart';
+import 'util/legacy_theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -94,8 +95,89 @@ class _FinditAppState extends ConsumerState<FinditApp> {
     return MaterialApp.router(
       onGenerateTitle: (ctx) => AppLocalizations.of(ctx).appName,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF54443B)),
         useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: LegacyColors.orangeBottom,
+          primary: LegacyColors.orangeBottom,
+          secondary: LegacyColors.yellowBottom,
+          surface: LegacyColors.popupBg,
+          onPrimary: Colors.white,
+          onSurface: LegacyColors.textBrown,
+        ),
+        scaffoldBackgroundColor: LegacyColors.sky,
+        appBarTheme: const AppBarTheme(
+          backgroundColor: LegacyColors.popupBg,
+          foregroundColor: LegacyColors.textBrown,
+          elevation: 0,
+          centerTitle: true,
+          titleTextStyle: TextStyle(
+            color: LegacyColors.textBrown,
+            fontWeight: FontWeight.w900,
+            fontSize: 18,
+          ),
+          iconTheme: IconThemeData(color: LegacyColors.textBrown),
+        ),
+        textTheme: const TextTheme().apply(
+          bodyColor: LegacyColors.textBrown,
+          displayColor: LegacyColors.textBrown,
+        ),
+        filledButtonTheme: FilledButtonThemeData(
+          style: FilledButton.styleFrom(
+            backgroundColor: LegacyColors.orangeBottom,
+            foregroundColor: Colors.white,
+            textStyle: const TextStyle(fontWeight: FontWeight.w900),
+            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+              side: const BorderSide(color: LegacyColors.border, width: 1.5),
+            ),
+          ),
+        ),
+        outlinedButtonTheme: OutlinedButtonThemeData(
+          style: OutlinedButton.styleFrom(
+            foregroundColor: LegacyColors.textBrown,
+            side: const BorderSide(color: LegacyColors.border, width: 1.5),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+        ),
+        inputDecorationTheme: const InputDecorationTheme(
+          filled: true,
+          fillColor: LegacyColors.inputFill,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.all(Radius.circular(8)),
+            borderSide:
+                BorderSide(color: LegacyColors.inputBorder, width: 1.5),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.all(Radius.circular(8)),
+            borderSide:
+                BorderSide(color: LegacyColors.inputBorder, width: 1.5),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.all(Radius.circular(8)),
+            borderSide:
+                BorderSide(color: LegacyColors.orangeBottom, width: 2.0),
+          ),
+        ),
+        dialogTheme: const DialogThemeData(
+          backgroundColor: LegacyColors.popupBg,
+          elevation: 6,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.all(Radius.circular(14)),
+            side: BorderSide(color: LegacyColors.border, width: 1.5),
+          ),
+          titleTextStyle: TextStyle(
+            color: LegacyColors.textBrown,
+            fontSize: 18,
+            fontWeight: FontWeight.w900,
+          ),
+          contentTextStyle: TextStyle(
+            color: LegacyColors.textBrown,
+            fontSize: 14,
+          ),
+        ),
       ),
       // 04-26.md §14 — 다크모드 미지원 (게임 색상 일관성). OS 다크모드와 무관하게 light.
       themeMode: ThemeMode.light,

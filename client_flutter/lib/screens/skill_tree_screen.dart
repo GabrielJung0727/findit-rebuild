@@ -5,6 +5,7 @@ import '../api/api_client.dart';
 import '../l10n/app_localizations.dart';
 import '../state/auth.dart';
 import '../state/providers.dart';
+import '../util/legacy_widgets.dart';
 
 /// 스킬트리 — 서버 `skillCatalog.json` 응답(44 entries) 을 group_code 별로 5계열 컬럼,
 /// tier (1..9) 별로 행 배치. 화면 좌상단 → 우하단 흐름.
@@ -84,7 +85,7 @@ class _SkillTreeScreenState extends ConsumerState<SkillTreeScreen> {
     final auth = ref.watch(authControllerProvider);
     return Scaffold(
       appBar: AppBar(title: Text(l.learn)),
-      body: SafeArea(
+      body: LegacyBackground(
         child: FutureBuilder<List<SkillNode>>(
           future: _future,
           builder: (ctx, snap) {

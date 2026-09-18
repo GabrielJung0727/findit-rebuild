@@ -6,6 +6,7 @@ import '../l10n/app_localizations.dart';
 import '../state/auth.dart';
 import '../state/lobby.dart';
 import '../state/providers.dart';
+import '../util/legacy_widgets.dart';
 
 /// 대기실 — 접속 유저 목록 + 방 만들기 + 친구 초대.
 ///
@@ -156,7 +157,7 @@ class _WaitingRoomScreenState extends ConsumerState<WaitingRoomScreen>
           ),
         ],
       ),
-      body: SafeArea(
+      body: LegacyBackground(
         child: Column(
           children: <Widget>[
             _Header(

@@ -1764,7 +1764,7 @@ npx vitest run packages/protocol
 npm run protocol:dart
 head -20 app/lib/domain/protocol.g.dart
 ```
-Expected: 테스트 PASS — 16 tests. Dart 파일 첫 줄이 `// GENERATED — 직접 수정하지 말 것.`
+Expected: 테스트 PASS — 18 tests (validate 12 + gen-dart 6). Dart 파일 첫 줄이 `// GENERATED — 직접 수정하지 말 것.`
 
 - [ ] **Step 7: 전체 검증**
 

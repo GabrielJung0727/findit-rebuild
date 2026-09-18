@@ -7,6 +7,8 @@ import 'package:image_picker/image_picker.dart';
 import '../l10n/app_localizations.dart';
 import '../state/auth.dart';
 import '../util/asset_paths.dart';
+import '../util/legacy_theme.dart';
+import '../util/legacy_widgets.dart';
 
 /// 캐릭터 / 프로필 — 닉네임 + 캐릭터 0~2 + 사진(앨범/카메라).
 ///
@@ -82,63 +84,81 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final user = auth.user;
     return Scaffold(
       appBar: AppBar(title: Text(l.nickname)),
-      body: SafeArea(
+      body: LegacyBackground(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(20),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
+              const SizedBox(height: 8),
               GestureDetector(
                 onTap: _showSourceSheet,
                 child: Center(
                   child: Stack(
                     alignment: Alignment.bottomRight,
                     children: <Widget>[
-                      CircleAvatar(
-                        radius: 64,
-                        backgroundImage: _avatar != null
-                            ? FileImage(_avatar!) as ImageProvider
-                            : (user != null
-                                ? AssetImage(
-                                    AssetPaths.characterHead(user.userCharacter),
-                                  )
-                                : null),
-                        child: (_avatar == null && user == null)
-                            ? const Text('?')
-                            : null,
+                      Container(
+                        decoration: const BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.fromBorderSide(BorderSide(
+                              color: LegacyColors.border, width: 2),),
+                        ),
+                        child: CircleAvatar(
+                          radius: 60,
+                          backgroundColor: Colors.white,
+                          backgroundImage: _avatar != null
+                              ? FileImage(_avatar!) as ImageProvider
+                              : (user != null
+                                  ? AssetImage(
+                                      AssetPaths.characterHead(
+                                          user.userCharacter),)
+                                  : null),
+                          child: (_avatar == null && user == null)
+                              ? const Text('?',
+                                  style: TextStyle(
+                                      color: LegacyColors.textBrown))
+                              : null,
+                        ),
                       ),
                       Container(
-                        decoration: BoxDecoration(
-                          color: Theme.of(context).colorScheme.primary,
+                        decoration: const BoxDecoration(
+                          color: LegacyColors.orangeBottom,
                           shape: BoxShape.circle,
+                          border: Border.fromBorderSide(BorderSide(
+                              color: LegacyColors.border, width: 1.5),),
                         ),
                         padding: const EdgeInsets.all(6),
-                        child: Icon(
+                        child: const Icon(
                           Icons.photo_camera,
                           size: 18,
-                          color: Theme.of(context).colorScheme.onPrimary,
+                          color: Colors.white,
                         ),
                       ),
                     ],
                   ),
                 ),
               ),
-              const SizedBox(height: 24),
-              if (user != null) ...<Widget>[
-                _Row(label: l.id, value: user.userId),
-                _Row(label: l.nickname, value: user.userNick),
-                _Row(label: 'Lv', value: '${user.level}'),
-                _Row(label: l.score, value: '${user.score}'),
-                _Row(label: 'Coin', value: '${user.coin}'),
-                _Row(label: 'Point', value: '${user.point}'),
-                _Row(label: 'Gem', value: '${user.gem}'),
-                _Row(label: 'HP', value: '${user.hp}'),
-                _Row(label: 'AuthType', value: user.authType),
-              ],
+              const SizedBox(height: 20),
+              if (user != null)
+                LegacyPopup(
+                  child: Column(
+                    children: <Widget>[
+                      _Row(label: l.id, value: user.userId),
+                      _Row(label: l.nickname, value: user.userNick),
+                      _Row(label: 'Lv', value: '${user.level}'),
+                      _Row(label: l.score, value: '${user.score}'),
+                      _Row(label: 'Coin', value: '${user.coin}'),
+                      _Row(label: 'Point', value: '${user.point}'),
+                      _Row(label: 'Gem', value: '${user.gem}'),
+                      _Row(label: 'HP', value: '${user.hp}'),
+                      _Row(label: 'AuthType', value: user.authType),
+                    ],
+                  ),
+                ),
               const SizedBox(height: 16),
               Text(
                 l.guestMsg,
-                style: Theme.of(context).textTheme.bodySmall,
+                style: LegacyTextStyles.body.copyWith(fontSize: 12),
                 textAlign: TextAlign.center,
               ),
             ],
@@ -157,12 +177,19 @@ class _Row extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.symmetric(vertical: 5),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: <Widget>[
-          Text(label, style: Theme.of(context).textTheme.labelLarge),
-          Text(value, style: Theme.of(context).textTheme.bodyLarge),
+          Text(label,
+              style: LegacyTextStyles.body
+                  .copyWith(fontWeight: FontWeight.w700)),
+          Text(value,
+              style: const TextStyle(
+                color: LegacyColors.textBrown,
+                fontSize: 15,
+                fontWeight: FontWeight.w900,
+              )),
         ],
       ),
     );

@@ -37,7 +37,7 @@ app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 app.use(express.json({ limit: '1mb' }));
 app.use(morgan(LOG_LEVEL));
 
-app.get('/healthz', async (_req, res) => {
+app.get('/status', async (_req, res) => {
   try {
     await ping();
     res.json({ ok: true });

@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../l10n/app_localizations.dart';
 import '../state/auth.dart';
 import '../state/providers.dart';
+import '../util/legacy_theme.dart';
+import '../util/legacy_widgets.dart';
 
 /// 랭킹 — 친구 / 전체 토글 + 어제 대비 delta.
 ///
@@ -69,16 +71,21 @@ class _RankScreenState extends ConsumerState<RankScreen>
     final auth = ref.watch(authControllerProvider);
     return Scaffold(
       appBar: AppBar(
-        title: Text(l.notice),
+        title: Text(l.rank),
         bottom: TabBar(
           controller: _tab,
+          labelColor: LegacyColors.orangeBottom,
+          unselectedLabelColor: LegacyColors.textBrown,
+          indicatorColor: LegacyColors.orangeBottom,
+          indicatorWeight: 3,
+          labelStyle: const TextStyle(fontWeight: FontWeight.w900),
           tabs: <Tab>[
             Tab(text: l.list),
             Tab(text: l.friendid),
           ],
         ),
       ),
-      body: SafeArea(
+      body: LegacyBackground(
         child: TabBarView(
           controller: _tab,
           children: <Widget>[

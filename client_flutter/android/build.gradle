@@ -13,6 +13,19 @@ subprojects {
     project.evaluationDependsOn(":app")
 }
 
+// 일부 플러그인(flutter_facebook_auth 등)이 Java 1.8 / Kotlin 21 로 JVM 타깃이
+// 어긋나 Kotlin 2.x 검증에서 빌드가 깨짐 — 서브프로젝트 전체를 17 로 통일.
+// (evaluationDependsOn(":app") 때문에 afterEvaluate 불가 → lazy 태스크 설정 사용)
+subprojects {
+    tasks.withType(JavaCompile).configureEach {
+        sourceCompatibility = JavaVersion.VERSION_17.toString()
+        targetCompatibility = JavaVersion.VERSION_17.toString()
+    }
+    tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+        kotlinOptions { jvmTarget = "17" }
+    }
+}
+
 tasks.register("clean", Delete) {
     delete rootProject.buildDir
 }

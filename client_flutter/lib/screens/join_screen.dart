@@ -7,6 +7,8 @@ import '../l10n/app_localizations.dart';
 import '../state/auth.dart';
 import '../state/providers.dart';
 import '../util/asset_paths.dart';
+import '../util/legacy_theme.dart';
+import '../util/legacy_widgets.dart';
 import 'login_messages.dart';
 
 /// 회원가입 폼 — 이메일·비번·비번확인·닉네임·캐릭터(0~2) + 중복확인.
@@ -117,12 +119,36 @@ class _JoinScreenState extends ConsumerState<JoinScreen> {
     final l = AppLocalizations.of(context);
     showDialog<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(l.notice),
-        content: Text(message),
-        actions: <Widget>[
-          TextButton(onPressed: () => Navigator.pop(ctx), child: Text(l.ok)),
-        ],
+      barrierColor: Colors.black54,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        child: LegacyPopup(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Text(l.notice,
+                  style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                      color: LegacyColors.textBrown)),
+              const SizedBox(height: 12),
+              Text(message, style: LegacyTextStyles.body),
+              const SizedBox(height: 16),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: Text(l.ok,
+                      style: const TextStyle(
+                          color: LegacyColors.orangeBottom,
+                          fontWeight: FontWeight.w900)),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -131,90 +157,117 @@ class _JoinScreenState extends ConsumerState<JoinScreen> {
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
     return Scaffold(
-      appBar: AppBar(title: Text(l.join)),
-      body: SafeArea(
+      body: LegacyBackground(
         child: AbsorbPointer(
           absorbing: _submitting,
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
             child: Form(
               key: _formKey,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
+                  Row(
+                    children: <Widget>[
+                      IconButton(
+                        icon: const Icon(Icons.arrow_back_ios_new,
+                            color: LegacyColors.textBrown),
+                        onPressed: () => Navigator.maybePop(context),
+                      ),
+                      const Spacer(),
+                      Image.asset('assets/legacy/join_title.png', height: 32),
+                      const Spacer(),
+                      const SizedBox(width: 48),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
                   TextFormField(
                     controller: _emailCtrl,
                     keyboardType: TextInputType.emailAddress,
                     autocorrect: false,
-                    decoration: InputDecoration(
-                      labelText: l.email,
-                      prefixIcon: const Icon(Icons.alternate_email),
-                      helperText: _dupeHelper(_emailDupeStatus),
-                    ),
+                    style: LegacyTextStyles.body,
+                    decoration: LegacyInputDecoration(hintText: l.email),
                     validator: (v) => emailValidator(l, v),
                     onChanged: (_) => setState(() => _emailDupeStatus = null),
                   ),
-                  const SizedBox(height: 12),
+                  if (_dupeHelper(_emailDupeStatus) != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4, left: 4),
+                      child: Text(_dupeHelper(_emailDupeStatus)!,
+                          style: LegacyTextStyles.body.copyWith(
+                              fontSize: 12,
+                              color: _emailDupeStatus == 'taken'
+                                  ? Colors.red.shade700
+                                  : Colors.green.shade700)),
+                    ),
+                  const SizedBox(height: 8),
                   TextFormField(
                     controller: _nickCtrl,
-                    decoration: InputDecoration(
-                      labelText: l.nickname,
-                      prefixIcon: const Icon(Icons.person_outline),
-                      helperText: _dupeHelper(_nickDupeStatus),
-                    ),
+                    style: LegacyTextStyles.body,
+                    decoration: LegacyInputDecoration(hintText: l.nickname),
                     validator: (v) => nicknameValidator(l, v),
                     onChanged: (_) => setState(() => _nickDupeStatus = null),
                   ),
-                  const SizedBox(height: 8),
+                  if (_dupeHelper(_nickDupeStatus) != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4, left: 4),
+                      child: Text(_dupeHelper(_nickDupeStatus)!,
+                          style: LegacyTextStyles.body.copyWith(
+                              fontSize: 12,
+                              color: _nickDupeStatus == 'taken'
+                                  ? Colors.red.shade700
+                                  : Colors.green.shade700)),
+                    ),
+                  const SizedBox(height: 6),
                   Align(
                     alignment: Alignment.centerRight,
                     child: TextButton.icon(
-                      icon: const Icon(Icons.search),
+                      icon: const Icon(Icons.search,
+                          color: LegacyColors.orangeBottom),
                       onPressed: _submitting ? null : _checkUserId,
-                      label: Text(l.identifyOverlap),
+                      label: Text(l.identifyOverlap,
+                          style: const TextStyle(
+                              color: LegacyColors.orangeBottom,
+                              fontWeight: FontWeight.w700)),
                     ),
                   ),
-                  const SizedBox(height: 4),
                   TextFormField(
                     controller: _passCtrl,
                     obscureText: true,
-                    decoration: InputDecoration(
-                      labelText: l.password,
-                      prefixIcon: const Icon(Icons.lock_outline),
-                    ),
+                    style: LegacyTextStyles.body,
+                    decoration: LegacyInputDecoration(hintText: l.password),
                     validator: (v) => passwordValidator(l, v),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 8),
                   TextFormField(
                     controller: _passConfirmCtrl,
                     obscureText: true,
-                    decoration: InputDecoration(
-                      labelText: l.identifyPassword,
-                      prefixIcon: const Icon(Icons.lock_outline),
-                    ),
-                    validator: (v) => confirmPasswordValidator(l, v, _passCtrl.text),
+                    style: LegacyTextStyles.body,
+                    decoration:
+                        LegacyInputDecoration(hintText: l.identifyPassword),
+                    validator: (v) =>
+                        confirmPasswordValidator(l, v, _passCtrl.text),
                   ),
-                  const SizedBox(height: 24),
-                  Text(
-                    l.notice,
-                    style: Theme.of(context).textTheme.labelMedium,
-                  ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 16),
                   _CharacterPicker(
                     selected: _character,
                     onSelected: (i) => setState(() => _character = i),
                   ),
-                  const SizedBox(height: 24),
-                  FilledButton(
+                  const SizedBox(height: 20),
+                  LegacyImageButton(
+                    asset: 'assets/legacy/join_btn_join.png',
                     onPressed: _submitting ? null : _submit,
-                    child: _submitting
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : Text(l.join1),
+                    height: 60,
                   ),
+                  if (_submitting) ...<Widget>[
+                    const SizedBox(height: 12),
+                    const Center(
+                      child: CircularProgressIndicator(
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                              LegacyColors.orangeBottom)),
+                    ),
+                  ],
+                  const SizedBox(height: 24),
                 ],
               ),
             ),
@@ -256,12 +309,12 @@ class _CharacterPicker extends StatelessWidget {
               height: 72,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                color: Colors.white.withValues(alpha: 0.9),
                 border: Border.all(
                   color: selected == i
-                      ? Theme.of(context).colorScheme.primary
-                      : Colors.transparent,
-                  width: 3,
+                      ? LegacyColors.orangeBottom
+                      : LegacyColors.border.withValues(alpha: 0.4),
+                  width: selected == i ? 3 : 1.5,
                 ),
               ),
               clipBehavior: Clip.antiAlias,
@@ -271,7 +324,11 @@ class _CharacterPicker extends StatelessWidget {
                 errorBuilder: (_, __, ___) => Center(
                   child: Text(
                     '${i + 1}',
-                    style: Theme.of(context).textTheme.headlineSmall,
+                    style: const TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w900,
+                      color: LegacyColors.textBrown,
+                    ),
                   ),
                 ),
               ),

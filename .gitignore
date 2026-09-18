@@ -7,17 +7,17 @@
 /apk_analysis.iml
 
 # Gradle
-android_project/.gradle/
-android_project/build/
-android_project/app/build/
-android_project/captures/
-android_project/.cxx/
+legacy/android_project/.gradle/
+legacy/android_project/build/
+legacy/android_project/app/build/
+legacy/android_project/captures/
+legacy/android_project/.cxx/
 
 # Android Studio per-machine config (SDK path, signing keys)
-android_project/local.properties
+legacy/android_project/local.properties
 
 # Compiled / generated
-android_project/**/*.class
+legacy/android_project/**/*.class
 out/
 
 # Logs

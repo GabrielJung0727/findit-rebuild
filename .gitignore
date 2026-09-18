@@ -41,3 +41,6 @@ node_modules/
 content/images/
 app/assets/legacy/
 app/assets/audio/
+
+# TypeScript 증분 빌드 정보
+*.tsbuildinfo

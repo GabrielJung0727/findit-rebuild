@@ -537,7 +537,7 @@ describe('parsePuzzles', () => {
 
   it('rect 수가 이미지마다 다르다 — 7 로 하드코딩하면 안 된다', () => {
     const counts = new Set(puzzles.map((p) => p.rects.length));
-    expect([...counts].sort()).toEqual([7, 8, 9, 10]);
+    expect([...counts].sort((a, b) => a - b)).toEqual([7, 8, 9, 10]);
   });
 
   it('10 개짜리 퍼즐도 끝까지 읽는다', () => {
@@ -784,9 +784,12 @@ describe('buildPuzzleOutput', () => {
   });
 
   it('매니페스트에 좌표가 들어가지 않는다 — 클라에 내려가는 파일이다', () => {
-    const serialized = JSON.stringify(manifest);
-    expect(serialized).not.toContain('rects');
-    expect(serialized).not.toContain('"x"');
+    // 문자열 검사가 아니라 키 집합을 고정한다. 좌표가 다른 이름으로 다시
+    // 들어와도(px, coords 등) 이 단언이 막는다.
+    for (const entry of manifest.puzzles) {
+      expect(Object.keys(entry).sort()).toEqual(['height', 'id', 'rectCount', 'width']);
+    }
+    expect(Object.keys(manifest).sort()).toEqual(['generatedAt', 'puzzles', 'version']);
   });
 
   it('버전이 결정론적이다 — 같은 입력이면 같은 버전', () => {
@@ -834,6 +837,7 @@ export const APP_ASSETS = resolve(ROOT, 'app/assets');
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { loadConstantTable } from '../java-constants.js';
 import { extractMethodBody, parsePuzzles, validatePuzzles, type Puzzle } from '../puzzle-parser.js';
@@ -902,7 +906,7 @@ function main(): void {
 }
 
 // 직접 실행일 때만 파일을 쓴다. import 는 부작용이 없어야 테스트가 가능하다.
-if (process.argv[1] && import.meta.url.endsWith(process.argv[1].split('/').at(-1)!)) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main();
 }
 ```
@@ -1013,6 +1017,7 @@ npm install --save-dev sharp@^0.33.5
 ```typescript
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import sharp from 'sharp';
 
 import type { Puzzle } from '../puzzle-parser.js';
@@ -1096,7 +1101,7 @@ async function main(): Promise<void> {
   console.log(`이미지 ${plan.length}장 변환 → ${resolve(CONTENT, 'images')}`);
 }
 
-if (process.argv[1] && import.meta.url.endsWith(process.argv[1].split('/').at(-1)!)) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   await main();
 }
 ```
@@ -1224,6 +1229,7 @@ Expected: FAIL — `Cannot find module './extract-assets.js'`
 ```typescript
 import { copyFileSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { APP_ASSETS, LEGACY_DRAWABLE, LEGACY_RAW } from '../paths.js';
 
@@ -1280,7 +1286,7 @@ function main(): void {
   console.log(`오디오 ${audio.length}개 → ${audioDir}`);
 }
 
-if (process.argv[1] && import.meta.url.endsWith(process.argv[1].split('/').at(-1)!)) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main();
 }
 ```
@@ -1656,6 +1662,7 @@ export { decodeEnvelope, encodeEnvelope, ProtocolError, type Envelope } from './
 ```typescript
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { MESSAGES, type FieldType } from '../src/schema.js';
 
@@ -1745,7 +1752,7 @@ function main(): void {
   console.log(`Dart ${Object.keys(MESSAGES).length}개 메시지 → ${OUT}`);
 }
 
-if (process.argv[1] && import.meta.url.endsWith(process.argv[1].split('/').at(-1)!)) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main();
 }
 ```

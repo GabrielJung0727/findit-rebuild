@@ -2,8 +2,13 @@
   "name": "findit-2026",
   "private": true,
   "type": "module",
-  "workspaces": ["packages/*", "tools"],
-  "engines": { "node": ">=24" },
+  "workspaces": [
+    "packages/*",
+    "tools"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
@@ -15,6 +20,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "sharp": "^0.33.5",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^3.0.0"

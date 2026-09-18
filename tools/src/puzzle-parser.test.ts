@@ -40,7 +40,7 @@ describe('parsePuzzles', () => {
     expect(first.id).toBe('a0001');
     // 소스 원문: new FindRect(187, 340, DLG_DOTORI_AUTH_DIALOG, DLG_DOTORI_AUTH_DIALOG, a0001_01)
     expect(first.rects[0]).toEqual({
-      index: 0, x: 187, y: 340, w: 130, h: 130, patch: 'a0001_01',
+      index: 0, x: 187, y: 340, w: 130, h: 130, sourceDrawable: 'a0001_01',
     });
   });
 
@@ -52,7 +52,7 @@ describe('parsePuzzles', () => {
   it('10 개짜리 퍼즐도 끝까지 읽는다', () => {
     const a0002 = puzzles.find((p) => p.id === 'a0002')!;
     expect(a0002.rects).toHaveLength(10);
-    expect(a0002.rects.at(-1)!.patch).toBe('a0002_10');
+    expect(a0002.rects.at(-1)!.sourceDrawable).toBe('a0002_10');
   });
 });
 
@@ -65,7 +65,7 @@ describe('validatePuzzles', () => {
     expect(() =>
       validatePuzzles([
         { id: 'bad', width: 640, height: 720, rects: [
-          { index: 0, x: 600, y: 0, w: 130, h: 130, patch: 'bad_01' },
+          { index: 0, x: 600, y: 0, w: 130, h: 130, sourceDrawable: 'bad_01' },
         ] },
       ]),
     ).toThrow(/out of bounds/);
@@ -75,7 +75,7 @@ describe('validatePuzzles', () => {
     expect(() =>
       validatePuzzles([
         { id: 'bad', width: 640, height: 720, rects: [
-          { index: 0, x: 0, y: 0, w: 10, h: 10, patch: 'bad_03' },
+          { index: 0, x: 0, y: 0, w: 10, h: 10, sourceDrawable: 'bad_03' },
         ] },
       ]),
     ).toThrow(/suffix/);
@@ -85,7 +85,7 @@ describe('validatePuzzles', () => {
     expect(() =>
       validatePuzzles([
         { id: 'bad', width: 640, height: 720, rects: [
-          { index: 0, x: 0, y: 0, w: 10, h: 10, patch: 'bad_01' },
+          { index: 0, x: 0, y: 0, w: 10, h: 10, sourceDrawable: 'bad_01' },
         ] },
       ]),
     ).toThrow(/at least 5/);

@@ -26,7 +26,6 @@ out/
 # 서명 키스토어 — 절대 커밋 금지
 *.keystore
 *.jks
-legacy/android_project/local.properties
 
 # Flutter / Dart 빌드 산출물
 legacy/client_flutter/build/

@@ -1,186 +1,155 @@
 {
-  "version": "4a4c859ef0c5",
-  "generatedAt": "2026-09-18T06:00:39.195Z",
+  "version": "857900ff0391",
   "puzzles": [
     {
       "id": "a0001",
       "width": 640,
-      "height": 720,
-      "rectCount": 7
+      "height": 720
     },
     {
       "id": "a0002",
       "width": 640,
-      "height": 720,
-      "rectCount": 10
+      "height": 720
     },
     {
       "id": "a0003",
       "width": 640,
-      "height": 720,
-      "rectCount": 8
+      "height": 720
     },
     {
       "id": "a0004",
       "width": 640,
-      "height": 720,
-      "rectCount": 9
+      "height": 720
     },
     {
       "id": "a0005",
       "width": 640,
-      "height": 720,
-      "rectCount": 7
+      "height": 720
     },
     {
       "id": "a0006",
       "width": 640,
-      "height": 720,
-      "rectCount": 8
+      "height": 720
     },
     {
       "id": "a0007",
       "width": 640,
-      "height": 720,
-      "rectCount": 8
+      "height": 720
     },
     {
       "id": "a0008",
       "width": 640,
-      "height": 720,
-      "rectCount": 8
+      "height": 720
     },
     {
       "id": "a0009",
       "width": 640,
-      "height": 720,
-      "rectCount": 9
+      "height": 720
     },
     {
       "id": "a0010",
       "width": 640,
-      "height": 720,
-      "rectCount": 10
+      "height": 720
     },
     {
       "id": "a0011",
       "width": 640,
-      "height": 720,
-      "rectCount": 10
+      "height": 720
     },
     {
       "id": "a0012",
       "width": 640,
-      "height": 720,
-      "rectCount": 8
+      "height": 720
     },
     {
       "id": "a0013",
       "width": 640,
-      "height": 720,
-      "rectCount": 8
+      "height": 720
     },
     {
       "id": "a0014",
       "width": 640,
-      "height": 720,
-      "rectCount": 10
+      "height": 720
     },
     {
       "id": "a0015",
       "width": 640,
-      "height": 720,
-      "rectCount": 7
+      "height": 720
     },
     {
       "id": "a0051",
       "width": 640,
-      "height": 720,
-      "rectCount": 10
+      "height": 720
     },
     {
       "id": "a0052",
       "width": 640,
-      "height": 720,
-      "rectCount": 9
+      "height": 720
     },
     {
       "id": "a0053",
       "width": 640,
-      "height": 720,
-      "rectCount": 8
+      "height": 720
     },
     {
       "id": "a0054",
       "width": 640,
-      "height": 720,
-      "rectCount": 9
+      "height": 720
     },
     {
       "id": "a0055",
       "width": 640,
-      "height": 720,
-      "rectCount": 9
+      "height": 720
     },
     {
       "id": "a0056",
       "width": 640,
-      "height": 720,
-      "rectCount": 8
+      "height": 720
     },
     {
       "id": "a0057",
       "width": 640,
-      "height": 720,
-      "rectCount": 8
+      "height": 720
     },
     {
       "id": "a0058",
       "width": 640,
-      "height": 720,
-      "rectCount": 9
+      "height": 720
     },
     {
       "id": "a0059",
       "width": 640,
-      "height": 720,
-      "rectCount": 9
+      "height": 720
     },
     {
       "id": "a0060",
       "width": 640,
-      "height": 720,
-      "rectCount": 10
+      "height": 720
     },
     {
       "id": "a0061",
       "width": 640,
-      "height": 720,
-      "rectCount": 10
+      "height": 720
     },
     {
       "id": "a0062",
       "width": 640,
-      "height": 720,
-      "rectCount": 9
+      "height": 720
     },
     {
       "id": "a0063",
       "width": 640,
-      "height": 720,
-      "rectCount": 9
+      "height": 720
     },
     {
       "id": "a0064",
       "width": 640,
-      "height": 720,
-      "rectCount": 10
+      "height": 720
     },
     {
       "id": "a0065",
       "width": 640,
-      "height": 720,
-      "rectCount": 8
+      "height": 720
     }
   ]
 }

@@ -6,8 +6,12 @@ export interface PuzzleRect {
   y: number;
   w: number;
   h: number;
-  /** 패치 드로어블 이름, 확장자 없음. 예: 'a0001_01' */
-  patch: string;
+  /**
+   * 레거시 소스 드로어블 이름, 확장자 없음. 예: 'a0001_01'.
+   * 생성된 트리의 실제 패치 파일명(`patch_01.webp`)과 다르다 — 이 필드를 URL
+   * 조립에 쓰면 404 난다. patchUrl 은 index 로부터 만든다.
+   */
+  sourceDrawable: string;
 }
 
 export interface Puzzle {
@@ -70,7 +74,7 @@ export function parsePuzzles(segment: string, constants: Map<string, number>): P
         y: resolveOperand(rect[2]!, constants),
         w: resolveOperand(rect[3]!, constants),
         h: resolveOperand(rect[4]!, constants),
-        patch: rect[5]!,
+        sourceDrawable: rect[5]!,
       });
     }
   }
@@ -79,12 +83,11 @@ export function parsePuzzles(segment: string, constants: Map<string, number>): P
 }
 
 /**
- * 치명 오류는 던지고, 치명적이지 않은 이상은 경고 문자열로 돌려준다.
- * 호출자가 경고를 출력할지 무시할지 정한다.
+ * 치명 오류는 던진다. 치명적이지 않은 이상(치수 불일치 등)은 extract-images 의
+ * checkPatchDimensions 가 별도로 표면화하므로 여기서는 다루지 않는다.
  */
-export function validatePuzzles(puzzles: Puzzle[]): string[] {
+export function validatePuzzles(puzzles: Puzzle[]): void {
   const errors: string[] = [];
-  const warnings: string[] = [];
 
   if (puzzles.length === 0) errors.push('퍼즐이 하나도 파싱되지 않음');
 
@@ -94,9 +97,9 @@ export function validatePuzzles(puzzles: Puzzle[]): string[] {
     }
 
     puzzle.rects.forEach((rect, i) => {
-      const suffix = Number(rect.patch.split('_').at(-1));
+      const suffix = Number(rect.sourceDrawable.split('_').at(-1));
       if (suffix !== i + 1) {
-        errors.push(`${puzzle.id}: rect ${i} patch '${rect.patch}' — expected suffix ${i + 1}`);
+        errors.push(`${puzzle.id}: rect ${i} patch '${rect.sourceDrawable}' — expected suffix ${i + 1}`);
       }
 
       if (
@@ -119,6 +122,4 @@ export function validatePuzzles(puzzles: Puzzle[]): string[] {
   if (errors.length > 0) {
     throw new Error(`퍼즐 검증 실패 (${errors.length}건):\n  ${errors.join('\n  ')}`);
   }
-
-  return warnings;
 }

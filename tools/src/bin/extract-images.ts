@@ -33,7 +33,7 @@ export function planConversions(puzzles: Puzzle[]): Conversion[] {
     for (const rect of puzzle.rects) {
       const n = String(rect.index + 1).padStart(2, '0');
       plan.push({
-        from: resolve(LEGACY_DRAWABLE, `${rect.patch}.png`),
+        from: resolve(LEGACY_DRAWABLE, `${rect.sourceDrawable}.png`),
         to: resolve(CONTENT, 'images', puzzle.id, `patch_${n}.webp`),
       });
     }
@@ -51,10 +51,10 @@ export async function checkPatchDimensions(puzzles: Puzzle[]): Promise<Dimension
 
   for (const puzzle of puzzles) {
     for (const rect of puzzle.rects) {
-      const meta = await sharp(resolve(LEGACY_DRAWABLE, `${rect.patch}.png`)).metadata();
+      const meta = await sharp(resolve(LEGACY_DRAWABLE, `${rect.sourceDrawable}.png`)).metadata();
       if (meta.width !== rect.w || meta.height !== rect.h) {
         warnings.push({
-          patch: rect.patch,
+          patch: rect.sourceDrawable,
           declared: [rect.w, rect.h],
           actual: [meta.width ?? 0, meta.height ?? 0],
         });

@@ -1409,6 +1409,23 @@ describe('decodeEnvelope', () => {
   it('선언되지 않은 여분 필드를 거부한다 — 오타를 조용히 넘기지 않는다', () => {
     expect(() => decodeEnvelope('{"t":"TAP","seq":1,"d":{"x":1,"y":2,"z":3}}')).toThrow(/z/);
   });
+
+  it.each(['constructor', '__proto__', 'toString', 'valueOf'])(
+    '프로토타입 속성명 %s 을 메시지 타입으로 위장해도 ProtocolError 로 거부한다',
+    (name) => {
+      // `in` 을 쓰면 여기서 TypeError 가 나서 게이트웨이가 죽는다.
+      expect(() => decodeEnvelope(`{"t":"${name}","seq":1,"d":{}}`)).toThrow(ProtocolError);
+    },
+  );
+
+  it.each(['constructor', 'toString', 'valueOf'])(
+    '프로토타입 속성명 %s 을 여분 필드로 넣어도 거부한다',
+    (name) => {
+      expect(() =>
+        decodeEnvelope(`{"t":"TAP","seq":1,"d":{"x":1,"y":2,"${name}":1}}`),
+      ).toThrow(ProtocolError);
+    },
+  );
 });
 
 describe('encodeEnvelope', () => {
@@ -1590,7 +1607,7 @@ function checkPayload(type: MessageType, payload: Record<string, unknown>): void
   const { fields } = MESSAGES[type];
 
   for (const [name, def] of Object.entries(fields)) {
-    if (!(name in payload)) {
+    if (!Object.hasOwn(payload, name)) {
       throw new ProtocolError(`${type}: 필드 '${name}' 누락`);
     }
     if (!matchesType(payload[name], def.type)) {
@@ -1601,8 +1618,10 @@ function checkPayload(type: MessageType, payload: Record<string, unknown>): void
   }
 
   // 여분 필드를 거부한다. 필드명 오타가 조용히 넘어가면 원인을 찾기 어렵다.
+  // Object.hasOwn 을 쓴다. `in` 은 프로토타입 체인을 타서 'constructor',
+  // 'toString' 같은 이름의 여분 필드를 선언된 것으로 착각한다.
   for (const name of Object.keys(payload)) {
-    if (!(name in fields)) {
+    if (!Object.hasOwn(fields, name)) {
       throw new ProtocolError(`${type}: 선언되지 않은 필드 '${name}'`);
     }
   }
@@ -1622,7 +1641,10 @@ export function decodeEnvelope(raw: string): Envelope {
 
   const env = parsed as Record<string, unknown>;
 
-  if (typeof env['t'] !== 'string' || !(env['t'] in MESSAGES)) {
+  // `in` 이 아니라 Object.hasOwn. `in` 은 't'가 'constructor' 나 '__proto__' 일 때
+  // 참이 되고, 이어지는 MESSAGES[type] 접근이 ProtocolError 가 아닌 TypeError 로
+  // 터진다 — 조작된 메시지 한 통으로 게이트웨이를 죽일 수 있다.
+  if (typeof env['t'] !== 'string' || !Object.hasOwn(MESSAGES, env['t'])) {
     throw new ProtocolError(`알 수 없는 메시지 타입: ${String(env['t'])}`);
   }
   if (typeof env['seq'] !== 'number' || !Number.isInteger(env['seq'])) {

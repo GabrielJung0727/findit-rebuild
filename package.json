@@ -16,7 +16,8 @@
     "content:puzzles": "tsx tools/src/bin/extract-puzzles.ts",
     "content:images": "tsx tools/src/bin/extract-images.ts",
     "content:assets": "tsx tools/src/bin/extract-assets.ts",
-    "content:all": "npm run content:puzzles && npm run content:images && npm run content:assets"
+    "content:all": "npm run content:puzzles && npm run content:images && npm run content:assets",
+    "protocol:dart": "tsx packages/protocol/tools/gen-dart.ts"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

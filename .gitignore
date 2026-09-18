@@ -44,3 +44,7 @@ app/assets/audio/
 
 # TypeScript 증분 빌드 정보
 *.tsbuildinfo
+
+# TypeScript composite 빌드 산출물 (tsc -b 가 각 워크스페이스에 생성)
+tools/dist/
+packages/*/dist/

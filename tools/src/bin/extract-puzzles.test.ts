@@ -20,9 +20,12 @@ describe('buildPuzzleOutput', () => {
   });
 
   it('매니페스트에 좌표가 들어가지 않는다 — 클라에 내려가는 파일이다', () => {
-    const serialized = JSON.stringify(manifest);
-    expect(serialized).not.toContain('rects');
-    expect(serialized).not.toContain('"x"');
+    // 문자열 검사가 아니라 키 집합을 고정한다. 좌표가 다른 이름으로 다시
+    // 들어와도(px, coords 등) 이 단언이 막는다.
+    for (const entry of manifest.puzzles) {
+      expect(Object.keys(entry).sort()).toEqual(['height', 'id', 'rectCount', 'width']);
+    }
+    expect(Object.keys(manifest).sort()).toEqual(['generatedAt', 'puzzles', 'version']);
   });
 
   it('버전이 결정론적이다 — 같은 입력이면 같은 버전', () => {

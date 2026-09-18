@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { loadConstantTable } from '../java-constants.js';
 import { extractMethodBody, parsePuzzles, validatePuzzles, type Puzzle } from '../puzzle-parser.js';
@@ -69,6 +70,6 @@ function main(): void {
 }
 
 // 직접 실행일 때만 파일을 쓴다. import 는 부작용이 없어야 테스트가 가능하다.
-if (process.argv[1] && import.meta.url.endsWith(process.argv[1].split('/').at(-1)!)) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main();
 }

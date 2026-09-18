@@ -1,0 +1,22 @@
+{
+  "name": "findit-2026",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*", "tools"],
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -b",
+    "content:puzzles": "tsx tools/src/bin/extract-puzzles.ts",
+    "content:images": "tsx tools/src/bin/extract-images.ts",
+    "content:assets": "tsx tools/src/bin/extract-assets.ts",
+    "content:all": "npm run content:puzzles && npm run content:images && npm run content:assets"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^3.0.0"
+  }
+}

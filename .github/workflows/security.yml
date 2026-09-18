@@ -1,6 +1,6 @@
 name: security
 
-# 보안 자동 검사 — secret scanning + 의존성 vuln scanning.
+# 보안 자동 검사 — secret scanning + 의존성 vuln scanning + 정적 분석.
 # Private repo 에서도 GHAS 없이 동작하는 OSS 도구만 사용.
 #
 # 트리거:
@@ -29,7 +29,7 @@ permissions:
   contents: read
   pull-requests: read       # gitleaks PR 코멘트
   # SECURITY.md §11 — Private repo + GHAS 미적용 → SARIF 업로드 미사용
-  # 결과는 워크플로우 Artifacts 로 다운로드 (osv-scan-results)
+  # 결과는 워크플로우 Artifacts 로 다운로드 (osv-scan-results, codeql-results)
 
 jobs:
   # ─── 1. Secret scanning — Gitleaks ─────────────────────────────────────
@@ -49,7 +49,7 @@ jobs:
           # GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}   # Pro 라이선스 사용 시
           GITLEAKS_ENABLE_COMMENTS: 'true'   # PR 에 commenting
 
-  # ─── 2. Dependency vuln — OSV-Scanner (Google) ─────────────────────────
+  # ─── 2. Dependency vuln — OSV-Scanner (Google), npm workspace 전체 ─────
   osv-scan:
     name: OSV-Scanner — dependency vulnerabilities
     runs-on: ubuntu-latest
@@ -61,13 +61,10 @@ jobs:
         uses: google/osv-scanner-action/osv-scanner-action@v1.9.0
         with:
           scan-args: |-
-            --recursive
             --skip-git
             --format=sarif
             --output=osv-results.sarif
-            ./client_flutter
-            ./server
-            ./client_flutter/android
+            ./package-lock.json
         continue-on-error: true
 
       # GHAS(Code Scanning) 미적용 private repo 에서는 SARIF 업로드 불가능
@@ -103,78 +100,54 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "Private repo + GHAS 미적용 환경 — Security 탭 대신 워크플로우 Artifacts 로 결과 보존." >> "$GITHUB_STEP_SUMMARY"
 
-  # ─── 3. Server — npm audit ─────────────────────────────────────────────
+  # ─── 3. npm audit — 루트 워크스페이스 (devDependencies 포함) ───────────
   npm-audit:
-    name: npm audit — server
+    name: npm audit — workspace
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    defaults:
-      run:
-        working-directory: server
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: npm
-          cache-dependency-path: server/package-lock.json
+          cache-dependency-path: package-lock.json
 
-      - name: install (production)
-        run: npm ci --omit=dev
+      - name: install
+        run: npm ci
 
+      # devDependencies(sharp 등 파이프라인 도구)도 검사 대상이므로 --omit=dev 안 씀
       - name: audit (high+ only — CI 차단)
-        run: npm audit --omit=dev --audit-level=high
+        run: npm audit --audit-level=high
 
       - name: audit (전체 — informational)
-        run: npm audit --omit=dev || true
+        run: npm audit || true
         continue-on-error: true
 
-  # ─── 4. Client — pub outdated (informational) ──────────────────────────
-  pub-outdated:
-    name: pub outdated — client
+  # ─── 4. 정적 분석 — CodeQL (TypeScript / JavaScript) ────────────────────
+  codeql:
+    name: CodeQL — static analysis (TypeScript)
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-    defaults:
-      run:
-        working-directory: client_flutter
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
-      - uses: subosito/flutter-action@v2
+      - uses: github/codeql-action/init@v3
         with:
-          channel: stable
-          flutter-version: '3.27.4'
-          cache: true
+          languages: javascript-typescript
 
-      - name: pub get
-        run: flutter pub get
-
-      - name: pub outdated
-        run: flutter pub outdated --mode=null-safety
-        continue-on-error: true   # 정보성 — 차단 X
-
-  # ─── 5. License compliance — 의존성 라이선스 매트릭스 ──────────────────
-  license-check:
-    name: License compatibility check
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
+      # GHAS 미적용 private repo → Security 탭 업로드 대신 로컬 SARIF 산출
+      - uses: github/codeql-action/analyze@v3
         with:
-          node-version: '20'
-          cache: npm
-          cache-dependency-path: server/package-lock.json
+          output: codeql-results
+          upload: false
 
-      - name: Server — license check
-        working-directory: server
-        run: |
-          npx --yes license-checker-rseidelsohn \
-            --production \
-            --excludePackages 'findit-server@1.0.0' \
-            --failOn 'GPL-3.0;AGPL-3.0;LGPL-3.0;SSPL-1.0;BUSL-1.1;Commons-Clause;Elastic-2.0' \
-            --summary
-
-      # Flutter pub 라이선스 검증은 별도 도구 (현재는 NOTICE 수동 관리)
+      - name: Upload SARIF as workflow artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codeql-results
+          path: codeql-results
+          retention-days: 30
+          if-no-files-found: ignore

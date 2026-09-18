@@ -52,6 +52,23 @@ describe('decodeEnvelope', () => {
   it('선언되지 않은 여분 필드를 거부한다 — 오타를 조용히 넘기지 않는다', () => {
     expect(() => decodeEnvelope('{"t":"TAP","seq":1,"d":{"x":1,"y":2,"z":3}}')).toThrow(/z/);
   });
+
+  it.each(['constructor', '__proto__', 'toString', 'valueOf'])(
+    '프로토타입 속성명 %s 을 메시지 타입으로 위장해도 ProtocolError 로 거부한다',
+    (name) => {
+      // `in` 을 쓰면 여기서 TypeError 가 나서 게이트웨이가 죽는다.
+      expect(() => decodeEnvelope(`{"t":"${name}","seq":1,"d":{}}`)).toThrow(ProtocolError);
+    },
+  );
+
+  it.each(['constructor', 'toString', 'valueOf'])(
+    '프로토타입 속성명 %s 을 여분 필드로 넣어도 거부한다',
+    (name) => {
+      expect(() =>
+        decodeEnvelope(`{"t":"TAP","seq":1,"d":{"x":1,"y":2,"${name}":1}}`),
+      ).toThrow(ProtocolError);
+    },
+  );
 });
 
 describe('encodeEnvelope', () => {

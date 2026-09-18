@@ -47,7 +47,7 @@ function checkPayload(type: MessageType, payload: Record<string, unknown>): void
   }
 }
 
-export function decodeEnvelope(raw: string): Envelope {
+export function decodeEnvelope(raw: string, expectDir?: 'c2s' | 's2c'): Envelope {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -70,13 +70,23 @@ export function decodeEnvelope(raw: string): Envelope {
   if (typeof env['seq'] !== 'number' || !Number.isInteger(env['seq'])) {
     throw new ProtocolError('seq 가 없거나 정수가 아님');
   }
-  if (typeof env['d'] !== 'object' || env['d'] === null) {
+  // 배열도 `typeof === 'object'` 를 통과한다. 명시적으로 걸러낸다.
+  if (typeof env['d'] !== 'object' || env['d'] === null || Array.isArray(env['d'])) {
     throw new ProtocolError('페이로드 d 가 객체가 아님');
   }
 
   const type = env['t'] as MessageType;
   const payload = env['d'] as Record<string, unknown>;
   checkPayload(type, payload);
+
+  // expectDir 이 주어지면 선언된 방향과 어긋나는 메시지를 거부한다.
+  // 게이트웨이가 이걸 문 앞 검문으로 쓰면, 클라가 s2c 전용 메시지(END 등)를
+  // 자칭해 스스로 결과를 조작하는 시나리오를 막는다.
+  if (expectDir !== undefined && MESSAGES[type].dir !== expectDir) {
+    throw new ProtocolError(
+      `${type}: 방향 불일치 — ${expectDir} 기대, ${MESSAGES[type].dir} 선언됨`,
+    );
+  }
 
   return { t: type, seq: env['seq'], d: payload };
 }

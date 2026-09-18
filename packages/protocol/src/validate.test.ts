@@ -69,6 +69,28 @@ describe('decodeEnvelope', () => {
       ).toThrow(ProtocolError);
     },
   );
+
+  it('배열 페이로드를 거부한다 — typeof [] === "object" 를 우회로 못 쓴다', () => {
+    expect(() => decodeEnvelope('{"t":"READY","seq":1,"d":[]}')).toThrow(ProtocolError);
+  });
+
+  describe('expectDir', () => {
+    it('클라가 s2c 전용 메시지(END)를 자칭해도 expectDir="c2s" 면 거부한다', () => {
+      const raw = '{"t":"END","seq":1,"d":{"result":"win","myFound":5,"opponentFound":0,"score":9,"coinDelta":999,"expDelta":999}}';
+      expect(() => decodeEnvelope(raw, 'c2s')).toThrow(ProtocolError);
+      expect(() => decodeEnvelope(raw, 'c2s')).toThrow(/방향 불일치/);
+    });
+
+    it('선언된 방향과 일치하면 통과한다', () => {
+      const raw = '{"t":"TAP","seq":1,"d":{"x":1,"y":2}}';
+      expect(decodeEnvelope(raw, 'c2s')).toEqual({ t: 'TAP', seq: 1, d: { x: 1, y: 2 } });
+    });
+
+    it('expectDir 를 생략하면 기존처럼 방향을 검사하지 않는다', () => {
+      const raw = '{"t":"END","seq":1,"d":{"result":"win","myFound":5,"opponentFound":0,"score":9,"coinDelta":999,"expDelta":999}}';
+      expect(() => decodeEnvelope(raw)).not.toThrow();
+    });
+  });
 });
 
 describe('encodeEnvelope', () => {

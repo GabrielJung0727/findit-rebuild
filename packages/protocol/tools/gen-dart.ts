@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { MESSAGES, type FieldType } from '../src/schema.js';
+import { MESSAGES, type FieldDef, type FieldType } from '../src/schema.js';
 
 const OUT = resolve(import.meta.dirname, '../../../app/lib/domain/protocol.g.dart');
 
@@ -49,7 +49,9 @@ export function generateDart(): string {
 
   for (const [type, def] of Object.entries(MESSAGES)) {
     const className = `${toUpperCamel(type)}Message`;
-    const entries = Object.entries(def.fields);
+    // 현재 스키마엔 double 필드가 없어 리터럴 유니온이 좁혀진다. FieldDef 로
+    // 명시적으로 넓혀서 'double' 비교가 항상 타입체크를 통과하게 한다.
+    const entries: Array<[string, FieldDef]> = Object.entries(def.fields);
 
     lines.push(`/// ${def.dir === 'c2s' ? '클라 → 서버' : '서버 → 클라'}`);
     lines.push(`class ${className} {`);
@@ -70,7 +72,12 @@ export function generateDart(): string {
 
     lines.push(`  factory ${className}.fromJson(Map<String, dynamic> json) => ${className}(`);
     for (const [name, field] of entries) {
-      lines.push(`    ${name}: json['${name}'] as ${DART_TYPE[field.type]},`);
+      // JSON 의 정수값(1)은 num 으로 디코딩될 수 있어 `as double` 이 던진다.
+      // num 으로 받아 toDouble() 하면 정수/실수 양쪽 다 안전하다.
+      const cast = field.type === 'double'
+        ? `(json['${name}'] as num).toDouble()`
+        : `json['${name}'] as ${DART_TYPE[field.type]}`;
+      lines.push(`    ${name}: ${cast},`);
     }
     lines.push('  );', '');
 

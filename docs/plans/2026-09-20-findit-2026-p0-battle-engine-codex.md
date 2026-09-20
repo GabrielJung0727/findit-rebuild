@@ -1788,7 +1788,7 @@ export type BattleEvent =
 - [ ] **Step 4: 테스트 통과 확인**
 
 Run: `npx vitest run server/src/battle/state.test.ts && npm run typecheck`
-Expected: PASS — 9 tests, typecheck exit 0.
+Expected: PASS — 8 tests, typecheck exit 0. 기존 합계는 createBattle 검사를 하나 더 센 오류였다.
 
 - [ ] **Step 5: 커밋**
 

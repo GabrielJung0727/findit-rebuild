@@ -2083,9 +2083,28 @@ describe('URL 은 포트에서만 나온다 — 스펙 §6.3', () => {
     expect(r.outbound.find((o) => o.type === 'START')!.payload['imageUrl']).toBe('BASE_SENTINEL');
   });
 
-  it('리듀서 소스에 URL 템플릿 리터럴이 없다 — 조립하면 반드시 예측 가능해진다', () => {
+  it('포트를 부르지 않고는 REVEAL 을 만들 수 없다', () => {
+    // 행위 증명. 문자열 트릭으로 우회할 수 없다 — 포트가 호출되지 않으면 실패한다.
+    const s = playing();
+    const { x, y } = centerOfUnrevealed(s);
+    const exploding = {
+      base: () => { throw new Error('base port called'); },
+      patch: () => { throw new Error('patch port called'); },
+    };
+    expect(() =>
+      reduce(
+        s, { kind: 'TAP', slot: 'p1', x, y },
+        { now: COUNTDOWN_MS + 100, rng: createRng(1), urls: exploding },
+      ),
+    ).toThrow(/patch port called/);
+  });
+
+  it('리듀서 소스에 절대 경로 URL 리터럴이 없다 — 조립하면 반드시 예측 가능해진다', () => {
+    // 위 행위 테스트가 닿지 않는 경로(앞으로 추가될 메시지 등)를 위한 트립와이어.
+    // 따옴표 뒤의 /content/ 만 본다. `../content/assigner.js` 같은 import 경로는
+    // 리듀서에 필수라 걸리면 안 된다.
     const src = readFileSync(resolve(import.meta.dirname, 'reducer.ts'), 'utf8');
-    expect(src).not.toMatch(/\/content\//);
+    expect(src).not.toMatch(/['"`]\/content\//);
   });
 });
 
@@ -2384,7 +2403,7 @@ export function reduce(
 - [ ] **Step 4: 테스트 통과 확인**
 
 Run: `npx vitest run server/src/battle/reducer.test.ts`
-Expected: PASS — 27 tests. 특히 다음 넷이 통과해야 한다: `START 페이로드에 좌표가 들어가지 않는다`, `리듀서 소스에 URL 템플릿 리터럴이 없다`, `PLAYING 중 무시된 이벤트도 종료 예약을 유지한다`, `리듀서가 입력 상태를 변형하지 않는다`.
+Expected: PASS — 28 tests. 특히 다음 넷이 통과해야 한다: `START 페이로드에 좌표가 들어가지 않는다`, `포트를 부르지 않고는 REVEAL 을 만들 수 없다`, `PLAYING 중 무시된 이벤트도 종료 예약을 유지한다`, `리듀서가 입력 상태를 변형하지 않는다`.
 
 - [ ] **Step 5: 커밋**
 
@@ -3028,7 +3047,7 @@ PDF 기획서에 없던 게임 규칙을 추가한 것이다. 근거는 노출 5
 5. AI 혼자 두면 5개를 찾고 이기는 것을 통합 테스트가 증명
 6. 대상이 4:1로 나뉘어도 매치가 즉시 끝남 — 빈 화면 대기가 없음
 7. `START` 페이로드에 좌표가 없음 — 키 집합 단언으로 강제
-8. 리듀서가 URL 을 조립하지 않음 — 소스에 `/content/` 리터럴이 없음을 테스트로 강제
+8. 리듀서가 URL 을 조립하지 않음 — 포트를 부르지 않으면 `REVEAL` 을 만들 수 없음을 행위 테스트로 강제하고, 소스의 절대 경로 리터럴을 트립와이어로 추가 차단
 9. `wakeAt` 이 상태 파생값이라 무시된 이벤트도 종료 예약을 유지함
 10. `npm test` 그린, `npm run typecheck` 통과
 11. 서버 코드 어디에도 `Date.now()`·`Math.random()` 직접 호출이 없음

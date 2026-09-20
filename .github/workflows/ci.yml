@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # 수동 실행 — 레포가 장기간 비활성이면 GitHub 이 워크플로를 잠재우므로
+  # 되살릴 경로가 필요하다.
+  workflow_dispatch:
 
 # 비용 절감을 위해 동일 PR 신규 푸시 시 이전 워크플로 cancel
 concurrency:

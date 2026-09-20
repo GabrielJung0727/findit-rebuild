@@ -1,6 +1,14 @@
 # FindIt 2026 P0 — 배틀 엔진 & 규칙 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **실행하는 에이전트에게:** 이 문서는 Task 1 부터 순서대로 실행한다. 각 Task 의 스텝은
+> 체크박스(`- [ ]`)로 되어 있으니 끝낼 때마다 표시한다. 특정 도구나 플러그인을 요구하지
+> 않는다 — 필요한 것은 Node 24, npm, git 뿐이다.
+>
+> **중요: 각 Task 를 끝낼 때마다 그 Task 의 diff 를 독립적으로 검토하는 단계를 넣어라.**
+> 자세한 이유와 방법은 아래 "실행 방식" 을 읽을 것. 이 계획서를 쓴 사람은 앞선 계획서에서
+> 세 번 틀렸고, 그 셋 다 계획서를 따라가는 것만으로는 잡히지 않았다.
+>
+> Claude Code 용 원본: [`docs/superpowers/plans/2026-09-20-findit-2026-p0-battle-engine.md`](../superpowers/plans/2026-09-20-findit-2026-p0-battle-engine.md) — 내용은 같고 실행 지침만 다르다. 한쪽을 고치면 다른 쪽도 고칠 것.
 
 **Goal:** 40초 1v1 배틀의 게임 규칙 전체를 I/O 없는 순수 함수로 구현한다 — 한 판을 밀리초 안에 결정론적으로 재현하고 검증할 수 있게.
 
@@ -8,11 +16,9 @@
 
 **Tech Stack:** Node 24 LTS · TypeScript 5.7 · vitest 3 · `@findit/protocol`(Plan 1 산출물)
 
-**Spec:** [`docs/superpowers/specs/2026-09-18-findit-2026-p0-design.md`](../specs/2026-09-18-findit-2026-p0-design.md)
+**Spec:** [`docs/superpowers/specs/2026-09-18-findit-2026-p0-design.md`](../superpowers/specs/2026-09-18-findit-2026-p0-design.md)
 
-**Codex/타 에이전트용 사본:** [`docs/plans/2026-09-20-findit-2026-p0-battle-engine-codex.md`](../../plans/2026-09-20-findit-2026-p0-battle-engine-codex.md) — 내용은 같고 실행 지침만 다르다. **한쪽을 고치면 다른 쪽도 고칠 것.**
-
-**Depends on:** Plan 1 ([`2026-09-18-findit-2026-p0-foundation.md`](2026-09-18-findit-2026-p0-foundation.md)) — `packages/protocol`, `content/puzzles/`
+**Depends on:** Plan 1 ([`2026-09-18-findit-2026-p0-foundation.md`](../superpowers/plans/2026-09-18-findit-2026-p0-foundation.md)) — `packages/protocol`, `content/puzzles/`
 
 ## Global Constraints
 
@@ -22,8 +28,56 @@
 - **게임 수치는 스펙 §3이 유일한 출처**. 코드에 수치를 새로 만들지 않는다. 스펙에 없으면 계획서가 명시적으로 정한 값을 쓰고, 그 사실을 주석에 남긴다.
 - **제한시간 40,000ms · 노출 5개 · 오답 잠금 2,000ms · 카운트다운 3초**.
 - **퍼즐 rect는 이미지당 7~10개**. 5를 넘는 어떤 수도 하드코딩하지 않는다.
-- **커밋**: Task당 1커밋. 한국어 본문 + Conventional Commits 접두어. 커밋 메시지 끝에 `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`.
+- **커밋**: Task당 1커밋. 한국어 본문 + Conventional Commits 접두어. 기여자(`Co-Authored-By`) 표기는 실행 환경의 규칙을 따른다 — 이 계획서의 커밋 예시에는 넣지 않았다.
 - **`legacy/`는 읽기 전용**: 수치를 이식할 때 읽기만 한다.
+
+---
+
+## 실행 방식 — 반드시 읽을 것
+
+이 계획서를 할 일 목록으로만 취급하면 안 된다. 이유는 근거가 있다.
+
+같은 사람이 쓴 앞선 계획서(Plan 1, 8 태스크)를 실행했을 때 **계획서 자체의 버그가 3건**
+나왔다. 셋 다 계획서 텍스트를 읽어서는 보이지 않았고, 구현된 diff 를 독립적으로 검토한
+단계에서 잡혔다.
+
+| 잡힌 곳 | 내용 |
+|---|---|
+| Task 4 | 계획서의 테스트가 `[...counts].sort()` 를 썼다. JS 는 숫자를 문자열로 정렬해 `[10,7,8,9]` 가 나오므로 그 단언은 **구현이 옳든 그르든 절대 통과할 수 없었다** |
+| Task 5 | 엔트리 가드가 경로 동등 비교가 아닌 접미사 매칭이었다. `"extract-puzzles.ts".endsWith("puzzles.ts")` 는 참이다 |
+| Task 8 | **Critical** — 검증기가 `in` 연산자를 써서 프로토타입 체인을 탔다. `{"t":"constructor"}` 한 통으로 게이트웨이가 `TypeError` 로 죽고, `constructor`·`toString` 이름의 여분 필드는 검증을 그냥 통과했다 |
+
+그 외에 최종 전체 검토에서 CI 워크플로가 존재하지 않는 경로를 가리키는 Critical,
+패치 URL 열거로 정답 전체를 복원할 수 있는 결함, 메시지 방향 미검증(클라가 보낸 `END` 로
+코인 자체 지급 가능)이 추가로 나왔다.
+
+정리하면: **계획서를 충실히 따를수록 계획서의 버그도 충실히 복제된다.** 이 문서의 테스트에는
+그 교훈을 반영해 순환 검사·불변성 검사·키 집합 단언을 더 넣었지만, 검토 계층을 대신하지는
+못한다.
+
+### 그래서 각 Task 마다 이렇게 한다
+
+1. Task 의 스텝을 순서대로 실행한다 (TDD: 실패 테스트 → 실패 확인 → 구현 → 통과 확인).
+2. 커밋한다.
+3. **커밋 직후, 그 Task 의 diff 만 놓고 다시 검토한다.** 가능하면 구현한 세션과 분리된
+   맥락에서 하라 — 방금 코드를 쓴 쪽은 자기 가정을 다시 읽을 뿐이다. Plan 1 에서 구현자가
+   자기 것에서 잡은 결함은 1건, 별도 검토가 잡은 것은 5건이었다.
+
+검토할 때 볼 것:
+
+- **테스트가 실제로 무언가를 검증하는가.** 통과하는 테스트가 곧 옳은 테스트는 아니다.
+  Task 4 의 사례처럼 애초에 통과 불가능한 단언이 섞여 있을 수 있다. 각 단언을 "구현이
+  틀렸다면 이게 실패하는가?" 로 되물어라.
+- **계획서가 시킨 것이 실제로 맞는가.** 계획서와 충돌하는 무언가를 발견하면 계획서를
+  따르지 말고 멈춰서 보고하라. 계획서는 스펙의 논증일 뿐이고, 구속력 있는 것은
+  `docs/superpowers/specs/2026-09-18-findit-2026-p0-design.md` 다.
+- **스펙 §3 의 수치와 코드가 일치하는가.** 수치는 전부 스펙에서 온다.
+
+### 계획서가 틀렸다고 판단되면
+
+고쳐서 진행하되, **무엇을 왜 바꿨는지 반드시 남겨라.** 조용히 계획서와 다르게 구현하면
+나중에 스펙·계획서·코드가 삼자 불일치가 된다. Plan 1 에서는 이런 경우 계획서 문서 자체를
+먼저 고쳐 커밋해 "수정이 곧 명세" 가 되게 했다.
 
 ---
 
@@ -314,8 +368,6 @@ feat(server): 워크스페이스 스캐폴드 + 시계·난수 포트
 난수는 mulberry32 를 쓴다. 상태가 32비트뿐이라 시드 하나로 매치 전체를
 재현할 수 있고, 구현이 짧아 나중에 클라이언트 쪽에 이식해 같은 수열을
 뽑기도 쉽다.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 EOF
 )"
 ```
@@ -545,8 +597,6 @@ legacy/server/src/util/balance.js 의 LEVEL_SCORE / LEVEL_ABILITY 101행을
 시력 계급 11 단계는 스펙 §3.7 이 이름만 정하고 경계는 비워뒀다. 10 레벨
 단위로 자르되 마지막 계급이 91~100 을 받도록 정하고, 죽은 계급이 없음을
 테스트로 확인한다.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 EOF
 )"
 ```
@@ -718,8 +768,6 @@ feat(server): 콤보·점수 규칙
 수치는 전부 테이블 테스트로 고정한다. 밸런스 값은 시간이 지나면 누군가
 "대충 이 정도겠지" 로 바꾸게 되는데, 표를 fixture 로 박아두면 그 순간
 테스트가 잡는다.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 EOF
 )"
 ```
@@ -1086,8 +1134,6 @@ feat(server): 스킬 트리 29종 + 가림시간 공식
 
 가림시간은 정수 ms 로 반올림한다. 능력치가 소수라 그냥 두면 부동소수
 잔차가 프로토콜 밖으로 새어나간다.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 EOF
 )"
 ```
@@ -1223,8 +1269,6 @@ feat(server): AI 탐색시간 공식
 
 "고레벨일수록 평균이 빨라진다" 를 2000 회 표본으로 직접 검증한다.
 공식을 옮겨 적는 것만으로는 부호 실수를 잡지 못한다.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 EOF
 )"
 ```
@@ -1496,8 +1540,6 @@ assignPuzzle 은 스펙 §3.8 이 격리를 요구한 지점이다. 지금은 �
 
 노출 선택은 부분 Fisher-Yates 다. 10개 중 5개를 뽑는 데 전체를 섞을
 이유가 없고, 중복 없는 균등 표본이 구조적으로 보장된다.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 EOF
 )"
 ```
@@ -1761,8 +1803,6 @@ TIMER 하나를 넣는 구조다 — 필요한 순간에만 깨우고, 리듀서
 
 Outbound 는 슬롯과 메시지 타입만 안다. WS 도 소켓도 모른다. 이 경계가
 있어야 40 초 매치를 네트워크 없이 검증할 수 있다.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 EOF
 )"
 ```
@@ -2239,8 +2279,6 @@ reduce(state, event, ctx) → { state, outbound, wakeAt } 로 스펙 §6.2 의
 
 테스트가 두 가지를 못박는다: START 페이로드의 키 집합(좌표가 새어나가면
 실패), 그리고 리듀서가 입력 상태를 변형하지 않는다는 것.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 EOF
 )"
 ```
@@ -2796,11 +2834,54 @@ feat(server): 스킬 · 종료 · 정산 + AI 드라이버
 
 AI 드라이버는 리듀서 밖에 둔다. AI 는 "입력을 보내는 플레이어" 이고,
 리듀서 입장에서 사람과 구분되지 않아야 판정 로직이 한 갈래로 유지된다.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 EOF
 )"
 ```
+
+---
+
+## 주의해서 볼 곳 — 저자가 가장 확신이 낮은 지점
+
+이 계획서를 쓴 사람이 스스로 틀렸을 가능성이 높다고 보는 곳이다. 해당 Task 를 할 때
+평소보다 의심하라.
+
+**1. Task 9 의 리듀서 확장 (가장 위험)**
+
+이 계획서에서 유일하게 "기존 파일을 이렇게 바꾼다" 로 서술된 부분이다. 나머지 Task 는
+파일을 새로 만들지만 여기는 Task 8 이 만든 `reducer.ts` 를 수정한다. 특히:
+
+- `onTap` 의 히트 분기에서 `REVEAL` + `OPPONENT_PROGRESS` 배열을 `revealOutbound` 라는
+  지역 변수로 뽑아내야 하는데, Task 8 의 코드에는 그 변수가 없다 (인라인으로 `return` 한다).
+  추출을 빠뜨리면 종료 시 `REVEAL` 이 유실된다.
+- `reduce` 의 `switch` 를 통째로 교체하면서 맨 앞의 `if (state.phase === 'ENDED') return noChange(state);`
+  를 빠뜨리기 쉽다. 이게 없으면 종료 후 입력이 계속 처리된다.
+
+**2. 유령 계열 지속시간 `[3000, 3250, 3500, 3750, 4000]`**
+
+스펙에 없는 값이다. 스펙은 끝점 3.0·4.0 초와 "단계당 +0.2s~0.5s" 만 준다. 균등 +0.25 로
+정한 것은 이 계획서의 판단이며, 밸런스상 다른 분배가 나을 수 있다.
+
+**3. 시력 계급 경계 — 10 레벨 단위**
+
+스펙 §3.7 은 계급 이름 11 개만 정하고 경계는 비워뒀다. `Math.floor((level-1)/10)` 로
+자른 것은 이 계획서의 판단이다.
+
+**4. 네 번째 종료 조건 (대상 소진 시 즉시 종료)**
+
+PDF 기획서에 없던 게임 규칙을 추가한 것이다. 근거는 노출 5 개가 4:1 로 나뉘면 아무도
+5 개에 도달하지 못한 채 찾을 것이 남지 않아 빈 화면 대기가 발생한다는 점이다. 스펙 §3.1 에
+반영해 뒀지만, 기획 의도와 다를 수 있다.
+
+**5. `blindDurationMs` 의 능력치 단위 해석**
+
+스펙 §3.3 의 공식은 "+ 공격력 − 방어력" 이라고만 쓰여 있고 단위를 말하지 않는다. 능력치
+표의 값이 0.5~1.57 범위인 것을 보고 **초 단위 계수**로 해석했다 (그래서 `× 1000`). 다른
+해석도 가능하다 — 예를 들어 배율이라면 공식 자체가 달라진다.
+
+**6. `content/puzzles` 의 `sourceDrawable` 필드**
+
+이 필드는 레거시 드로어블 이름(`a0001_01`)이지 서빙 경로가 아니다. `REVEAL.patchUrl` 을
+여기서 만들면 404 가 난다. Plan 1 에서 이 혼동 때문에 필드명을 `patch` 에서 바꾼 이력이 있다.
 
 ---
 

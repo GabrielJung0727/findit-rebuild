@@ -1818,7 +1818,9 @@ EOF
 **Interfaces:**
 - Consumes: Task 7의 전부, `comboScoreBonus`/`comboTimeBonusMs` (Task 3)
 - Produces:
-  - `interface ReduceContext { now: number; rng: Rng }`
+  - `interface ContentUrls { base(matchId: string): string; patch(matchId: string, rectIndex: number): string }`
+  - `interface ReduceContext { now: number; rng: Rng; urls: ContentUrls }`
+  - `function nextWakeAt(state: BattleState): number | null`
   - `interface ReduceResult { state: BattleState; outbound: Outbound[]; wakeAt: number | null }`
   - `function reduce(state: BattleState, event: BattleEvent, ctx: ReduceContext): ReduceResult`
   - `function hitTest(assignment: PuzzleAssignment, targetIndices: readonly number[], revealed: readonly number[], x: number, y: number): number | null`
@@ -1835,13 +1837,29 @@ import { resolve } from 'node:path';
 import { createRng } from '../platform/rng.js';
 import { loadPuzzles } from '../content/loader.js';
 import { assignPuzzle } from '../content/assigner.js';
-import { COUNTDOWN_MS, MISS_LOCK_MS, createBattle, type BattleState } from './state.js';
-import { reduce, hitTest, type ReduceContext } from './reducer.js';
+import { readFileSync } from 'node:fs';
+import {
+  COUNTDOWN_MS,
+  MATCH_DURATION_MS,
+  MISS_LOCK_MS,
+  createBattle,
+  type BattleState,
+} from './state.js';
+import { reduce, hitTest, nextWakeAt, type ReduceContext } from './reducer.js';
 
 const puzzles = loadPuzzles(resolve(import.meta.dirname, '../../../content/puzzles'));
 
+/**
+ * 테스트용 URL 발급기. 리듀서는 URL 을 스스로 만들지 못하고 이 포트로만 받는다 —
+ * 운영에서는 Plan 3 런타임이 서명된 일회용 URL 을 넣는다.
+ */
+const testUrls = {
+  base: (matchId: string) => `test://${matchId}/base`,
+  patch: (matchId: string, rectIndex: number) => `test://${matchId}/patch/${rectIndex}`,
+};
+
 function ctx(now: number): ReduceContext {
-  return { now, rng: createRng(1) };
+  return { now, rng: createRng(1), urls: testUrls };
 }
 
 function fresh(): BattleState {
@@ -2040,6 +2058,69 @@ describe('TAP — 미스', () => {
   });
 });
 
+describe('URL 은 포트에서만 나온다 — 스펙 §6.3', () => {
+  it('REVEAL 의 patchUrl 이 주입된 발급기에서 온다', () => {
+    const s = playing();
+    const { x, y } = centerOfUnrevealed(s);
+    const spy = {
+      base: () => 'BASE_SENTINEL',
+      patch: (m: string, i: number) => `PATCH_SENTINEL:${m}:${i}`,
+    };
+    const r = reduce(
+      s, { kind: 'TAP', slot: 'p1', x, y },
+      { now: COUNTDOWN_MS + 100, rng: createRng(1), urls: spy },
+    );
+    const reveal = r.outbound.find((o) => o.type === 'REVEAL')!;
+    expect(String(reveal.payload['patchUrl'])).toMatch(/^PATCH_SENTINEL:/);
+  });
+
+  it('START 의 imageUrl 도 주입된 발급기에서 온다', () => {
+    let s = fresh();
+    s = reduce(s, { kind: 'READY', slot: 'p1' }, ctx(0)).state;
+    s = reduce(s, { kind: 'READY', slot: 'p2' }, ctx(0)).state;
+    const spy = { base: () => 'BASE_SENTINEL', patch: () => 'P' };
+    const r = reduce(s, { kind: 'TIMER' }, { now: COUNTDOWN_MS, rng: createRng(1), urls: spy });
+    expect(r.outbound.find((o) => o.type === 'START')!.payload['imageUrl']).toBe('BASE_SENTINEL');
+  });
+
+  it('리듀서 소스에 URL 템플릿 리터럴이 없다 — 조립하면 반드시 예측 가능해진다', () => {
+    const src = readFileSync(resolve(import.meta.dirname, 'reducer.ts'), 'utf8');
+    expect(src).not.toMatch(/\/content\//);
+  });
+});
+
+describe('wakeAt 은 상태에서 파생된다', () => {
+  it('PLAYING 중 무시된 이벤트도 종료 예약을 유지한다 — 40초 타이머가 사라지면 안 된다', () => {
+    let s = playing();
+    const deadline = s.playStartedAt + MATCH_DURATION_MS;
+
+    // 오답으로 잠긴 뒤, 잠금 중 탭은 무시된다.
+    s = reduce(s, { kind: 'TAP', slot: 'p1', x: -50, y: -50 }, ctx(COUNTDOWN_MS)).state;
+    const ignored = reduce(s, { kind: 'TAP', slot: 'p1', x: -60, y: -60 }, ctx(COUNTDOWN_MS + 100));
+
+    expect(ignored.outbound).toEqual([]);
+    expect(ignored.wakeAt).toBe(deadline);
+  });
+
+  it('모르는 스킬 id 로 무시돼도 예약이 유지된다', () => {
+    const s = playing();
+    const r = reduce(s, { kind: 'SKILL', slot: 'p1', skillId: 'nope_9' }, ctx(COUNTDOWN_MS + 100));
+    expect(r.wakeAt).toBe(s.playStartedAt + MATCH_DURATION_MS);
+  });
+
+  it('WAITING 과 ENDED 에서는 예약이 없다', () => {
+    expect(nextWakeAt(fresh())).toBeNull();
+    const ended = reduce(playing(), { kind: 'LEAVE', slot: 'p2' }, ctx(COUNTDOWN_MS + 1)).state;
+    expect(nextWakeAt(ended)).toBeNull();
+  });
+
+  it('COUNTDOWN 에서는 카운트다운 종료 시각이다', () => {
+    let s = reduce(fresh(), { kind: 'READY', slot: 'p1' }, ctx(0)).state;
+    s = reduce(s, { kind: 'READY', slot: 'p2' }, ctx(0)).state;
+    expect(nextWakeAt(s)).toBe(COUNTDOWN_MS);
+  });
+});
+
 describe('불변성', () => {
   it('리듀서가 입력 상태를 변형하지 않는다', () => {
     const s = playing();
@@ -2076,16 +2157,39 @@ import {
   type PlayerState,
 } from './state.js';
 
+/**
+ * 콘텐츠 URL 발급 포트.
+ *
+ * 리듀서가 URL 문자열을 스스로 조립하면 반드시 예측 가능한 형태가 된다.
+ * 그러면 클라가 REVEAL 하나로 규칙을 학습해 나머지 패치를 전부 선다운로드하고
+ * 템플릿 매칭으로 정답 위치를 복원할 수 있다 — 좌표 엔드포인트를 건드리지 않고,
+ * 미스 잠금도 발동시키지 않은 채로. 스펙 §6.3 이 금지한 바로 그 공격이다.
+ *
+ * 그래서 리듀서는 URL 을 만들 능력 자체를 갖지 않는다. 서명된 매치 한정 일회용
+ * URL 발급은 Plan 3 런타임의 책임이다.
+ */
+export interface ContentUrls {
+  base(matchId: string): string;
+  patch(matchId: string, rectIndex: number): string;
+}
+
 export interface ReduceContext {
   /** 권위 시계의 현재 시각(ms). 클라가 보낸 타임스탬프는 절대 쓰지 않는다. */
   now: number;
   rng: Rng;
+  urls: ContentUrls;
 }
 
 export interface ReduceResult {
   state: BattleState;
   outbound: Outbound[];
-  /** 런타임이 다음에 TIMER 를 넣어야 할 절대 시각. null 이면 예약 없음. */
+  /**
+   * 런타임이 TIMER 를 넣어야 할 절대 시각. null 이면 예약 없음.
+   *
+   * 호출 결과와 무관하게 **항상 현재 상태 기준의 예약**이다. 이벤트가 무시돼도
+   * 진행 중 매치라면 종료 시각이 그대로 돌아오므로, 런타임은 매 호출마다
+   * 이 값으로 예약을 덮어써도 안전하다.
+   */
   wakeAt: number | null;
 }
 
@@ -2119,8 +2223,29 @@ function cloneState(s: BattleState): BattleState {
   return { ...s, revealed: [...s.revealed], p1: clonePlayer(s.p1), p2: clonePlayer(s.p2) };
 }
 
+/**
+ * 상태만 보고 다음에 깨울 시각을 정한다.
+ *
+ * 분기마다 wakeAt 을 손으로 배선하면 무시되는 이벤트가 null 을 돌려주게 되고,
+ * 런타임이 그 결과로 예약을 갱신하면 40 초 종료 예약이 조용히 사라진다.
+ * 파생값으로 만들면 그 실수가 구조적으로 불가능해진다.
+ *
+ * 잠금 해제·가림 해제는 여기 없다. 둘 다 다음 입력 때 now 와 비교해 판정하므로
+ * 서버가 깨어날 이유가 없다.
+ */
+export function nextWakeAt(state: BattleState): number | null {
+  switch (state.phase) {
+    case 'COUNTDOWN':
+      return state.countdownStartedAt + COUNTDOWN_MS;
+    case 'PLAYING':
+      return state.playStartedAt + MATCH_DURATION_MS;
+    default:
+      return null;
+  }
+}
+
 function noChange(state: BattleState): ReduceResult {
-  return { state, outbound: [], wakeAt: null };
+  return { state, outbound: [], wakeAt: nextWakeAt(state) };
 }
 
 /** PLAYING 이 40 초 뒤 끝나는 절대 시각. */
@@ -2134,7 +2259,9 @@ function onReady(s: BattleState, slot: PlayerSlot, ctx: ReduceContext): ReduceRe
   const next = cloneState(s);
   next[slot] = { ...next[slot], ready: true };
 
-  if (!(next.p1.ready && next.p2.ready)) return { state: next, outbound: [], wakeAt: null };
+  if (!(next.p1.ready && next.p2.ready)) {
+    return { state: next, outbound: [], wakeAt: nextWakeAt(next) };
+  }
 
   next.phase = 'COUNTDOWN';
   next.countdownStartedAt = ctx.now;
@@ -2158,8 +2285,7 @@ function startPlaying(s: BattleState, ctx: ReduceContext): ReduceResult {
         type: 'START',
         payload: {
           puzzleId: next.puzzleId,
-          // 서버가 발급하는 불투명 URL. 디스크 경로를 그대로 노출하지 않는다 (스펙 §6.3).
-          imageUrl: `/content/${next.matchId}/base`,
+          imageUrl: ctx.urls.base(next.matchId),
           width: next.width,
           height: next.height,
           targetCount: next.targetIndices.length,
@@ -2167,7 +2293,7 @@ function startPlaying(s: BattleState, ctx: ReduceContext): ReduceResult {
         },
       },
     ],
-    wakeAt: playDeadline(next),
+    wakeAt: nextWakeAt(next),
   };
 }
 
@@ -2193,7 +2319,7 @@ function onTap(
     return {
       state: next,
       outbound: [{ to: slot, type: 'LOCK', payload: { durationMs: MISS_LOCK_MS } }],
-      wakeAt: playDeadline(next),
+      wakeAt: nextWakeAt(next),
     };
   }
 
@@ -2223,13 +2349,13 @@ function onTap(
           y: rect.y,
           w: rect.w,
           h: rect.h,
-          // 히트 시점에만 발급되는 불투명 URL. 사전 프리페치를 막는다 (스펙 §6.3).
-          patchUrl: `/content/${next.matchId}/patch/${hit}`,
+          // 리듀서는 URL 을 조립하지 않는다. 포트가 서명된 일회용 URL 을 준다.
+          patchUrl: ctx.urls.patch(next.matchId, hit),
         },
       },
       { to: other, type: 'OPPONENT_PROGRESS', payload: { found: next[slot].found.length } },
     ],
-    wakeAt: playDeadline(next),
+    wakeAt: nextWakeAt(next),
   };
 }
 
@@ -2258,7 +2384,7 @@ export function reduce(
 - [ ] **Step 4: 테스트 통과 확인**
 
 Run: `npx vitest run server/src/battle/reducer.test.ts`
-Expected: PASS — 20 tests. 특히 `START 페이로드에 좌표가 들어가지 않는다`와 `리듀서가 입력 상태를 변형하지 않는다`가 통과해야 한다.
+Expected: PASS — 27 tests. 특히 다음 넷이 통과해야 한다: `START 페이로드에 좌표가 들어가지 않는다`, `리듀서 소스에 URL 템플릿 리터럴이 없다`, `PLAYING 중 무시된 이벤트도 종료 예약을 유지한다`, `리듀서가 입력 상태를 변형하지 않는다`.
 
 - [ ] **Step 5: 커밋**
 
@@ -2320,7 +2446,11 @@ import { COUNTDOWN_MS, MATCH_DURATION_MS, createBattle, type BattleState } from 
 import { reduce, type ReduceContext } from './reducer.js';
 
 const puzzles = loadPuzzles(resolve(import.meta.dirname, '../../../content/puzzles'));
-const ctx = (now: number): ReduceContext => ({ now, rng: createRng(1) });
+const testUrls = {
+  base: (m: string) => `test://${m}/base`,
+  patch: (m: string, i: number) => `test://${m}/patch/${i}`,
+};
+const ctx = (now: number): ReduceContext => ({ now, rng: createRng(1), urls: testUrls });
 const T0 = COUNTDOWN_MS;
 
 function playing(level = 10): BattleState {
@@ -2515,7 +2645,11 @@ import { reduce, type ReduceContext } from './reducer.js';
 import { planAiAction } from './ai-driver.js';
 
 const puzzles = loadPuzzles(resolve(import.meta.dirname, '../../../content/puzzles'));
-const ctx = (now: number): ReduceContext => ({ now, rng: createRng(1) });
+const testUrls = {
+  base: (m: string) => `test://${m}/base`,
+  patch: (m: string, i: number) => `test://${m}/patch/${i}`,
+};
+const ctx = (now: number): ReduceContext => ({ now, rng: createRng(1), urls: testUrls });
 const T0 = COUNTDOWN_MS;
 
 function playingVsAi(aiLevel = 50): BattleState {
@@ -2656,7 +2790,7 @@ function finish(s: BattleState, winner: PlayerSlot | 'draw'): ReduceResult {
   const next = cloneState(s);
   next.phase = 'ENDED';
   next.winner = winner;
-  return { state: next, outbound: endOutbound(next), wakeAt: null };
+  return { state: next, outbound: endOutbound(next), wakeAt: nextWakeAt(next) };
 }
 
 function onSkill(s: BattleState, slot: PlayerSlot, skillId: string, ctx: ReduceContext): ReduceResult {
@@ -2687,7 +2821,7 @@ function onSkill(s: BattleState, slot: PlayerSlot, skillId: string, ctx: ReduceC
     outbound: [
       { to: other, type: 'BLIND', payload: { durationMs, effectId: skill.effectAsset } },
     ],
-    wakeAt: playDeadline(next),
+    wakeAt: nextWakeAt(next),
   };
 }
 
@@ -2894,15 +3028,18 @@ PDF 기획서에 없던 게임 규칙을 추가한 것이다. 근거는 노출 5
 5. AI 혼자 두면 5개를 찾고 이기는 것을 통합 테스트가 증명
 6. 대상이 4:1로 나뉘어도 매치가 즉시 끝남 — 빈 화면 대기가 없음
 7. `START` 페이로드에 좌표가 없음 — 키 집합 단언으로 강제
-8. `npm test` 그린, `npm run typecheck` 통과
-9. 서버 코드 어디에도 `Date.now()`·`Math.random()` 직접 호출이 없음
+8. 리듀서가 URL 을 조립하지 않음 — 소스에 `/content/` 리터럴이 없음을 테스트로 강제
+9. `wakeAt` 이 상태 파생값이라 무시된 이벤트도 종료 예약을 유지함
+10. `npm test` 그린, `npm run typecheck` 통과
+11. 서버 코드 어디에도 `Date.now()`·`Math.random()` 직접 호출이 없음
 
 ## 이 계획이 남기는 것 (Plan 3의 입력)
 
 - `reduce(state, event, ctx) → { state, outbound, wakeAt }` — 런타임이 감쌀 인터페이스
 - `planAiAction(state, slot, ctx) → { at, event } | null` — 런타임이 스케줄할 AI 행동
 - `Outbound`는 슬롯과 메시지 타입만 안다. WS 매핑은 Plan 3의 몫
-- **불투명 URL 발급은 Plan 3의 책임.** 리듀서는 `/content/<matchId>/patch/<index>` 형태를 만들지만, 이것이 실제로 서명된 매치 한정 일회용 URL이 되도록 하는 것은 런타임이다 (스펙 §6.3)
+- **`ContentUrls` 포트 구현은 Plan 3의 책임.** 리듀서는 URL 을 조립할 능력 자체가 없다 — `ctx.urls`로만 받는다. 런타임은 **매치별로 서명된 일회용 불투명 URL**을 넣어야 하며, 각 URL 은 히트한 rect 하나에만 유효해야 한다 (스펙 §6.3). 예측 가능한 형태를 넣으면 클라가 REVEAL 하나로 규칙을 학습해 나머지를 전부 선다운로드할 수 있다
+- **`wakeAt`은 매 호출마다 현재 상태 기준의 예약**이다. 런타임은 결과가 나올 때마다 이 값으로 예약을 덮어써도 안전하다 — 무시된 이벤트도 진행 중이면 종료 시각을 돌려준다
 - `itemAttackBonusMs`·`itemDefenseReductionMs`는 0으로 남는다. Plan 3의 인벤토리가 채운다
 
 ## 다음 계획

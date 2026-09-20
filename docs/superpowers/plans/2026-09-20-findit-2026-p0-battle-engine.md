@@ -339,7 +339,9 @@ EOF
 
 **출처:** `legacy/server/src/util/balance.js`의 `LEVEL_SCORE`(101행)와 `LEVEL_ABILITY`(101행)를 **값 그대로** 옮긴다. 원 출처는 기획서 `레벨별 첨수체계_기본능력치_02.xlsx`다. 숫자를 재계산하거나 보간하지 말 것 — 표가 진실이다.
 
-**시력 계급 (스펙 §3.7):** 지렁이 → 두더지 → 박쥐 → 곤충 → 개 → 토끼 → 사람 → 고양이 → 매 → 독수리 → 타조 (11계급). 스펙은 "레벨 1–100을 11계급에 매핑"만 말하고 경계는 정하지 않았다. **이 계획이 정한다: 10레벨 단위, 마지막 계급만 91–100.** 즉 `Math.min(10, Math.floor((level - 1) / 10))`을 인덱스로 쓴다.
+**시력 계급 (스펙 §3.7):** 지렁이 → 두더지 → 박쥐 → 곤충 → 개 → 토끼 → 사람 → 고양이 → 매 → 독수리 → 타조 (11계급). 스펙은 "레벨 1–100을 11계급에 매핑"만 말하고 경계는 정하지 않았다. **이 계획이 정한다: 지렁이~고양이는 각 10레벨(1–80), 매는 81–85, 독수리는 86–90, 타조는 91–100.** 11개 계급을 100레벨에 매핑하면서 기존 테스트의 1–10 지렁이·11–20 두더지·61 사람·91 타조 경계를 모두 보존한다.
+
+**실행 중 정정 (2026-09-20):** 이전의 `Math.floor((level - 1) / 10)` 공식은 91–100을 독수리로 매핑하여 타조를 도달 불가능하게 만들었다. 11개 계급을 모두 도달 가능하게 하는 위 경계 배열로 교체한다. 또한 매개변수화된 테스트를 포함한 실제 테스트 수는 27개였고, `LEVEL_ABILITY`의 legacy 값 동일성 및 계급 clamp 검사를 보강해 29개로 정정한다.
 
 - [ ] **Step 1: 실패하는 테스트 작성**
 
@@ -485,12 +487,14 @@ const GRADE_BANDS = [
 
 /**
  * 시력 컨셉 계급 (스펙 §3.7). 낮은 시력에서 높은 시력 순.
- * 스펙은 11 계급만 정하고 경계는 정하지 않았다 — 10 레벨 단위로 자르되
- * 마지막 계급이 91~100 을 받는다.
+ * 스펙은 11 계급만 정하고 경계는 정하지 않았다. 지렁이~고양이는 10 레벨
+ * 단위이고, 매/독수리/타조는 각각 81~85/86~90/91~100 을 받는다.
  */
 const RANK_NAMES = [
   '지렁이', '두더지', '박쥐', '곤충', '개', '토끼', '사람', '고양이', '매', '독수리', '타조',
 ] as const;
+
+const RANK_MAX_LEVELS = [10, 20, 30, 40, 50, 60, 70, 80, 85, 90, 100] as const;
 
 export interface Ability {
   attack: number;
@@ -513,7 +517,7 @@ export function gradeForLevel(level: number): string {
 
 export function rankNameForLevel(level: number): string {
   const clamped = Math.max(1, Math.min(100, level));
-  const index = Math.min(RANK_NAMES.length - 1, Math.floor((clamped - 1) / 10));
+  const index = RANK_MAX_LEVELS.findIndex((max) => clamped <= max);
   return RANK_NAMES[index]!;
 }
 
@@ -527,7 +531,7 @@ export function abilityForLevel(level: number): Ability {
 - [ ] **Step 4: 테스트 통과 확인**
 
 Run: `npx vitest run server/src/rules/levels.test.ts`
-Expected: PASS — 21 tests. 특히 `LEVEL_SCORE 가 legacy balance.js 와 값까지 같다`가 통과해야 한다. 실패하면 표를 손으로 옮기다 틀린 것이다.
+Expected: PASS — 29 tests. 특히 `LEVEL_SCORE`와 `LEVEL_ABILITY`가 모두 legacy `balance.js`와 값까지 같아야 한다. 실패하면 표를 손으로 옮기다 틀린 것이다.
 
 - [ ] **Step 5: 커밋**
 
@@ -703,7 +707,7 @@ export function matchScore({ findCount, comboBonus, isWinner }: MatchScoreParams
 - [ ] **Step 4: 테스트 통과 확인**
 
 Run: `npx vitest run server/src/rules/`
-Expected: PASS — combo 10 + score 5 = 15 tests (levels 21 포함 시 36).
+Expected: PASS — combo 15 + score 5 = 20 tests (levels 29 포함 시 49). `it.each`의 각 행도 독립 테스트이므로, 이전 합계는 잘못 셌다.
 
 - [ ] **Step 5: 커밋**
 
@@ -1065,7 +1069,7 @@ export function blindDurationMs({
 - [ ] **Step 4: 테스트 통과 확인**
 
 Run: `npx vitest run server/src/rules/skills.test.ts`
-Expected: PASS — 21 tests. 특히 순환 검사와 "선행 스킬의 언락 레벨이 더 낮다"가 통과해야 한다 — 이 둘이 깨지면 플레이어가 영원히 못 배우는 스킬이 생긴다.
+Expected: PASS — 29 tests. `it.each`의 10개 스킬 행도 독립 테스트고, 독립 검토에서 추가한 두 fixture가 모든 계열의 수치와 1단계 교차 선행 요건을 고정한다. 특히 순환 검사와 "선행 스킬의 언락 레벨이 더 낮다"가 통과해야 한다 — 이 둘이 깨지면 플레이어가 영원히 못 배우는 스킬이 생긴다.
 
 - [ ] **Step 5: 커밋**
 
@@ -1207,7 +1211,7 @@ export function aiFindDelayMs(level: number, rng: Rng): number {
 - [ ] **Step 4: 테스트 통과 확인**
 
 Run: `npx vitest run server/src/rules/ai.test.ts`
-Expected: PASS — 7 tests.
+Expected: PASS — 8 tests. 독립 검토에서 0.03 계수와 ±15% jitter 상수를 직접 고정하는 결정론 테스트를 추가했다.
 
 - [ ] **Step 5: 커밋**
 
@@ -1742,7 +1746,7 @@ export type BattleEvent =
 - [ ] **Step 4: 테스트 통과 확인**
 
 Run: `npx vitest run server/src/battle/state.test.ts && npm run typecheck`
-Expected: PASS — 9 tests, typecheck exit 0.
+Expected: PASS — 8 tests, typecheck exit 0. 기존 합계는 createBattle 검사를 하나 더 센 오류였다.
 
 - [ ] **Step 5: 커밋**
 

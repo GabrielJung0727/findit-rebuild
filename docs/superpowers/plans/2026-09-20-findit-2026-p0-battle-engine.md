@@ -1211,7 +1211,7 @@ export function aiFindDelayMs(level: number, rng: Rng): number {
 - [ ] **Step 4: 테스트 통과 확인**
 
 Run: `npx vitest run server/src/rules/ai.test.ts`
-Expected: PASS — 7 tests.
+Expected: PASS — 8 tests. 독립 검토에서 0.03 계수와 ±15% jitter 상수를 직접 고정하는 결정론 테스트를 추가했다.
 
 - [ ] **Step 5: 커밋**
 

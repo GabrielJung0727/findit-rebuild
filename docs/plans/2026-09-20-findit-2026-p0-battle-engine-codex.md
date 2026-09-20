@@ -757,7 +757,7 @@ export function matchScore({ findCount, comboBonus, isWinner }: MatchScoreParams
 - [ ] **Step 4: 테스트 통과 확인**
 
 Run: `npx vitest run server/src/rules/`
-Expected: PASS — combo 10 + score 5 = 15 tests (levels 21 포함 시 36).
+Expected: PASS — combo 15 + score 5 = 20 tests (levels 29 포함 시 49). `it.each`의 각 행도 독립 테스트이므로, 이전 합계는 잘못 셌다.
 
 - [ ] **Step 5: 커밋**
 

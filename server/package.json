@@ -1,0 +1,9 @@
+{
+  "name": "@findit/server",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "dependencies": {
+    "@findit/protocol": "*"
+  }
+}

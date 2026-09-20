@@ -4,7 +4,8 @@
   "type": "module",
   "workspaces": [
     "packages/*",
-    "tools"
+    "tools",
+    "server"
   ],
   "engines": {
     "node": ">=24"

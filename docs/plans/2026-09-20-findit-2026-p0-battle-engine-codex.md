@@ -1117,7 +1117,7 @@ export function blindDurationMs({
 - [ ] **Step 4: 테스트 통과 확인**
 
 Run: `npx vitest run server/src/rules/skills.test.ts`
-Expected: PASS — 21 tests. 특히 순환 검사와 "선행 스킬의 언락 레벨이 더 낮다"가 통과해야 한다 — 이 둘이 깨지면 플레이어가 영원히 못 배우는 스킬이 생긴다.
+Expected: PASS — 29 tests. `it.each`의 10개 스킬 행도 독립 테스트고, 독립 검토에서 추가한 두 fixture가 모든 계열의 수치와 1단계 교차 선행 요건을 고정한다. 특히 순환 검사와 "선행 스킬의 언락 레벨이 더 낮다"가 통과해야 한다 — 이 둘이 깨지면 플레이어가 영원히 못 배우는 스킬이 생긴다.
 
 - [ ] **Step 5: 커밋**
 

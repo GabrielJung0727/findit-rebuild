@@ -12,6 +12,7 @@
 
 const express = require('express');
 const { query } = require('../db');
+const { buildSnapshot } = require('../util/rankingSnapshot');
 
 const router = express.Router();
 
@@ -25,6 +26,24 @@ router.use(async (req, res, next) => {
   );
   if (rows.length === 0) return res.status(401).json({ error: 'invalid_admin_token' });
   next();
+});
+
+// -----------------------------------------------------
+// Rankings — 스냅샷 생성 (일/주 집계)
+//   POST /admin/rankings/snapshot?period=daily|weekly[&date=YYYY-MM-DD]
+//   외부 스케줄러(Cloud Scheduler)가 호출하거나 어드민이 수동 트리거.
+//   인프로세스 크론(util/rankingCron.js)도 동일 로직을 주기 실행.
+// -----------------------------------------------------
+router.post('/rankings/snapshot', async (req, res, next) => {
+  try {
+    const period = (req.query.period || req.body?.period || 'daily').toString();
+    if (!['daily', 'weekly'].includes(period)) {
+      return res.status(400).json({ error: 'invalid_period', allowed: ['daily', 'weekly'] });
+    }
+    const date = (req.query.date || req.body?.date || new Date().toISOString().slice(0, 10)).toString();
+    const out = await buildSnapshot(period, date);
+    res.json({ ok: true, ...out });
+  } catch (e) { next(e); }
 });
 
 // -----------------------------------------------------

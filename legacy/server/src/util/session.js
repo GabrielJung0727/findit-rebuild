@@ -50,4 +50,19 @@ async function invalidateSession(token) {
   );
 }
 
-module.exports = { generateToken, createSession, hasActiveSession, invalidateSession };
+/**
+ * 세션 토큰 → userId 검증. 활성(미로그아웃) 세션이면 userId, 아니면 null.
+ * WebSocket 게이트웨이(ws_server.js)에서 connection 인증에 사용.
+ */
+async function verifyToken(token) {
+  if (!token) return null;
+  const rows = await query(
+    `SELECT user_id FROM login_logs
+      WHERE session_token = ? AND logged_out_at IS NULL
+      ORDER BY id DESC LIMIT 1`,
+    [token]
+  );
+  return rows.length ? rows[0].user_id : null;
+}
+
+module.exports = { generateToken, createSession, hasActiveSession, invalidateSession, verifyToken };

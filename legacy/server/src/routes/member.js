@@ -13,6 +13,8 @@ const C = require('../util/codes');
 const V = require('../util/validation');
 const session = require('../util/session');
 const recaptcha = require('../util/recaptcha');
+const balance = require('../util/balance');
+const { buildAppConfig } = require('../util/appConfig');
 
 const router = express.Router();
 
@@ -523,28 +525,41 @@ router.all('/member/newAdImageList.json', async (req, res, next) => {
 
 // -----------------------------------------------------
 // 11. /app/member/mutiAddUp.json — 멀티플레이 결과 집계
-// 파라미터: userId, level, score, coin, point
-// 동작: 레벨/점수/코인/포인트 업데이트 (증분 방식)
+// 파라미터: userId, score, coin   (level/point 는 무시 — 서버가 score 로 재계산)
+// 동작:
+//   - score/coin 은 증분 누적
+//   - level 은 누적 score 로 서버가 재계산(권위) → 클라가 보낸 level 신뢰 안 함
+//   - 레벨이 오른 만큼 스킬 포인트(point)를 1레벨당 1 자동 지급
+// 응답에 levelUp{from,to,pointAwarded} 포함.
 // -----------------------------------------------------
 router.all('/member/mutiAddUp.json', async (req, res, next) => {
   try {
     const p = { ...req.query, ...req.body };
     const { userId } = p;
     if (!userId) return fail(res, C.RESULT_NOID);
-    const level = Number(p.level) || 0;
-    const score = Number(p.score) || 0;
-    const coin = Number(p.coin) || 0;
-    const point = Number(p.point) || 0;
+    const score = Math.max(0, Number(p.score) || 0);
+    const coin = Math.max(0, Number(p.coin) || 0);
 
-    await query(
-      `UPDATE wallets
-          SET level = GREATEST(level, ?),
-              score = score + ?,
-              coin  = coin  + ?,
-              point = point + ?
-        WHERE user_id = ?`,
-      [level, score, coin, point, userId]
-    );
+    const out = await tx(async (conn) => {
+      const [[w]] = await conn.execute(
+        `SELECT score, level, point, coin FROM wallets WHERE user_id = ? FOR UPDATE`,
+        [userId]
+      );
+      if (!w) return { err: C.RESULT_NOID };
+      const { newScore, oldLevel, newLevel, pointAward } = balance.levelUpResult(w.score, score);
+      await conn.execute(
+        `UPDATE wallets
+            SET level = ?,
+                score = ?,
+                coin  = coin + ?,
+                point = point + ?
+          WHERE user_id = ?`,
+        [newLevel, newScore, coin, pointAward, userId]
+      );
+      return { oldLevel, newLevel, pointAward };
+    });
+    if (out.err) return fail(res, out.err);
+
     const w = await loadWallet(userId);
     if (!w) return fail(res, C.RESULT_NOID);
     ok(res, {
@@ -555,6 +570,7 @@ router.all('/member/mutiAddUp.json', async (req, res, next) => {
         coin: Number(w.coin),
         point: w.point,
       },
+      levelUp: { from: out.oldLevel, to: out.newLevel, pointAwarded: out.pointAward },
     });
   } catch (e) { next(e); }
 });
@@ -596,6 +612,15 @@ router.get('/member/notice.json', async (req, res, next) => {
     const html = renderNoticeHtml(rows);
     res.type('html').send(html);
   } catch (e) { next(e); }
+});
+
+// -----------------------------------------------------
+// 13.5 /app/member/appConfig.json — 강제 업데이트 게이트 + 운영 플래그
+// 응답: { result, minBuild, latestBuild, storeUrl:{ios,android}, message }
+// 클라가 자신의 빌드번호 < minBuild 이면 강제 업데이트 다이얼로그. env 로 운영 조정(DB 불필요).
+// -----------------------------------------------------
+router.get('/member/appConfig.json', (req, res) => {
+  res.json({ result: C.RESULT_PASS, ...buildAppConfig() });
 });
 
 // -----------------------------------------------------

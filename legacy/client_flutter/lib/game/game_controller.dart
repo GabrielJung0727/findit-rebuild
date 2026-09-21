@@ -12,6 +12,14 @@ import '../util/constants.dart';
 import 'game_state.dart';
 import 'image_set.dart';
 
+/// HP 데미지 적용 — [hp] 에서 [dmg] 만큼 빼고 [0, maxHp] 로 클램프.
+int _applyDamage(int hp, int dmg, int maxHp) {
+  final v = hp - dmg;
+  if (v < 0) return 0;
+  if (v > maxHp) return maxHp;
+  return v;
+}
+
 /// 게임 루프 — 16ms periodic timer 로 [GameState] 를 갱신.
 ///
 /// 책임:
@@ -126,6 +134,10 @@ class GameController extends StateNotifier<GameState> {
       state = _finalize(s, GameEndReason.opponentCleared);
       return;
     }
+    if (s.self.hp <= 0) {
+      state = _finalize(s, GameEndReason.hpZero); // AI 공격으로 HP 소진 → 패
+      return;
+    }
     state = s;
   }
 
@@ -147,8 +159,11 @@ class GameController extends StateNotifier<GameState> {
     if (found[idx]) return s;
     found[idx] = true;
     final opp = s.opponent.copyWith(found: found, combo: s.opponent.combo + 1);
-    // 상대가 발견하면 자기 콤보 리셋 (기획)
-    final mySelf = s.self.copyWith(combo: 0);
+    // 상대가 발견 → 내 콤보 리셋 + HP 데미지 (HP 룰)
+    final mySelf = s.self.copyWith(
+      combo: 0,
+      hp: _applyDamage(s.self.hp, GameConstants.findDamage, s.self.maxHp),
+    );
     return s.copyWith(
       opponent: opp,
       self: mySelf,
@@ -188,19 +203,39 @@ class GameController extends StateNotifier<GameState> {
       ]);
     }
 
+    // HP 룰: 내가 찾으면 상대가 데미지 (싱글=AI KO 가능, 멀티=양 클라 대칭).
+    s = s.copyWith(
+      opponent: s.opponent.copyWith(
+        hp: _applyDamage(s.opponent.hp, GameConstants.findDamage, s.opponent.maxHp),
+      ),
+    );
+
     if (s.self.cleared) {
       state = _finalize(s, GameEndReason.selfCleared);
+    } else if (s.opponent.hp <= 0) {
+      // 상대 KO → 내 HP 생존이므로 _finalize 가 won=true 로 판정.
+      state = _finalize(s, GameEndReason.hpZero);
     } else {
       state = s;
     }
   }
 
   void _onWrong(Offset pixel) {
-    state = state.copyWith(
-      self: state.self.copyWith(combo: 0),
+    // HP 룰: 오답 터치는 자해 데미지.
+    final hurtSelf = state.self.copyWith(
+      combo: 0,
+      hp: _applyDamage(state.self.hp, GameConstants.wrongTouchDamage, state.self.maxHp),
+    );
+    final s = state.copyWith(
+      self: hurtSelf,
       lastWrongTouch: pixel,
       clearLastCorrect: true,
     );
+    if (s.self.hp <= 0) {
+      state = _finalize(s, GameEndReason.hpZero); // 자해 KO → 패
+    } else {
+      state = s;
+    }
   }
 
   // ===========================================================
@@ -221,7 +256,9 @@ class GameController extends StateNotifier<GameState> {
           final idx = int.tryParse(info.substring('found,'.length));
           if (idx != null && idx >= 0 && idx < GameConstants.findRectTotalNum) {
             state = _opponentFoundIndex(state, idx);
-            if (state.opponent.cleared) {
+            if (state.self.hp <= 0) {
+              state = _finalize(state, GameEndReason.hpZero); // 상대 공격으로 HP 소진 → 패
+            } else if (state.opponent.cleared) {
               state = _finalize(state, GameEndReason.opponentCleared);
             }
           }
@@ -248,7 +285,7 @@ class GameController extends StateNotifier<GameState> {
       GameEndReason.selfCleared => true,
       GameEndReason.opponentCleared => false,
       GameEndReason.opponentLeft => true,
-      GameEndReason.hpZero => false,
+      GameEndReason.hpZero => s.self.hp > 0, // 내 HP 생존=상대 KO 승 / 내 HP 0=패
       GameEndReason.timeUp => selfFind > oppFind,
     };
     final selfScore = GameConstants.calculateScore(

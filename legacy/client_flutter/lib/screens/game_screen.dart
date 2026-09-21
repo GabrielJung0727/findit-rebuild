@@ -41,16 +41,35 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     final auth = ref.read(authControllerProvider);
     final user = auth.user;
 
-    // 서버 결과 집계 — fire-and-forget. 응답 받기 전에도 로컬 점수로 결과 화면 노출.
+    var finalResult = result;
+
+    // 서버 결과 집계 — 응답의 levelUp/지갑을 결과 화면에 반영. 실패해도 로컬 점수로 진행.
     if (user != null) {
       try {
-        await ref.read(gameApiProvider).mutiAddUp(
+        final resp = await ref.read(gameApiProvider).mutiAddUp(
               userId: user.userId,
               level: user.level,
               score: result.selfScore,
               coin: result.coinReward,
               point: result.pointReward,
             );
+        final lvl = resp['levelUp'];
+        if (lvl is Map) {
+          finalResult = finalResult.copyWith(
+            levelFrom: (lvl['from'] as num?)?.toInt(),
+            levelTo: (lvl['to'] as num?)?.toInt(),
+            pointAwarded: (lvl['pointAwarded'] as num?)?.toInt(),
+          );
+        }
+        final u = resp['user'];
+        if (u is Map) {
+          // 서버 권위 값으로 로비 지갑 동기화 (level/coin/point 절대값).
+          ref.read(authControllerProvider.notifier).applyWalletDelta(
+                level: (u['level'] as num?)?.toInt(),
+                coin: (u['coin'] as num?)?.toInt(),
+                point: (u['point'] as num?)?.toInt(),
+              );
+        }
       } catch (_) {/* 네트워크 실패해도 화면은 진행 */}
       // 분석 이벤트
       final state = ref.read(gameControllerProvider);
@@ -64,7 +83,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
           );
     }
     if (!mounted) return;
-    context.go('/result', extra: result);
+    context.go('/result', extra: finalResult);
   }
 
   @override
@@ -137,13 +156,13 @@ class _Hud extends StatelessWidget {
                 Text(
                   state.timeRemaining.ceil().toString(),
                   style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                        color: state.timeRemaining < 10
-                            ? scheme.error
-                            : scheme.onSurface,
-                        fontFeatures: const <FontFeature>[
-                          FontFeature.tabularFigures(),
-                        ],
-                      ),
+                    color: state.timeRemaining < 10
+                        ? scheme.error
+                        : scheme.onSurface,
+                    fontFeatures: const <FontFeature>[
+                      FontFeature.tabularFigures(),
+                    ],
+                  ),
                 ),
                 LinearProgressIndicator(
                   value: state.timeRemaining / 40.0,
@@ -269,4 +288,3 @@ class _BottomBar extends StatelessWidget {
     );
   }
 }
-

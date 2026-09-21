@@ -2525,7 +2525,9 @@ describe('SKILL', () => {
   });
 
   it('상대 blindedUntil 을 갱신한다', () => {
-    const r = reduce(playing(), { kind: 'SKILL', slot: 'p1', skillId: 'ghost_5' }, ctx(T0 + 100));
+    // ghost_5 는 언락 레벨 57 이다. 기본 레벨 10 으로 두면 아래의
+    // "레벨이 낮아 못 배운 스킬은 거부된다" 와 모순돼 항상 실패한다.
+    const r = reduce(playing(57), { kind: 'SKILL', slot: 'p1', skillId: 'ghost_5' }, ctx(T0 + 100));
     expect(r.state.p2.blindedUntil).toBeGreaterThan(T0 + 100);
   });
 
@@ -2576,12 +2578,23 @@ describe('종료 — 5 개 선취', () => {
   });
 
   it('승자가 상대 코인을 독식한다 — 스펙 §3.1', () => {
+    // 마지막 TAP 의 반환값에 END 가 들어 있다. tapNext 는 state 만 돌려주므로
+    // 여기서는 reduce 를 직접 불러 outbound 를 붙잡는다.
     let s = playing();
-    for (let i = 0; i < 5; i++) s = tapNext(s, 'p1', T0 + 100 * (i + 1));
-    const r = reduce(s, { kind: 'TAP', slot: 'p1', x: -1, y: -1 }, ctx(T0 + 700));
-    // 이미 ENDED 라 무시되지만, 종료 시점의 END 를 직접 만들어 확인한다.
-    expect(s.winner).toBe('p1');
-    expect(r.outbound).toEqual([]);
+    for (let i = 0; i < 4; i++) s = tapNext(s, 'p1', T0 + 100 * (i + 1));
+    const index = s.targetIndices.find((i) => !s.revealed.includes(i))!;
+    const rect = s.assignment.puzzle.rects.find((r) => r.index === index)!;
+    const r = reduce(s, { kind: 'TAP', slot: 'p1', x: rect.x + 1, y: rect.y + 1 }, ctx(T0 + 500));
+
+    expect(r.state.winner).toBe('p1');
+    const ends = r.outbound.filter((o) => o.type === 'END');
+    // p1 = 자기 5 + 상대 0, p2 = 0
+    expect(ends.find((o) => o.to === 'p1')!.payload).toMatchObject({
+      coinDelta: 5, expDelta: 500,
+    });
+    expect(ends.find((o) => o.to === 'p2')!.payload).toMatchObject({
+      coinDelta: 0, expDelta: 0,
+    });
   });
 
   it('4:1 로 나뉘어 아무도 5 개에 못 가도, 대상이 소진되면 즉시 끝난다', () => {
@@ -2602,9 +2615,24 @@ describe('종료 — 5 개 선취', () => {
   it('대상 소진으로 끝나도 코인 독식 규칙은 같다', () => {
     let s = playing();
     s = tapNext(s, 'p2', T0 + 50);
-    for (let i = 0; i < 4; i++) s = tapNext(s, 'p1', T0 + 100 * (i + 1));
-    const r = reduce(s, { kind: 'LEAVE', slot: 'p2' }, ctx(T0 + 999)); // ENDED 라 무시
-    expect(r.state.winner).toBe('p1');
+    for (let i = 0; i < 3; i++) s = tapNext(s, 'p1', T0 + 100 * (i + 1));
+
+    // 마지막 대상을 p1 이 가져가며 소진된다. 이 반환값에 END 가 들어 있다.
+    const index = s.targetIndices.find((i) => !s.revealed.includes(i))!;
+    const rect = s.assignment.puzzle.rects.find((r) => r.index === index)!;
+    const r = reduce(s, { kind: 'TAP', slot: 'p1', x: rect.x + 1, y: rect.y + 1 }, ctx(T0 + 500));
+
+    expect(r.state.phase).toBe('ENDED');
+    expect(r.state.winner).toBe('p1'); // 4 대 1
+
+    const ends = r.outbound.filter((o) => o.type === 'END');
+    // 아무도 5 개에 도달하지 못했어도 독식 규칙은 같다. p1 = 자기 4 + 상대 1 = 5
+    expect(ends.find((o) => o.to === 'p1')!.payload).toMatchObject({
+      result: 'win', myFound: 4, opponentFound: 1, coinDelta: 5, expDelta: 400,
+    });
+    expect(ends.find((o) => o.to === 'p2')!.payload).toMatchObject({
+      result: 'lose', myFound: 1, opponentFound: 4, coinDelta: 0, expDelta: 100,
+    });
   });
 
   it('종료 후 TAP 은 무시된다', () => {

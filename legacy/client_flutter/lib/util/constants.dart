@@ -1,3 +1,7 @@
+/// 앱 빌드 번호 — 서버 `appConfig.json` 의 minBuild 와 비교해 강제 업데이트 판정.
+/// 스토어 배포 시 pubspec `version: x.y.z+BUILD` 의 BUILD 와 동기화할 것.
+const int kAppBuildNumber = 1;
+
 /// 게임 룰 상수 — Android `GameView.java` / `Objects.java` / 서버 `balance.js` 와 일치.
 ///
 /// 진실 자료(Source of Truth)는 서버 `balance.js`. 클라는 fallback 값.
@@ -7,6 +11,13 @@ class GameConstants {
   static const int gameTimeSeconds = 40;
   static const int findRectTotalNum = 7;
   static const int skillWindowTotalNum = 8;
+
+  /// HP 데미지 룰 (안드 원본/기획서에 미정의였던 부분 — 합리적 기본값으로 구현, 추후 밸런싱).
+  /// 모델: 상대가 정답을 찾으면 내 HP 가 [findDamage] 만큼 깎이고, 내가 오답을 누르면
+  ///       내 HP 가 [wrongTouchDamage] 만큼 깎인다. HP 0 → 그 플레이어 패배(hpZero).
+  /// maxHp 는 레벨별 기본 능력치(서버 balance.js LEVEL_ABILITY)에서 부여됨.
+  static const int findDamage = 15;
+  static const int wrongTouchDamage = 8;
 
   /// AI 시간 공식 — `7 - level × 0.03` 초, ±15% 랜덤.
   static double aiFindTimeSeconds(int level) {

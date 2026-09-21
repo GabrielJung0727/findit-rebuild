@@ -46,7 +46,13 @@ class PlayerState {
 }
 
 /// 게임 종료 사유.
-enum GameEndReason { timeUp, selfCleared, opponentCleared, opponentLeft, hpZero }
+enum GameEndReason {
+  timeUp,
+  selfCleared,
+  opponentCleared,
+  opponentLeft,
+  hpZero
+}
 
 /// 게임 결과 — `GameEndReason` + 점수/보상 (서버 `mutiAddUp` 응답 반영 가능).
 @immutable
@@ -58,6 +64,9 @@ class GameResult {
     required this.opponentScore,
     required this.coinReward,
     required this.pointReward,
+    this.levelFrom,
+    this.levelTo,
+    this.pointAwarded,
   });
 
   final GameEndReason reason;
@@ -66,6 +75,33 @@ class GameResult {
   final int opponentScore;
   final int coinReward;
   final int pointReward;
+
+  /// 서버 `mutiAddUp` 응답의 levelUp{from,to,pointAwarded} — null 이면 미수신/레벨변화 없음.
+  final int? levelFrom;
+  final int? levelTo;
+  final int? pointAwarded;
+
+  bool get leveledUp =>
+      levelFrom != null && levelTo != null && levelTo! > levelFrom!;
+
+  GameResult copyWith({
+    int? coinReward,
+    int? pointReward,
+    int? levelFrom,
+    int? levelTo,
+    int? pointAwarded,
+  }) =>
+      GameResult(
+        reason: reason,
+        won: won,
+        selfScore: selfScore,
+        opponentScore: opponentScore,
+        coinReward: coinReward ?? this.coinReward,
+        pointReward: pointReward ?? this.pointReward,
+        levelFrom: levelFrom ?? this.levelFrom,
+        levelTo: levelTo ?? this.levelTo,
+        pointAwarded: pointAwarded ?? this.pointAwarded,
+      );
 }
 
 @immutable

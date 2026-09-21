@@ -77,4 +77,30 @@ router.get('/member/rankListTop.json', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// 주간 랭킹 — 최신 weekly 스냅샷(rankings, util/rankingSnapshot.js 가 생성)
+// GET /app/member/rankListWeekly.json?limit=50
+router.get('/member/rankListWeekly.json', async (req, res, next) => {
+  try {
+    const n = Math.min(200, Math.max(1, Number(req.query.limit) || 50));
+    const [latest] = await query(
+      `SELECT MAX(period_date) AS d FROM rankings WHERE period = 'weekly'`
+    );
+    if (!latest || !latest.d) {
+      return res.json({ result: C.RESULT_PASS, periodDate: null, list: [] });
+    }
+    const rows = await query(
+      `SELECT r.rank_no AS ranking, r.user_id AS friendId, m.user_nick AS userNick,
+              w.level, r.score AS sumpoint, r.delta
+         FROM rankings r
+         JOIN members m ON m.user_id = r.user_id
+         JOIN wallets w ON w.user_id = r.user_id
+        WHERE r.period = 'weekly' AND r.period_date = ?
+        ORDER BY r.rank_no ASC
+        LIMIT ${n}`,
+      [latest.d]
+    );
+    res.json({ result: C.RESULT_PASS, periodDate: latest.d, list: rows });
+  } catch (e) { next(e); }
+});
+
 module.exports = router;

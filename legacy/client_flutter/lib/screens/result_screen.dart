@@ -5,8 +5,6 @@ import 'package:go_router/go_router.dart';
 import '../game/game_state.dart';
 import '../l10n/app_localizations.dart';
 import '../state/auth.dart';
-import '../util/legacy_theme.dart';
-import '../util/legacy_widgets.dart';
 
 /// 게임 종료 화면 — 승/패 + 획득 코인/포인트 + 레벨업 안내.
 class ResultScreen extends ConsumerWidget {
@@ -19,62 +17,57 @@ class ResultScreen extends ConsumerWidget {
     final l = AppLocalizations.of(context);
     final auth = ref.watch(authControllerProvider);
     return Scaffold(
-      body: LegacyBackground(
+      body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
               const Spacer(),
-              LegacyPopup(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: <Widget>[
-                    Icon(
-                      result.won ? Icons.emoji_events : Icons.favorite_border,
-                      size: 80,
-                      color: result.won
-                          ? const Color(0xFFFFC93C)
-                          : LegacyColors.border,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      result.won ? '🏆 WIN' : 'LOSE',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 32,
-                        fontWeight: FontWeight.w900,
-                        color: LegacyColors.textBrown,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      _reasonLabel(l, result.reason),
-                      textAlign: TextAlign.center,
-                      style: LegacyTextStyles.body,
-                    ),
-                    const SizedBox(height: 24),
-                    _Row(label: 'Score', value: '${result.selfScore}'),
-                    _Row(label: 'Opp.', value: '${result.opponentScore}'),
-                    const Divider(color: LegacyColors.border, thickness: 0.5),
-                    _Row(label: '+Coin', value: '${result.coinReward}'),
-                    _Row(label: '+Point', value: '${result.pointReward}'),
-                    if (auth.user != null) ...<Widget>[
-                      const Divider(
-                          color: LegacyColors.border, thickness: 0.5),
-                      _Row(
-                        label: 'Lv ${auth.user!.level}',
-                        value: auth.user!.userNick,
-                      ),
-                    ],
-                  ],
-                ),
+              Icon(
+                result.won ? Icons.emoji_events : Icons.favorite_border,
+                size: 96,
+                color: result.won
+                    ? Colors.amber
+                    : Theme.of(context).colorScheme.outline,
               ),
+              const SizedBox(height: 16),
+              Text(
+                result.won ? '🏆 WIN' : 'LOSE',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.headlineMedium,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                _reasonLabel(l, result.reason),
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 32),
+              _Row(label: 'Score', value: '${result.selfScore}'),
+              _Row(label: 'Opp.', value: '${result.opponentScore}'),
+              const Divider(),
+              _Row(label: '+Coin', value: '${result.coinReward}'),
+              _Row(label: '+Point', value: '${result.pointReward}'),
+              if (result.leveledUp) ...<Widget>[
+                const SizedBox(height: 12),
+                _LevelUpBanner(
+                  from: result.levelFrom!,
+                  to: result.levelTo!,
+                  pointAwarded: result.pointAwarded ?? 0,
+                ),
+              ],
+              if (auth.user != null) ...<Widget>[
+                const Divider(),
+                _Row(
+                  label: 'Lv ${auth.user!.level}',
+                  value: auth.user!.userNick,
+                ),
+              ],
               const Spacer(),
-              LegacyGradientButton(
-                label: l.ok,
+              FilledButton(
                 onPressed: () => context.go('/lobby'),
+                child: Text(l.ok),
               ),
             ],
           ),
@@ -99,6 +92,51 @@ class ResultScreen extends ConsumerWidget {
   }
 }
 
+class _LevelUpBanner extends StatelessWidget {
+  const _LevelUpBanner({
+    required this.from,
+    required this.to,
+    required this.pointAwarded,
+  });
+
+  final int from;
+  final int to;
+  final int pointAwarded;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: scheme.tertiaryContainer,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: <Widget>[
+          Icon(Icons.arrow_circle_up, color: scheme.onTertiaryContainer),
+          const SizedBox(width: 8),
+          Text(
+            'LEVEL UP!  Lv $from → $to',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: scheme.onTertiaryContainer,
+                  fontWeight: FontWeight.bold,
+                ),
+          ),
+          if (pointAwarded > 0) ...<Widget>[
+            const SizedBox(width: 8),
+            Text(
+              '+${pointAwarded}P',
+              style: TextStyle(color: scheme.onTertiaryContainer),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _Row extends StatelessWidget {
   const _Row({required this.label, required this.value});
 
@@ -112,13 +150,8 @@ class _Row extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: <Widget>[
-          Text(label, style: LegacyTextStyles.body),
-          Text(value,
-              style: const TextStyle(
-                color: LegacyColors.textBrown,
-                fontSize: 16,
-                fontWeight: FontWeight.w900,
-              ),),
+          Text(label, style: Theme.of(context).textTheme.bodyMedium),
+          Text(value, style: Theme.of(context).textTheme.titleMedium),
         ],
       ),
     );

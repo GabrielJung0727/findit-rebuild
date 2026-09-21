@@ -11,6 +11,7 @@ DROP TABLE IF EXISTS `ad_click_log`;
 DROP TABLE IF EXISTS `event_log`;
 DROP TABLE IF EXISTS `ad_reward_log`;
 DROP TABLE IF EXISTS `admin_tokens`;
+DROP TABLE IF EXISTS `gifts`;
 DROP TABLE IF EXISTS `item_upgrade_log`;
 DROP TABLE IF EXISTS `skill_catalog`;
 DROP TABLE IF EXISTS `login_logs`;
@@ -223,6 +224,26 @@ CREATE TABLE `rankings` (
   UNIQUE KEY `uk_user_period` (`user_id`, `period`, `period_date`),
   KEY `idx_period_rank` (`period`, `period_date`, `rank_no`),
   CONSTRAINT `fk_rank_user` FOREIGN KEY (`user_id`) REFERENCES `members`(`user_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- -----------------------------------------------------
+-- gifts: 친구 선물 (코인/아이템 무료 선물 → 수령 시 적립)
+-- 보내는 쪽 차감 없음(소셜 무료 선물), 남용 방지는 일일 발송 상한(util/gifts.js).
+-- -----------------------------------------------------
+CREATE TABLE `gifts` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `from_user` VARCHAR(128) NOT NULL,
+  `to_user` VARCHAR(128) NOT NULL,
+  `kind` ENUM('coin','item') NOT NULL DEFAULT 'coin',
+  `amount` INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '코인 금액 또는 아이템 수량',
+  `item_no` INT DEFAULT NULL COMMENT 'kind=item 일 때 Items.java mTypeNo',
+  `claimed_at` TIMESTAMP NULL DEFAULT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_to_unclaimed` (`to_user`, `claimed_at`),
+  KEY `idx_from_time` (`from_user`, `created_at`),
+  CONSTRAINT `fk_gift_from` FOREIGN KEY (`from_user`) REFERENCES `members`(`user_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_gift_to` FOREIGN KEY (`to_user`) REFERENCES `members`(`user_id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- -----------------------------------------------------

@@ -3275,25 +3275,39 @@ return base + victoryBonus + comboBonus;
   it('리듀서가 내는 모든 outbound 가 프로토콜 선언과 맞는다', () => {
     // 풀 매치를 돌려 나오는 모든 메시지를 인코딩해 본다. 필드명·타입이
     // 어긋나면 encodeEnvelope 가 던진다.
-    // 이 파일의 playing() 은 인자를 받지 않고(레벨 10 고정) T0 도 없다.
-    // handprint_1 은 언락 레벨 1 이라 레벨 10 으로 충분하다.
-    let s = playing();
     const all: Outbound[] = [];
     const push = (r: { outbound: Outbound[]; state: BattleState }) => {
       all.push(...r.outbound);
       return r.state;
     };
-    s = push(reduce(s, { kind: 'SKILL', slot: 'p1', skillId: 'handprint_1' }, ctx(COUNTDOWN_MS + 50)));
-    for (let i = 0; i < 5 && s.phase === 'PLAYING'; i++) {
+
+    // playing() 에서 시작하면 COUNTDOWN 과 START 를 이미 지나쳤고, 히트만
+    // 하면 LOCK 도 안 나온다. 전 생애주기를 fresh() 부터 돌려야 한다.
+    let s = fresh();
+    s = push(reduce(s, { kind: 'READY', slot: 'p1' }, ctx(0)));
+    s = push(reduce(s, { kind: 'READY', slot: 'p2' }, ctx(0)));                    // COUNTDOWN
+    s = push(reduce(s, { kind: 'TIMER' }, ctx(COUNTDOWN_MS)));                     // START
+    // handprint_1 은 언락 레벨 1 이라 이 파일의 레벨 10 픽스처로 충분하다.
+    s = push(reduce(
+      s, { kind: 'SKILL', slot: 'p1', skillId: 'handprint_1' }, ctx(COUNTDOWN_MS + 10),
+    ));                                                                            // BLIND
+    s = push(reduce(s, { kind: 'TAP', slot: 'p2', x: -50, y: -50 }, ctx(COUNTDOWN_MS + 20)));  // LOCK
+    for (let i = 0; i < 5 && s.phase === 'PLAYING'; i++) {          // REVEAL · OPPONENT_PROGRESS · END
       const index = s.targetIndices.find((j) => !s.revealed.includes(j));
       if (index === undefined) break;
       const rect = s.assignment.puzzle.rects.find((r) => r.index === index)!;
       s = push(reduce(
         s, { kind: 'TAP', slot: 'p1', x: rect.x + 1, y: rect.y + 1 },
-        ctx(COUNTDOWN_MS + 100 * (i + 2)),
+        ctx(COUNTDOWN_MS + 100 * (i + 1)),
       ));
     }
-    expect(all.length).toBeGreaterThan(5);
+
+    // 커버리지를 먼저 단언한다. 이게 없으면 나중에 경로가 빠져 4종만 나와도
+    // "모든 outbound 가 맞는다" 는 테스트가 계속 통과한다 — 실제로 그랬다.
+    expect([...new Set(all.map((o) => o.type))].sort()).toEqual(
+      ['BLIND', 'COUNTDOWN', 'END', 'LOCK', 'OPPONENT_PROGRESS', 'REVEAL', 'START'].sort(),
+    );
+
     for (const o of all) {
       expect(() => encodeEnvelope(o.type, 1, o.payload)).not.toThrow();
     }

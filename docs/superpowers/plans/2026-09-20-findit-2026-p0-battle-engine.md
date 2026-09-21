@@ -3275,18 +3275,23 @@ return base + victoryBonus + comboBonus;
   it('리듀서가 내는 모든 outbound 가 프로토콜 선언과 맞는다', () => {
     // 풀 매치를 돌려 나오는 모든 메시지를 인코딩해 본다. 필드명·타입이
     // 어긋나면 encodeEnvelope 가 던진다.
-    let s = playing(57);
+    // 이 파일의 playing() 은 인자를 받지 않고(레벨 10 고정) T0 도 없다.
+    // handprint_1 은 언락 레벨 1 이라 레벨 10 으로 충분하다.
+    let s = playing();
     const all: Outbound[] = [];
     const push = (r: { outbound: Outbound[]; state: BattleState }) => {
       all.push(...r.outbound);
       return r.state;
     };
-    s = push(reduce(s, { kind: 'SKILL', slot: 'p1', skillId: 'handprint_1' }, ctx(T0 + 50)));
+    s = push(reduce(s, { kind: 'SKILL', slot: 'p1', skillId: 'handprint_1' }, ctx(COUNTDOWN_MS + 50)));
     for (let i = 0; i < 5 && s.phase === 'PLAYING'; i++) {
       const index = s.targetIndices.find((j) => !s.revealed.includes(j));
       if (index === undefined) break;
       const rect = s.assignment.puzzle.rects.find((r) => r.index === index)!;
-      s = push(reduce(s, { kind: 'TAP', slot: 'p1', x: rect.x + 1, y: rect.y + 1 }, ctx(T0 + 100 * (i + 2))));
+      s = push(reduce(
+        s, { kind: 'TAP', slot: 'p1', x: rect.x + 1, y: rect.y + 1 },
+        ctx(COUNTDOWN_MS + 100 * (i + 2)),
+      ));
     }
     expect(all.length).toBeGreaterThan(5);
     for (const o of all) {
@@ -3310,6 +3315,9 @@ return base + victoryBonus + comboBonus;
 
 - [ ] **Step 1: 계약을 드러내는 테스트 추가** (`ai-driver.test.ts`)
 
+이 파일의 state.js 임포트에 `MISS_LOCK_MS` 를 추가해야 한다 — 현재는
+`COUNTDOWN_MS, MATCH_DURATION_MS, createBattle, type BattleState` 만 가져온다.
+
 ```typescript
   it('잠금 중에는 계획하지 않는다', () => {
     let s = playingVsAi();
@@ -3321,20 +3329,24 @@ return base + victoryBonus + comboBonus;
   it('계획이 낡으면 미스가 된다 — 런타임은 REVEAL 마다 다시 계획해야 한다', () => {
     const s = playingVsAi();
     const plan = planAiAction(s, 'p2', ctx(T0))!;
-    const target = s.targetIndices.find((i) => !s.revealed.includes(i))!;
-    const rect = s.assignment.puzzle.rects.find((r) => r.index === target)!;
 
-    // 사람이 AI 가 노리던 자리를 먼저 가져간다.
+    // AI 가 고른 좌표를 그대로 써야 "노리던 자리를 빼앗겼다" 가 보장된다.
+    // targetIndices 의 첫 rect 를 찍으면 AI 의 무작위 선택과 우연히만 겹친다.
+    const { event } = plan;
+    if (event.kind !== 'TAP') throw new Error('AI 계획은 TAP 이어야 한다');
+
     const after = reduce(
-      s, { kind: 'TAP', slot: 'p1', x: rect.x + 1, y: rect.y + 1 }, ctx(T0 + 10),
+      s, { kind: 'TAP', slot: 'p1', x: event.x, y: event.y }, ctx(T0 + 10),
     ).state;
+    expect(after.p1.found).toHaveLength(1);
 
-    // 낡은 계획을 그대로 실행하면 AI 가 손해를 본다. 이 테스트는 그 사실을
-    // 문서화한다 — 런타임이 재계획하지 않으면 이런 일이 실제로 생긴다.
+    // 낡은 계획을 그대로 실행하면 반드시 미스다. 조건부로 검사하면 우연히
+    // 안 겹쳤을 때 아무것도 단언하지 않는 테스트가 된다.
     const stale = reduce(after, plan.event, ctx(plan.at));
-    if (stale.outbound.some((o) => o.type === 'LOCK')) {
-      expect(stale.state.p2.combo).toBe(0);
-    }
+    expect(stale.outbound).toEqual([
+      { to: 'p2', type: 'LOCK', payload: { durationMs: MISS_LOCK_MS } },
+    ]);
+    expect(stale.state.p2.combo).toBe(0);
 
     // 재계획하면 남은 대상을 정확히 맞힌다.
     const replanned = planAiAction(after, 'p2', ctx(T0 + 10))!;

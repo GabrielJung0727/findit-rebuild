@@ -7,6 +7,7 @@ import 'package:findit/game/game_state.dart';
 import 'package:findit/game/image_set.dart';
 import 'package:findit/state/auth.dart';
 import 'package:findit/state/providers.dart';
+import 'package:findit/util/constants.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -152,6 +153,30 @@ void main() {
       expect(st.ended, true);
       expect(st.result?.won, true);
       expect(st.result?.reason, GameEndReason.selfCleared);
+    });
+
+    test('HP 룰: 정답은 상대 HP 차감, 오답은 자신 HP 차감', () {
+      final container = _makeContainer(
+        args: GameStartArgs(
+          image: _testImage(),
+          opponentIsAi: true,
+          opponentLevel: 5,
+          selfHp: 110,
+          opponentHp: 110,
+        ),
+      );
+      addTearDown(container.dispose);
+      final ctrl = container.read(gameControllerProvider.notifier);
+      ctrl.start();
+
+      ctrl.onTap(const Offset(50, 50)); // 정답 idx0 → 상대 HP 차감
+      var st = container.read(gameControllerProvider);
+      expect(st.opponent.hp, 110 - GameConstants.findDamage);
+      expect(st.self.hp, 110, reason: '정답은 자신 HP 에 영향 없음');
+
+      ctrl.onTap(const Offset(50, 50)); // 같은 곳 → 오답 → 자신 HP 차감
+      st = container.read(gameControllerProvider);
+      expect(st.self.hp, 110 - GameConstants.wrongTouchDamage);
     });
 
     test('abort() while running ends as opponentLeft, won=false', () {

@@ -1,8 +1,14 @@
 node_modules
 npm-debug.log
 .env
-.env.*
-docker-compose.yml
+.env.local
+.git
+.gitignore
 README.md
-scripts/
-sql/
+*.log
+.DS_Store
+test/
+tests/
+*.test.js
+docker-compose.yml
+sql/migrations/   # 마이그레이션은 별도 잡으로 실행

@@ -9,6 +9,7 @@ const skillRoutes = require('./routes/skills');
 const economyRoutes = require('./routes/economy');
 const adRoutes = require('./routes/ads');
 const rankRoutes = require('./routes/ranks');
+const giftRoutes = require('./routes/gifts');
 const adminRoutes = require('./routes/admin');
 const analytics = require('./routes/analytics');
 const fcmRoutes = require('./routes/fcm');
@@ -16,6 +17,7 @@ const iapModule = require('./routes/iap');
 const fcmUtil = require('./util/fcm');
 const socketServer = require('./socket/server');
 const wsServer = require('./socket/ws_server');
+const rankingCron = require('./util/rankingCron');
 
 const HTTP_PORT = Number(process.env.HTTP_PORT || 8080);
 const TCP_PORT = Number(process.env.TCP_PORT || 22131);
@@ -54,6 +56,7 @@ app.use('/app', skillRoutes);
 app.use('/app', economyRoutes);
 app.use('/app', adRoutes);
 app.use('/app', rankRoutes);
+app.use('/app', giftRoutes);                // /app/member/gift{Send,List,Claim}.json
 app.use('/app', analytics.publicRouter);   // /app/member/event.json
 app.use('/app', fcmRoutes.publicRouter);   // /app/member/registerFcmToken.json
 app.use('/app', iapModule.router);         // /app/member/verifyIap.json
@@ -106,6 +109,9 @@ async function main() {
 
   // 레거시 raw TCP — 디컴파일된 안드 APK 호환용. WS 마이그레이션 완료 후 제거 가능.
   socketServer.start({ host: TCP_HOST, port: TCP_PORT });
+
+  // 인프로세스 랭킹 크론 — 일/주 스냅샷 생성 (RANKING_CRON=0 으로 비활성).
+  rankingCron.start();
 
   process.on('SIGTERM', () => {
     console.log('[app] SIGTERM, exiting.');

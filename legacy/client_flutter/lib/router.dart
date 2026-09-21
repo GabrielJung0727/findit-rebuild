@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import 'game/game_state.dart';
 import 'screens/battle_room_screen.dart';
+import 'screens/force_update_gate.dart';
 import 'screens/game_screen.dart';
 import 'screens/guest_screen.dart';
 import 'screens/inventory_screen.dart';
@@ -36,7 +37,8 @@ GoRouter buildRouter(Ref ref) {
     redirect: (context, state) {
       final loggedIn = ref.read(authControllerProvider).isLoggedIn;
       final loc = state.matchedLocation;
-      final atLogin = loc.startsWith('/login') || loc == '/guest' || loc == '/join';
+      final atLogin =
+          loc.startsWith('/login') || loc == '/guest' || loc == '/join';
 
       if (!loggedIn && !atLogin) return '/login';
       if (loggedIn && atLogin) return '/lobby';
@@ -46,7 +48,10 @@ GoRouter buildRouter(Ref ref) {
       GoRoute(path: '/login', builder: (_, __) => const LoginScreen()),
       GoRoute(path: '/join', builder: (_, __) => const JoinScreen()),
       GoRoute(path: '/guest', builder: (_, __) => const GuestScreen()),
-      GoRoute(path: '/lobby', builder: (_, __) => const LobbyScreen()),
+      GoRoute(
+        path: '/lobby',
+        builder: (_, __) => const ForceUpdateGate(child: LobbyScreen()),
+      ),
       GoRoute(path: '/waiting', builder: (_, __) => const WaitingRoomScreen()),
       GoRoute(path: '/battle', builder: (_, __) => const BattleRoomScreen()),
       GoRoute(path: '/game', builder: (_, __) => const GameScreen()),

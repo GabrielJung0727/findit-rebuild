@@ -6,10 +6,10 @@
 //   서버→클라: 동일 포맷.
 //
 // 인증: 첫 메시지가 `|auth|<token>` 이거나, 또는 connection-time 쿼리스트링 `?token=<t>`.
-//        토큰 미검증인 동안엔 다른 코드를 무시. (TODO: session.js 와 결합해 실제 검증)
+//        handlers.js 가 conn.requireAuth 동안 토큰 검증 전 게임 코드를 무시 (session.verifyToken 결합 완료).
 //
-// keepalive: ws 의 ping/pong 자동 + 30s timeout. iOS 백그라운드에서도 OS 가 push 로 깨우는
-//            패턴이 일반적이므로 클라가 명시적으로 reconnect 하면 충분.
+// keepalive: 아래 heartbeatSweep 가 30s 마다 ping → pong 없는 연결 terminate.
+//            iOS 백그라운드로 유실된 소켓도 다음 스윕에서 회수됨.
 
 let WSServer;
 try {
@@ -45,7 +45,28 @@ function makeConn(ws) {
  * @param {{path?: string}} options
  * @returns {{wss: import('ws').WebSocketServer | null}}
  */
-function attach(httpServer, { path = '/ws' } = {}) {
+/**
+ * keepalive 스윕 1회: 직전 주기에 pong 이 없던(isAlive=false) 연결을 끊고,
+ * 살아있는 연결엔 ping 을 보낸 뒤 isAlive=false 로 리셋(다음 주기까지 pong 대기).
+ * 순수 로직이라 단위 테스트에서 fake client 로 검증 가능.
+ * @param {Iterable<any>} clients wss.clients (Set) 또는 배열
+ */
+function heartbeatSweep(clients) {
+  let pinged = 0;
+  let terminated = 0;
+  for (const ws of clients) {
+    if (ws.isAlive === false) {
+      ws.terminate();
+      terminated += 1;
+      continue;
+    }
+    ws.isAlive = false;
+    try { ws.ping(); pinged += 1; } catch (_) { /* pass */ }
+  }
+  return { pinged, terminated };
+}
+
+function attach(httpServer, { path = '/ws', heartbeatMs = 30000 } = {}) {
   if (!WSServer) {
     console.warn('[ws] ws package not installed — WebSocket gateway disabled');
     return { wss: null };
@@ -61,7 +82,17 @@ function attach(httpServer, { path = '/ws' } = {}) {
 
   wss.on('connection', (ws, req) => {
     const conn = makeConn(ws);
+    conn.requireAuth = true; // WS 연결은 |auth| 성공 전까지 게임 코드 무시 (handlers.js)
+    ws.isAlive = true;
+    ws.on('pong', () => { ws.isAlive = true; });
     handlers.onConnect(conn);
+
+    // 쿼리스트링 ?token=<t> 가 있으면 즉시 인증 시도 (편의: 첫 |auth| 프레임 생략 가능)
+    try {
+      const token = new URL(req.url, 'http://localhost').searchParams.get('token');
+      if (token) handlers.onMessage(conn, `|auth|${token}`);
+    } catch (_) { /* malformed url — 무시, 클라가 |auth| 프레임으로 인증 */ }
+
     const remote = req.socket?.remoteAddress;
     console.log(`[ws] connect ${remote}`);
 
@@ -77,8 +108,13 @@ function attach(httpServer, { path = '/ws' } = {}) {
     ws.on('error', (e) => console.warn('[ws] error:', e.message));
   });
 
-  console.log(`[ws] gateway attached at ${path}`);
+  // keepalive 주기 스윕 — 죽은 연결 회수 (iOS 백그라운드 등으로 유실된 소켓 정리)
+  const hb = setInterval(() => heartbeatSweep(wss.clients), heartbeatMs);
+  if (hb.unref) hb.unref();
+  wss.on('close', () => clearInterval(hb));
+
+  console.log(`[ws] gateway attached at ${path} (heartbeat ${heartbeatMs}ms, auth required)`);
   return { wss };
 }
 
-module.exports = { attach };
+module.exports = { attach, heartbeatSweep };

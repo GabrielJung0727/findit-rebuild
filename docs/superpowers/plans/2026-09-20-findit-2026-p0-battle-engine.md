@@ -3050,6 +3050,350 @@ EOF
 
 ---
 
+---
+
+### Task 10: 최종 독립 검토 반영
+
+**Files:**
+- Modify: `server/src/battle/state.ts`, `server/src/battle/reducer.ts`, `server/src/battle/ai-driver.ts`
+- Test: `server/src/battle/reducer.test.ts`, `server/src/battle/skills-and-end.test.ts`, `server/src/battle/ai-driver.test.ts`
+
+Task 1–9 완료 후 전체 diff를 독립 검토한 결과다. 변이 테스트 45건 중 14건이 살아남았고, 그중 9건이 실제 공백이었다. 아래는 그 공백을 메운다.
+
+---
+
+#### 10-1 (Critical) 콤보 보너스를 누적에서 live 조회로 되돌린다
+
+계획서가 `comboBonus`를 누적기로 만든 것은 **원작과 어긋난다.** 원작 `GameView.calculateScore()` (legacy L3046-3049):
+
+```java
+int base = this.mFindNum * 50;
+int victoryBonus = (type == 0) ? 100 : 0;
+int comboBonus = comboScoreBonus(this.mCombo);   // 정산 시점 live 콤보 1회 조회
+return base + victoryBonus + comboBonus;
+```
+
+`mCombo`는 히트 시 `++`, 오답과 상대 발견 시 `= 0` 인 **연속 스트릭 카운터**다. 정산은 그 최종값을 한 번 조회한다.
+
+누적 모델이 틀린 이유는 두 가지다. 첫째, 5개 매치에서 상한이 `100+200+400+700+700 = 2100` 으로 표의 최대치 700의 3배가 된다. `score`는 `levelForScore` 로 들어가므로 레벨 진행이 그대로 부풀려진다. 둘째, 스펙 §3.2의 콤보 리셋 규칙이 **점수상 무의미해진다** — 이미 적립된 보너스는 리셋이 건드리지 못하므로 "오답 터치 시 콤보 리셋"이 아무 대가도 없게 된다.
+
+- [ ] **Step 1: 누적을 검출하는 테스트 작성**
+
+`skills-and-end.test.ts` 의 종료 describe 에 추가:
+
+```typescript
+  it('점수의 콤보 보너스는 정산 시점 콤보 1회 조회다 — 누적이 아니다', () => {
+    // 3연속 히트 후 오답 → 콤보 0. 원작은 comboScoreBonus(0) = 0 을 준다.
+    let s = playing();
+    for (let i = 0; i < 3; i++) s = tapNext(s, 'p1', T0 + 100 * (i + 1));
+    expect(s.p1.combo).toBe(3);
+    s = reduce(s, { kind: 'TAP', slot: 'p1', x: -50, y: -50 }, ctx(T0 + 400)).state;
+    expect(s.p1.combo).toBe(0);
+
+    const r = reduce(s, { kind: 'TIMER' }, ctx(T0 + MATCH_DURATION_MS));
+    const p1End = r.outbound.find((o) => o.type === 'END' && o.to === 'p1')!;
+    // 3 × 50 + 100(승리) + 0(콤보 0) = 250. 누적 모델이면 700 이 더 붙어 950 이 된다.
+    expect(p1End.payload['score']).toBe(250);
+  });
+
+  it('클린 5연속 승리의 점수가 표의 상한을 넘지 않는다', () => {
+    let s = playing();
+    for (let i = 0; i < 4; i++) s = tapNext(s, 'p1', T0 + 100 * (i + 1));
+    const index = s.targetIndices.find((i) => !s.revealed.includes(i))!;
+    const rect = s.assignment.puzzle.rects.find((r) => r.index === index)!;
+    const r = reduce(s, { kind: 'TAP', slot: 'p1', x: rect.x + 1, y: rect.y + 1 }, ctx(T0 + 500));
+
+    const ends = r.outbound.filter((o) => o.type === 'END');
+    // 5 × 50 + 100 + 700 = 1050. 누적이면 2450 이 된다.
+    expect(ends.find((o) => o.to === 'p1')!.payload['score']).toBe(1050);
+    // 패자는 0 개 발견 · 콤보 0
+    expect(ends.find((o) => o.to === 'p2')!.payload['score']).toBe(0);
+  });
+```
+
+- [ ] **Step 2: 실패 확인** — `npx vitest run server/src/battle/skills-and-end.test.ts`. 두 테스트가 각각 950/2450 을 내며 실패해야 한다. 그 숫자가 곧 누적의 증거다.
+
+- [ ] **Step 3: 구현**
+
+`state.ts` — `PlayerState` 에서 `comboBonus` 필드를 **삭제**한다. `createPlayer` 의 `comboBonus: 0` 도 지운다.
+
+`reducer.ts` — `onTap` 히트 분기에서 `comboBonus` 갱신을 지운다:
+
+```typescript
+  next[slot] = {
+    ...me,
+    found: [...me.found, hit],
+    combo,
+  };
+```
+
+`endOutbound` 에서 정산 시점에 1회 조회한다:
+
+```typescript
+      score: matchScore({
+        findCount: me.found.length,
+        // 원작과 동일 — 누적이 아니라 정산 시점 live 콤보 1회 조회 (legacy L3048).
+        comboBonus: comboScoreBonus(me.combo),
+        isWinner,
+      }),
+```
+
+- [ ] **Step 4: 기존 테스트 정정**
+
+`reducer.test.ts` 에서 누적을 전제한 두 단언을 고친다.
+
+- `콤보 보너스가 스펙 §3.2 표대로 누적된다` → 제목과 본문을 콤보 카운터만 보도록 바꾼다:
+```typescript
+  it('연속 히트마다 콤보 카운터가 오른다', () => {
+    let s = playing();
+    for (let n = 1; n <= 3; n++) {
+      const { x, y } = centerOfUnrevealed(s);
+      s = reduce(s, { kind: 'TAP', slot: 'p1', x, y }, ctx(COUNTDOWN_MS + n * 100)).state;
+    }
+    expect(s.p1.combo).toBe(3);
+  });
+```
+- 미스 테스트의 `expect(r.state.p1.comboBonus).toBe(100); // 이미 적립된 보너스는 남는다` 줄을 **삭제**한다. 그 주석이 서술하던 동작 자체가 틀렸다.
+
+- [ ] **Step 5: 통과 확인** — `npm test`, `npm run typecheck`
+
+---
+
+#### 10-2 (Important) 스킬 연사 차단 — 원작의 게이트를 복원한다
+
+현재 `SKILL` 의 유일한 관문은 레벨이다. 1ms 간격으로 1000번 보내면 `BLIND` 1000개가 나가고 상대 화면이 40초 내내 덮인다.
+
+원작에는 게이트가 있었다. `mLeftSkilTimeCount` 가 `-1`(유휴) 일 때만 사용 가능하고(L3949), 사용 시 `0` 으로 놓은 뒤(L3964) 효과가 끝날 때까지 증가시키다 `-1` 로 되돌린다(L3587·L3590). 즉 **한 번에 하나, 이전 스킬 효과가 끝나야 다음 사용.**
+
+- [ ] **Step 1: 실패하는 테스트 작성** (`skills-and-end.test.ts`)
+
+```typescript
+  it('이전 스킬 효과가 끝나기 전에는 다시 쓸 수 없다 — 원작 mLeftSkilTimeCount 게이트', () => {
+    const s = playing(57);
+    const first = reduce(s, { kind: 'SKILL', slot: 'p1', skillId: 'ghost_5' }, ctx(T0 + 100));
+    const durationMs = Number(first.outbound.find((o) => o.type === 'BLIND')!.payload['durationMs']);
+
+    const tooSoon = reduce(first.state, { kind: 'SKILL', slot: 'p1', skillId: 'ghost_5' }, ctx(T0 + 101));
+    expect(tooSoon.outbound).toEqual([]);
+
+    const afterward = reduce(
+      first.state, { kind: 'SKILL', slot: 'p1', skillId: 'ghost_5' }, ctx(T0 + 100 + durationMs),
+    );
+    expect(afterward.outbound.some((o) => o.type === 'BLIND')).toBe(true);
+  });
+
+  it('연사해도 BLIND 는 하나만 나간다', () => {
+    let s = playing(57);
+    let emitted = 0;
+    for (let i = 0; i < 100; i++) {
+      const r = reduce(s, { kind: 'SKILL', slot: 'p1', skillId: 'ghost_5' }, ctx(T0 + 100 + i));
+      emitted += r.outbound.filter((o) => o.type === 'BLIND').length;
+      s = r.state;
+    }
+    expect(emitted).toBe(1);
+  });
+
+  it('상대의 스킬 게이트는 나와 무관하다', () => {
+    const s = playing(57);
+    const after = reduce(s, { kind: 'SKILL', slot: 'p1', skillId: 'ghost_5' }, ctx(T0 + 100)).state;
+    const r = reduce(after, { kind: 'SKILL', slot: 'p2', skillId: 'ghost_5' }, ctx(T0 + 101));
+    expect(r.outbound.some((o) => o.type === 'BLIND')).toBe(true);
+  });
+```
+
+- [ ] **Step 2: 실패 확인** — 첫 두 테스트가 실패해야 한다.
+
+- [ ] **Step 3: 구현**
+
+`state.ts` — `PlayerState` 에 추가:
+```typescript
+  /** 내가 쓴 스킬의 효과가 끝나는 절대 시각. 그 전에는 다시 쓸 수 없다 (원작 mLeftSkilTimeCount). */
+  skillActiveUntil: number;
+```
+`createPlayer` 에 `skillActiveUntil: 0` 를 넣는다.
+
+`reducer.ts` `onSkill` — 레벨 검사 뒤에 게이트를 넣고, 발동 시 공격자 쪽을 갱신한다:
+```typescript
+  if (ctx.now < s[slot].skillActiveUntil) return noChange(s);
+  // …durationMs 계산 후…
+  next[slot] = { ...next[slot], skillActiveUntil: ctx.now + durationMs };
+  next[other] = { ...next[other], blindedUntil: ctx.now + durationMs };
+```
+
+- [ ] **Step 4: 통과 확인** — `npm test`
+
+---
+
+#### 10-3 (Important) 검증되지 않던 경로에 테스트를 채운다
+
+변이 테스트에서 살아남은 것들이다. 각각 "지금 테스트가 검증한다고 주장하는 동작"이 실제로는 비어 있었다.
+
+- [ ] **Step 1: 세 테스트 추가**
+
+`skills-and-end.test.ts` — 가림시간 배선 (공격/방어를 맞바꿔도 지금은 통과한다):
+```typescript
+  it('공격자 공격력과 방어자 방어력이 올바른 쪽에 배선된다', () => {
+    // 양쪽 레벨이 같으면 보정이 상쇄돼 배선 실수가 드러나지 않는다.
+    const strong = playingAsymmetric(100, 1);  // p1 공격 1.57, p2 방어 0.5
+    const weak = playingAsymmetric(1, 100);    // p1 공격 0.5,  p2 방어 1.57
+    const ms = (s: BattleState) =>
+      Number(reduce(s, { kind: 'SKILL', slot: 'p1', skillId: 'handprint_1' }, ctx(T0 + 100))
+        .outbound.find((o) => o.type === 'BLIND')!.payload['durationMs']);
+    // 1000 + 1570 − 500 = 2070  vs  1000 + 500 − 1570 = 0 (clamp)
+    expect(ms(strong)).toBe(2070);
+    expect(ms(weak)).toBe(0);
+  });
+```
+`playingAsymmetric(p1Level, p2Level)` 헬퍼를 `playing()` 옆에 추가한다 (`playing()` 과 같되 두 레벨을 따로 받는다).
+
+`reducer.test.ts` — hitTest 경계 (`<` 를 `<=` 로 바꿔도 지금은 통과한다):
+```typescript
+  it('rect 의 오른쪽·아래 경계는 히트가 아니다 — 반개구간이다', () => {
+    const s = playing();
+    const index = s.targetIndices[0]!;
+    const rect = s.assignment.puzzle.rects.find((r) => r.index === index)!;
+    expect(hitTest(s.assignment, s.targetIndices, [], rect.x + rect.w, rect.y)).toBeNull();
+    expect(hitTest(s.assignment, s.targetIndices, [], rect.x, rect.y + rect.h)).toBeNull();
+    expect(hitTest(s.assignment, s.targetIndices, [], rect.x + rect.w - 1, rect.y + rect.h - 1))
+      .toBe(index);
+  });
+
+  it('카운트다운 만료 전 TIMER 는 PLAYING 을 시작시키지 않는다', () => {
+    let s = reduce(fresh(), { kind: 'READY', slot: 'p1' }, ctx(0)).state;
+    s = reduce(s, { kind: 'READY', slot: 'p2' }, ctx(0)).state;
+    const r = reduce(s, { kind: 'TIMER' }, ctx(COUNTDOWN_MS - 1));
+    expect(r.state.phase).toBe('COUNTDOWN');
+    expect(r.outbound).toEqual([]);
+  });
+```
+
+- [ ] **Step 2: 프로토콜 적합성 테스트 추가** (`reducer.test.ts`)
+
+리듀서가 내는 페이로드가 `@findit/protocol` 선언과 어긋나도 지금은 Plan 3 런타임에서야 드러난다.
+
+```typescript
+  it('리듀서가 내는 모든 outbound 가 프로토콜 선언과 맞는다', () => {
+    // 풀 매치를 돌려 나오는 모든 메시지를 인코딩해 본다. 필드명·타입이
+    // 어긋나면 encodeEnvelope 가 던진다.
+    let s = playing(57);
+    const all: Outbound[] = [];
+    const push = (r: { outbound: Outbound[]; state: BattleState }) => {
+      all.push(...r.outbound);
+      return r.state;
+    };
+    s = push(reduce(s, { kind: 'SKILL', slot: 'p1', skillId: 'handprint_1' }, ctx(T0 + 50)));
+    for (let i = 0; i < 5 && s.phase === 'PLAYING'; i++) {
+      const index = s.targetIndices.find((j) => !s.revealed.includes(j));
+      if (index === undefined) break;
+      const rect = s.assignment.puzzle.rects.find((r) => r.index === index)!;
+      s = push(reduce(s, { kind: 'TAP', slot: 'p1', x: rect.x + 1, y: rect.y + 1 }, ctx(T0 + 100 * (i + 2))));
+    }
+    expect(all.length).toBeGreaterThan(5);
+    for (const o of all) {
+      expect(() => encodeEnvelope(o.type, 1, o.payload)).not.toThrow();
+    }
+  });
+```
+`import { encodeEnvelope } from '@findit/protocol';` 와 `import type { Outbound } from './state.js';` 가 필요하다.
+
+- [ ] **Step 3: 통과 확인** — `npm test`
+
+---
+
+#### 10-4 (Important) AI 계획이 낡는 문제
+
+`planAiAction` 은 계획 시점에 대상을 고르지만 실행은 최대 7초 뒤다. 그사이 사람이 그 rect 를 먼저 찾으면 AI 의 탭은 **미스**가 되어 2초 잠금과 콤보 리셋을 먹는다. `ai-driver.ts` 스스로 "AI 는 남은 대상만 정확히 누른다"고 적어둔 계약과 정면으로 어긋난다.
+
+기존 테스트 `AI 는 틀리지 않는다` 는 계획을 세운 **그 상태에** 적용하므로 실제 타임라인을 재현하지 못한다.
+
+리듀서는 AI 를 사람과 구분하지 않는다는 설계를 유지한다. 따라서 해결은 **런타임이 다시 계획하도록 계약에 못박는 것**이다.
+
+- [ ] **Step 1: 계약을 드러내는 테스트 추가** (`ai-driver.test.ts`)
+
+```typescript
+  it('잠금 중에는 계획하지 않는다', () => {
+    let s = playingVsAi();
+    s = reduce(s, { kind: 'TAP', slot: 'p2', x: -50, y: -50 }, ctx(T0)).state;
+    expect(s.p2.lockedUntil).toBeGreaterThan(T0);
+    expect(planAiAction(s, 'p2', ctx(T0 + 1))).toBeNull();
+  });
+
+  it('계획이 낡으면 미스가 된다 — 런타임은 REVEAL 마다 다시 계획해야 한다', () => {
+    const s = playingVsAi();
+    const plan = planAiAction(s, 'p2', ctx(T0))!;
+    const target = s.targetIndices.find((i) => !s.revealed.includes(i))!;
+    const rect = s.assignment.puzzle.rects.find((r) => r.index === target)!;
+
+    // 사람이 AI 가 노리던 자리를 먼저 가져간다.
+    const after = reduce(
+      s, { kind: 'TAP', slot: 'p1', x: rect.x + 1, y: rect.y + 1 }, ctx(T0 + 10),
+    ).state;
+
+    // 낡은 계획을 그대로 실행하면 AI 가 손해를 본다. 이 테스트는 그 사실을
+    // 문서화한다 — 런타임이 재계획하지 않으면 이런 일이 실제로 생긴다.
+    const stale = reduce(after, plan.event, ctx(plan.at));
+    if (stale.outbound.some((o) => o.type === 'LOCK')) {
+      expect(stale.state.p2.combo).toBe(0);
+    }
+
+    // 재계획하면 남은 대상을 정확히 맞힌다.
+    const replanned = planAiAction(after, 'p2', ctx(T0 + 10))!;
+    expect(reduce(after, replanned.event, ctx(replanned.at)).outbound
+      .some((o) => o.type === 'REVEAL')).toBe(true);
+  });
+```
+
+- [ ] **Step 2: 구현** — `planAiAction` 이 잠금을 존중하게 한다:
+
+```typescript
+  if (ctx.now < player.lockedUntil) return null;
+```
+`player.isAi` 검사 바로 뒤에 넣는다.
+
+- [ ] **Step 3: 통과 확인** — `npm test`
+
+---
+
+#### 10-5 (Minor) 죽은 필드 제거
+
+- [ ] **Step 1:** `CreateBattleParams.startedAt` 을 삭제한다. `createBattle` 이 읽지 않고 모든 호출부가 `0` 을 넘긴다. Plan 3 런타임이 `clock.now()` 를 넘기며 매치 시계가 고정된다고 오해할 소지가 있다. 호출부(테스트 포함)에서도 지운다.
+- [ ] **Step 2:** `npm test`, `npm run typecheck` 통과 확인.
+- [ ] **Step 3: 커밋** — 10-1 부터 여기까지를 한 커밋으로 묶는다.
+
+```bash
+git add server/
+git commit -m "$(cat <<'EOF'
+fix(server): 최종 독립 검토 반영 — 콤보 정산 · 스킬 게이트 · 검증 공백
+
+전체 diff 독립 검토에서 변이 테스트 45건 중 14건이 살아남았고 9건이
+실제 공백이었다.
+
+콤보 보너스를 누적에서 정산 시점 live 조회로 되돌린다. 원작
+calculateScore() 는 comboScoreBonus(mCombo) 를 한 번 부른다. 누적 모델은
+5개 매치 상한을 표의 700 에서 2100 으로 3배 부풀리고, score 가
+levelForScore 로 들어가므로 레벨 진행이 그대로 왜곡된다. 게다가 스펙
+§3.2 의 콤보 리셋 규칙이 점수상 무의미해진다 — 적립된 보너스는 리셋이
+건드리지 못하기 때문이다. END.score 에 단언이 하나도 없어서 이 경로가
+통째로 검증 밖에 있었다.
+
+스킬 연사를 막는다. 원작의 mLeftSkilTimeCount 는 이전 스킬 효과가 끝나야
+다음 사용을 허용한다. 그 게이트가 없어 1ms 간격 연사로 상대 화면을 40초
+내내 덮을 수 있었다.
+
+변이가 살아남던 경로에 테스트를 채운다 — 가림시간의 공격/방어 배선,
+hitTest 의 반개구간 경계, 카운트다운 가드, 그리고 리듀서 outbound 가
+공유 프로토콜 선언과 맞는지.
+
+planAiAction 이 잠금을 존중하게 하고, 계획이 낡으면 미스가 된다는 사실을
+테스트로 문서화한다. 런타임은 REVEAL 마다 재계획해야 한다.
+
+쓰이지 않는 CreateBattleParams.startedAt 을 제거한다.
+EOF
+)"
+```
+
+---
+
 ## 완료 기준
 
 1. `server` 워크스페이스가 루트 npm workspaces·tsconfig references·vitest include 에 편입됨
@@ -3063,6 +3407,9 @@ EOF
 9. `wakeAt` 이 상태 파생값이라 무시된 이벤트도 종료 예약을 유지함
 10. `npm test` 그린, `npm run typecheck` 통과
 11. 서버 코드 어디에도 `Date.now()`·`Math.random()` 직접 호출이 없음
+12. `END.score` 가 정산 시점 live 콤보로 계산되고 단언으로 고정됨 (누적 금지)
+13. 스킬이 이전 효과가 끝나기 전에는 다시 발동되지 않음
+14. 리듀서의 모든 outbound 가 `@findit/protocol` 선언과 맞음을 테스트로 확인
 
 ## 이 계획이 남기는 것 (Plan 3의 입력)
 
@@ -3072,6 +3419,10 @@ EOF
 - **`ContentUrls` 포트 구현은 Plan 3의 책임.** 리듀서는 URL 을 조립할 능력 자체가 없다 — `ctx.urls`로만 받는다. 런타임은 **매치별로 서명된 일회용 불투명 URL**을 넣어야 하며, 각 URL 은 히트한 rect 하나에만 유효해야 한다 (스펙 §6.3). 예측 가능한 형태를 넣으면 클라가 REVEAL 하나로 규칙을 학습해 나머지를 전부 선다운로드할 수 있다
 - **`wakeAt`은 매 호출마다 현재 상태 기준의 예약**이다. 런타임은 결과가 나올 때마다 이 값으로 예약을 덮어써도 안전하다 — 무시된 이벤트도 진행 중이면 종료 시각을 돌려준다
 - `itemAttackBonusMs`·`itemDefenseReductionMs`는 0으로 남는다. Plan 3의 인벤토리가 채운다
+- **AI 는 `REVEAL` 마다 재계획해야 한다.** `planAiAction` 은 계획 시점의 남은 대상에서 고르므로, 그사이 사람이 그 자리를 가져가면 낡은 계획은 미스가 되어 AI 가 2초 잠금과 콤보 리셋을 먹는다. 런타임은 매 `REVEAL` 후 기존 예약을 버리고 다시 계획해야 한다
+- **습득 스킬 집합은 Plan 3 의 책임이다.** 엔진은 레벨 요건만 검사한다. 스킬 포인트로 실제 배웠는지는 영속 상태가 필요하므로 런타임이 검증해야 한다 — 레벨 50 플레이어는 `ghost_1` 선행 체인에 59 포인트가 필요하지만 49 포인트만 벌었는데도 엔진은 통과시킨다
+- **`WAITING` 에서 아무도 `READY` 하지 않으면 매치가 끝나지 않는다.** `wakeAt` 이 `null` 이고 `LEAVE` 외에 나갈 길이 없다. 런타임이 준비 타임아웃을 걸어야 한다
+- **`blindedUntil` 은 서버가 강제하지 않는다.** 기록만 하고 입력을 막지 않는다 — 가림은 클라이언트 표현이다. 서버 강제 여부는 Plan 3 에서 결정한다
 
 ## 다음 계획
 

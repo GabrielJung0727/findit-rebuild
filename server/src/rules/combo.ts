@@ -14,6 +14,11 @@ export function comboScoreBonus(combo: number): number {
   return tableLookup(SCORE_BONUS, combo);
 }
 
+/**
+ * 기획 수치로 보존하되 P0 배틀 엔진은 소비하지 않는다 (스펙 §3.2 판정).
+ * 원작도 이 값을 정의만 하고 호출한 적이 없으며, 원본 주석은 매치 시계가 아니라
+ * 아이템 지속시간을 가리킨다. 아이템 체계를 세우는 P1 에서 재검토한다.
+ */
 export function comboTimeBonusMs(combo: number): number {
   return tableLookup(TIME_BONUS_MS, combo);
 }

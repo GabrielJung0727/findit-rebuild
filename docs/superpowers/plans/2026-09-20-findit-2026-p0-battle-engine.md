@@ -675,6 +675,11 @@ export function comboScoreBonus(combo: number): number {
   return tableLookup(SCORE_BONUS, combo);
 }
 
+/**
+ * 기획 수치로 보존하되 **P0 배틀 엔진은 소비하지 않는다** (스펙 §3.2 판정).
+ * 원작도 이 값을 정의만 하고 호출한 적이 없으며, 원본 주석은 매치 시계가 아니라
+ * 아이템 지속시간을 가리킨다. 아이템 체계를 세우는 P1 에서 재검토한다.
+ */
 export function comboTimeBonusMs(combo: number): number {
   return tableLookup(TIME_BONUS_MS, combo);
 }
@@ -1780,7 +1785,7 @@ EOF
 - Test: `server/src/battle/reducer.test.ts`
 
 **Interfaces:**
-- Consumes: Task 7의 전부, `comboScoreBonus`/`comboTimeBonusMs` (Task 3)
+- Consumes: Task 7의 전부, `comboScoreBonus` (Task 3). **`comboTimeBonusMs` 는 소비하지 않는다** — 스펙 §3.2 의 시간 보너스 판정 참조
 - Produces:
   - `interface ContentUrls { base(matchId: string): string; patch(matchId: string, rectIndex: number): string }`
   - `interface ReduceContext { now: number; rng: Rng; urls: ContentUrls }`
@@ -2081,6 +2086,23 @@ describe('매치 마감 경계', () => {
       ctx(s.playStartedAt + MATCH_DURATION_MS - 1),
     );
     expect(r.outbound.some((o) => o.type === 'REVEAL')).toBe(true);
+  });
+
+  it('콤보가 마감 시각을 바꾸지 않는다 — P0 는 시간 보너스를 적용하지 않는다', () => {
+    // 스펙 §3.2 판정: 원작도 comboTimeBonus 를 호출한 적이 없다. 나중에 누군가
+    // 배선하려 하면 이 테스트가 먼저 막고, 의도적인 결정을 하게 만든다.
+    let s = playing();
+    const deadline = s.playStartedAt + MATCH_DURATION_MS;
+    for (let n = 1; n <= 3; n++) {
+      const index = s.targetIndices.find((i) => !s.revealed.includes(i))!;
+      const rect = s.assignment.puzzle.rects.find((r) => r.index === index)!;
+      s = reduce(
+        s, { kind: 'TAP', slot: 'p1', x: rect.x + 1, y: rect.y + 1 },
+        ctx(COUNTDOWN_MS + n * 100),
+      ).state;
+    }
+    expect(s.p1.combo).toBe(3);
+    expect(nextWakeAt(s)).toBe(deadline);
   });
 
   it('정확히 마감 시각의 TAP 은 무시된다 — 플레이 구간은 [start, start+40000)', () => {
@@ -2393,7 +2415,7 @@ export function reduce(
 - [ ] **Step 4: 테스트 통과 확인**
 
 Run: `npx vitest run server/src/battle/reducer.test.ts`
-Expected: PASS — 30 tests. 특히 다음 넷이 통과해야 한다: `START 페이로드에 좌표가 들어가지 않는다`, `포트를 부르지 않고는 REVEAL 을 만들 수 없다`, `PLAYING 중 무시된 이벤트도 종료 예약을 유지한다`, `리듀서가 입력 상태를 변형하지 않는다`.
+Expected: PASS — 31 tests. 특히 다음 넷이 통과해야 한다: `START 페이로드에 좌표가 들어가지 않는다`, `포트를 부르지 않고는 REVEAL 을 만들 수 없다`, `PLAYING 중 무시된 이벤트도 종료 예약을 유지한다`, `리듀서가 입력 상태를 변형하지 않는다`.
 
 - [ ] **Step 5: 커밋**
 

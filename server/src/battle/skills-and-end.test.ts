@@ -20,7 +20,18 @@ function playing(level = 10): BattleState {
     assignment: assignPuzzle(puzzles, createRng(7)),
     p1: { name: 'alice', level, isAi: false },
     p2: { name: 'bob', level, isAi: false },
-    startedAt: 0,
+  });
+  state = reduce(state, { kind: 'READY', slot: 'p1' }, ctx(0)).state;
+  state = reduce(state, { kind: 'READY', slot: 'p2' }, ctx(0)).state;
+  return reduce(state, { kind: 'TIMER' }, ctx(T0)).state;
+}
+
+function playingAsymmetric(p1Level: number, p2Level: number): BattleState {
+  let state = createBattle({
+    matchId: 'm1',
+    assignment: assignPuzzle(puzzles, createRng(7)),
+    p1: { name: 'alice', level: p1Level, isAi: false },
+    p2: { name: 'bob', level: p2Level, isAi: false },
   });
   state = reduce(state, { kind: 'READY', slot: 'p1' }, ctx(0)).state;
   state = reduce(state, { kind: 'READY', slot: 'p2' }, ctx(0)).state;
@@ -56,6 +67,15 @@ describe('SKILL', () => {
     expect(result.outbound.find((outbound) => outbound.type === 'BLIND')!.payload.durationMs).toBe(1000);
   });
 
+  it('공격자 공격력과 방어자 방어력이 올바른 쪽에 배선된다', () => {
+    const durationMs = (state: BattleState) => Number(
+      reduce(state, { kind: 'SKILL', slot: 'p1', skillId: 'handprint_1' }, ctx(T0 + 100))
+        .outbound.find((outbound) => outbound.type === 'BLIND')!.payload.durationMs,
+    );
+    expect(durationMs(playingAsymmetric(100, 1))).toBe(2070);
+    expect(durationMs(playingAsymmetric(1, 100))).toBe(0);
+  });
+
   it('상대 blindedUntil 을 갱신한다', () => {
     const result = reduce(playing(57), { kind: 'SKILL', slot: 'p1', skillId: 'ghost_5' }, ctx(T0 + 100));
     expect(result.state.p2.blindedUntil).toBeGreaterThan(T0 + 100);
@@ -75,9 +95,44 @@ describe('SKILL', () => {
       assignment: assignPuzzle(puzzles, createRng(1)),
       p1: { name: 'a', level: 10, isAi: false },
       p2: { name: 'b', level: 10, isAi: false },
-      startedAt: 0,
     });
     expect(reduce(state, { kind: 'SKILL', slot: 'p1', skillId: 'handprint_1' }, ctx(0)).outbound).toEqual([]);
+  });
+
+  it('이전 스킬 효과가 끝나기 전에는 다시 쓸 수 없다 — 원작 mLeftSkilTimeCount 게이트', () => {
+    const state = playing(57);
+    const first = reduce(state, { kind: 'SKILL', slot: 'p1', skillId: 'ghost_5' }, ctx(T0 + 100));
+    const durationMs = Number(first.outbound.find((outbound) => outbound.type === 'BLIND')!.payload.durationMs);
+    const tooSoon = reduce(first.state, { kind: 'SKILL', slot: 'p1', skillId: 'ghost_5' }, ctx(T0 + 101));
+    expect(tooSoon.outbound).toEqual([]);
+    const afterward = reduce(
+      first.state,
+      { kind: 'SKILL', slot: 'p1', skillId: 'ghost_5' },
+      ctx(T0 + 100 + durationMs),
+    );
+    expect(afterward.outbound.some((outbound) => outbound.type === 'BLIND')).toBe(true);
+  });
+
+  it('연사해도 BLIND 는 하나만 나간다', () => {
+    let state = playing(57);
+    let emitted = 0;
+    for (let index = 0; index < 100; index += 1) {
+      const result = reduce(
+        state,
+        { kind: 'SKILL', slot: 'p1', skillId: 'ghost_5' },
+        ctx(T0 + 100 + index),
+      );
+      emitted += result.outbound.filter((outbound) => outbound.type === 'BLIND').length;
+      state = result.state;
+    }
+    expect(emitted).toBe(1);
+  });
+
+  it('상대의 스킬 게이트는 나와 무관하다', () => {
+    const state = playing(57);
+    const after = reduce(state, { kind: 'SKILL', slot: 'p1', skillId: 'ghost_5' }, ctx(T0 + 100)).state;
+    const result = reduce(after, { kind: 'SKILL', slot: 'p2', skillId: 'ghost_5' }, ctx(T0 + 101));
+    expect(result.outbound.some((outbound) => outbound.type === 'BLIND')).toBe(true);
   });
 });
 
@@ -152,6 +207,27 @@ describe('종료 — 5 개 선취', () => {
 });
 
 describe('종료 — 40 초 만료', () => {
+  it('점수의 콤보 보너스는 정산 시점 콤보 1회 조회다 — 누적이 아니다', () => {
+    let state = playing();
+    for (let index = 0; index < 3; index += 1) state = tapNext(state, 'p1', T0 + 100 * (index + 1));
+    expect(state.p1.combo).toBe(3);
+    state = reduce(state, { kind: 'TAP', slot: 'p1', x: -50, y: -50 }, ctx(T0 + 400)).state;
+    expect(state.p1.combo).toBe(0);
+
+    const result = reduce(state, { kind: 'TIMER' }, ctx(T0 + MATCH_DURATION_MS));
+    const p1End = result.outbound.find((outbound) => outbound.type === 'END' && outbound.to === 'p1')!;
+    expect(p1End.payload.score).toBe(250);
+  });
+
+  it('클린 5연속 승리의 점수가 표의 상한을 넘지 않는다', () => {
+    let state = playing();
+    for (let index = 0; index < 4; index += 1) state = tapNext(state, 'p1', T0 + 100 * (index + 1));
+    const result = finalTargetTap(state, 'p1', T0 + 500);
+    const ends = result.outbound.filter((outbound) => outbound.type === 'END');
+    expect(ends.find((outbound) => outbound.to === 'p1')!.payload.score).toBe(1050);
+    expect(ends.find((outbound) => outbound.to === 'p2')!.payload.score).toBe(0);
+  });
+
   it('더 많이 찾은 쪽이 이긴다', () => {
     let state = playing();
     state = tapNext(state, 'p1', T0 + 100);

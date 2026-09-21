@@ -3,7 +3,13 @@ import { describe, expect, it } from 'vitest';
 import { assignPuzzle } from '../content/assigner.js';
 import { loadPuzzles } from '../content/loader.js';
 import { createRng } from '../platform/rng.js';
-import { COUNTDOWN_MS, MATCH_DURATION_MS, createBattle, type BattleState } from './state.js';
+import {
+  COUNTDOWN_MS,
+  MATCH_DURATION_MS,
+  MISS_LOCK_MS,
+  createBattle,
+  type BattleState,
+} from './state.js';
 import { reduce, type ReduceContext } from './reducer.js';
 import { planAiAction } from './ai-driver.js';
 
@@ -21,7 +27,6 @@ function playingVsAi(aiLevel = 50): BattleState {
     assignment: assignPuzzle(puzzles, createRng(7)),
     p1: { name: 'human', level: 10, isAi: false },
     p2: { name: 'bot', level: aiLevel, isAi: true },
-    startedAt: 0,
   });
   state = reduce(state, { kind: 'READY', slot: 'p1' }, ctx(0)).state;
   state = reduce(state, { kind: 'READY', slot: 'p2' }, ctx(0)).state;
@@ -45,13 +50,19 @@ describe('planAiAction', () => {
     expect(planAiAction(playingVsAi(), 'p1', ctx(T0))).toBeNull();
   });
 
+  it('잠금 중에는 계획하지 않는다', () => {
+    let state = playingVsAi();
+    state = reduce(state, { kind: 'TAP', slot: 'p2', x: -50, y: -50 }, ctx(T0)).state;
+    expect(state.p2.lockedUntil).toBeGreaterThan(T0);
+    expect(planAiAction(state, 'p2', ctx(T0 + 1))).toBeNull();
+  });
+
   it('PLAYING 이 아니면 계획하지 않는다', () => {
     const state = createBattle({
       matchId: 'm',
       assignment: assignPuzzle(puzzles, createRng(1)),
       p1: { name: 'a', level: 10, isAi: false },
       p2: { name: 'b', level: 10, isAi: true },
-      startedAt: 0,
     });
     expect(planAiAction(state, 'p2', ctx(0))).toBeNull();
   });
@@ -73,6 +84,30 @@ describe('planAiAction', () => {
   it('같은 시드는 같은 계획을 낸다', () => {
     const state = playingVsAi();
     expect(planAiAction(state, 'p2', ctx(T0))).toEqual(planAiAction(state, 'p2', ctx(T0)));
+  });
+
+  it('계획이 낡으면 미스가 된다 — 런타임은 REVEAL 마다 다시 계획해야 한다', () => {
+    const state = playingVsAi();
+    const plan = planAiAction(state, 'p2', ctx(T0))!;
+    const { event } = plan;
+    if (event.kind !== 'TAP') throw new Error('AI 계획은 TAP 이어야 한다');
+
+    const after = reduce(
+      state,
+      { kind: 'TAP', slot: 'p1', x: event.x, y: event.y },
+      ctx(T0 + 10),
+    ).state;
+    expect(after.p1.found).toHaveLength(1);
+
+    const stale = reduce(after, plan.event, ctx(plan.at));
+    expect(stale.outbound).toEqual([
+      { to: 'p2', type: 'LOCK', payload: { durationMs: MISS_LOCK_MS } },
+    ]);
+    expect(stale.state.p2.combo).toBe(0);
+
+    const replanned = planAiAction(after, 'p2', ctx(T0 + 10))!;
+    expect(reduce(after, replanned.event, ctx(replanned.at)).outbound
+      .some((outbound) => outbound.type === 'REVEAL')).toBe(true);
   });
 
   it('고레벨 AI 가 더 빨리 찾는다', () => {

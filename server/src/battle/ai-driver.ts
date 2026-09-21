@@ -20,6 +20,7 @@ export function planAiAction(
 ): AiPlan | null {
   const player = state[slot];
   if (!player.isAi || state.phase !== 'PLAYING') return null;
+  if (ctx.now < player.lockedUntil) return null;
 
   const remaining = state.targetIndices.filter((index) => !state.revealed.includes(index));
   if (remaining.length === 0) return null;

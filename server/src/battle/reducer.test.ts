@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { encodeEnvelope } from '@findit/protocol';
 import { assignPuzzle } from '../content/assigner.js';
 import { loadPuzzles } from '../content/loader.js';
 import { createRng } from '../platform/rng.js';
@@ -10,6 +11,7 @@ import {
   MISS_LOCK_MS,
   createBattle,
   type BattleState,
+  type Outbound,
 } from './state.js';
 import { hitTest, nextWakeAt, reduce, type ReduceContext } from './reducer.js';
 
@@ -30,7 +32,6 @@ function fresh(): BattleState {
     assignment: assignPuzzle(puzzles, createRng(7)),
     p1: { name: 'alice', level: 10, isAi: false },
     p2: { name: 'bob', level: 10, isAi: false },
-    startedAt: 0,
   });
 }
 
@@ -74,6 +75,20 @@ describe('hitTest', () => {
   it('빈 곳은 null 이다', () => {
     expect(hitTest(state.assignment, state.targetIndices, state.revealed, -50, -50)).toBeNull();
   });
+
+  it('rect 의 오른쪽·아래 경계는 히트가 아니다 — 반개구간이다', () => {
+    const index = state.targetIndices[0]!;
+    const rect = state.assignment.puzzle.rects.find((item) => item.index === index)!;
+    expect(hitTest(state.assignment, state.targetIndices, [], rect.x + rect.w, rect.y)).toBeNull();
+    expect(hitTest(state.assignment, state.targetIndices, [], rect.x, rect.y + rect.h)).toBeNull();
+    expect(hitTest(
+      state.assignment,
+      state.targetIndices,
+      [],
+      rect.x + rect.w - 1,
+      rect.y + rect.h - 1,
+    )).toBe(index);
+  });
 });
 
 describe('READY → COUNTDOWN → PLAYING', () => {
@@ -108,6 +123,14 @@ describe('READY → COUNTDOWN → PLAYING', () => {
     const start = result.outbound.find((outbound) => outbound.type === 'START')!;
     expect(start.to).toBe('both');
     expect(start.payload).toMatchObject({ targetCount: 5, durationMs: 40_000 });
+  });
+
+  it('카운트다운 만료 전 TIMER 는 PLAYING 을 시작시키지 않는다', () => {
+    let state = reduce(fresh(), { kind: 'READY', slot: 'p1' }, ctx(0)).state;
+    state = reduce(state, { kind: 'READY', slot: 'p2' }, ctx(0)).state;
+    const result = reduce(state, { kind: 'TIMER' }, ctx(COUNTDOWN_MS - 1));
+    expect(result.state.phase).toBe('COUNTDOWN');
+    expect(result.outbound).toEqual([]);
   });
 
   it('START 페이로드에 좌표가 들어가지 않는다 — 치팅 방어의 첫 방어선', () => {
@@ -160,7 +183,7 @@ describe('TAP — 히트', () => {
     expect(state.p2.combo).toBe(1);
   });
 
-  it('콤보 보너스가 스펙 §3.2 표대로 누적된다', () => {
+  it('연속 히트마다 콤보 카운터가 오른다', () => {
     let state = playing();
     for (let combo = 1; combo <= 3; combo += 1) {
       state = reduce(
@@ -170,7 +193,6 @@ describe('TAP — 히트', () => {
       ).state;
     }
     expect(state.p1.combo).toBe(3);
-    expect(state.p1.comboBonus).toBe(100 + 200 + 400);
   });
 
   it('이미 발견된 곳을 다시 탭하면 미스로 처리된다', () => {
@@ -195,7 +217,6 @@ describe('TAP — 미스', () => {
       { to: 'p1', type: 'LOCK', payload: { durationMs: MISS_LOCK_MS } },
     ]);
     expect(result.state.p1.combo).toBe(0);
-    expect(result.state.p1.comboBonus).toBe(100);
   });
 
   it('잠금 중 TAP 은 무시된다 — 격자 스캔 봇 차단', () => {
@@ -352,5 +373,47 @@ describe('불변성', () => {
       ctx(COUNTDOWN_MS + 100),
     );
     expect(JSON.stringify(state)).toBe(snapshot);
+  });
+});
+
+describe('프로토콜 적합성', () => {
+  it('리듀서가 내는 모든 outbound 가 프로토콜 선언과 맞는다', () => {
+    const all: Outbound[] = [];
+    const push = (result: { outbound: Outbound[]; state: BattleState }): BattleState => {
+      all.push(...result.outbound);
+      return result.state;
+    };
+
+    let state = fresh();
+    state = push(reduce(state, { kind: 'READY', slot: 'p1' }, ctx(0)));
+    state = push(reduce(state, { kind: 'READY', slot: 'p2' }, ctx(0)));
+    state = push(reduce(state, { kind: 'TIMER' }, ctx(COUNTDOWN_MS)));
+    state = push(reduce(
+      state,
+      { kind: 'SKILL', slot: 'p1', skillId: 'handprint_1' },
+      ctx(COUNTDOWN_MS + 10),
+    ));
+    state = push(reduce(
+      state,
+      { kind: 'TAP', slot: 'p2', x: -50, y: -50 },
+      ctx(COUNTDOWN_MS + 20),
+    ));
+    for (let index = 0; index < 5 && state.phase === 'PLAYING'; index += 1) {
+      const targetIndex = state.targetIndices.find((item) => !state.revealed.includes(item));
+      if (targetIndex === undefined) break;
+      const rect = state.assignment.puzzle.rects.find((item) => item.index === targetIndex)!;
+      state = push(reduce(
+        state,
+        { kind: 'TAP', slot: 'p1', x: rect.x + 1, y: rect.y + 1 },
+        ctx(COUNTDOWN_MS + 100 * (index + 1)),
+      ));
+    }
+
+    expect([...new Set(all.map((outbound) => outbound.type))].sort()).toEqual(
+      ['BLIND', 'COUNTDOWN', 'END', 'LOCK', 'OPPONENT_PROGRESS', 'REVEAL', 'START'].sort(),
+    );
+    for (const outbound of all) {
+      expect(() => encodeEnvelope(outbound.type, 1, outbound.payload)).not.toThrow();
+    }
   });
 });

@@ -124,7 +124,8 @@ function endOutbound(state: BattleState): Outbound[] {
         opponentFound: other.found.length,
         score: matchScore({
           findCount: me.found.length,
-          comboBonus: me.comboBonus,
+          // 원작과 동일 — 누적이 아니라 정산 시점 live 콤보 1회 조회 (legacy L3048).
+          comboBonus: comboScoreBonus(me.combo),
           isWinner,
         }),
         coinDelta,
@@ -227,7 +228,6 @@ function onTap(
     ...me,
     found: [...me.found, hit],
     combo,
-    comboBonus: me.comboBonus + comboScoreBonus(combo),
   };
   next[other] = { ...next[other], combo: 0 };
 
@@ -275,6 +275,7 @@ function onSkill(
 
   const skill = skillById(skillId);
   if (!skill || state[slot].level < skill.unlockLevel) return noChange(state);
+  if (ctx.now < state[slot].skillActiveUntil) return noChange(state);
 
   const attacker = state[slot];
   const other = opponentOf(slot);
@@ -288,6 +289,7 @@ function onSkill(
   });
 
   const next = cloneState(state);
+  next[slot] = { ...next[slot], skillActiveUntil: ctx.now + durationMs };
   next[other] = { ...next[other], blindedUntil: ctx.now + durationMs };
   return {
     state: next,

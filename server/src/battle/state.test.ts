@@ -13,7 +13,6 @@ function newBattle() {
     assignment: assignPuzzle(puzzles, createRng(1)),
     p1: { name: 'alice', level: 10, isAi: false },
     p2: { name: 'bot', level: 10, isAi: true },
-    startedAt: 0,
   });
 }
 
@@ -34,7 +33,12 @@ describe('createBattle', () => {
 
   it('양쪽 모두 준비 전 · 0 개 발견 · 콤보 0 이다', () => {
     for (const slot of ['p1', 'p2'] as const) {
-      expect(battle[slot]).toMatchObject({ ready: false, found: [], combo: 0, comboBonus: 0 });
+      expect(battle[slot]).toMatchObject({
+        ready: false,
+        found: [],
+        combo: 0,
+        skillActiveUntil: 0,
+      });
     }
   });
 

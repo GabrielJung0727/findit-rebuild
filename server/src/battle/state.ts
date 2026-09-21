@@ -23,11 +23,12 @@ export interface PlayerState {
   /** 이 플레이어가 찾은 rect 인덱스 (발견 순서). */
   found: number[];
   combo: number;
-  comboBonus: number;
   /** 오답 후 입력이 잠기는 절대 시각. 지났으면 잠금 없음. */
   lockedUntil: number;
   /** 상대 스킬로 화면이 가려지는 절대 시각. */
   blindedUntil: number;
+  /** 이 플레이어의 스킬 효과가 끝나는 절대 시각. */
+  skillActiveUntil: number;
   /** 아이템 보정 — P0 는 0. Plan 3 의 인벤토리가 채운다. */
   itemAttackBonusMs: number;
   itemDefenseReductionMs: number;
@@ -65,7 +66,6 @@ export interface CreateBattleParams {
   assignment: PuzzleAssignment;
   p1: CreatePlayerParams;
   p2: CreatePlayerParams;
-  startedAt: number;
 }
 
 function createPlayer({ name, level, isAi }: CreatePlayerParams): PlayerState {
@@ -77,9 +77,9 @@ function createPlayer({ name, level, isAi }: CreatePlayerParams): PlayerState {
     ready: false,
     found: [],
     combo: 0,
-    comboBonus: 0,
     lockedUntil: 0,
     blindedUntil: 0,
+    skillActiveUntil: 0,
     itemAttackBonusMs: 0,
     itemDefenseReductionMs: 0,
   };

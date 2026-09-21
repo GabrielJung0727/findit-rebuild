@@ -2072,6 +2072,28 @@ describe('URL 은 포트에서만 나온다 — 스펙 §6.3', () => {
   });
 });
 
+describe('매치 마감 경계', () => {
+  it('마감 1ms 전의 TAP 은 인정된다', () => {
+    const s = playing();
+    const { x, y } = centerOfUnrevealed(s);
+    const r = reduce(
+      s, { kind: 'TAP', slot: 'p1', x, y },
+      ctx(s.playStartedAt + MATCH_DURATION_MS - 1),
+    );
+    expect(r.outbound.some((o) => o.type === 'REVEAL')).toBe(true);
+  });
+
+  it('정확히 마감 시각의 TAP 은 무시된다 — 플레이 구간은 [start, start+40000)', () => {
+    // TIMER 종료가 >= 이므로 TAP 도 >= 로 잘라야 한다. 아니면 t=40000 에
+    // 도착한 두 이벤트의 순서가 승패를 바꾼다.
+    const s = playing();
+    const { x, y } = centerOfUnrevealed(s);
+    const r = reduce(s, { kind: 'TAP', slot: 'p1', x, y }, ctx(s.playStartedAt + MATCH_DURATION_MS));
+    expect(r.outbound).toEqual([]);
+    expect(r.state.p1.found).toEqual([]);
+  });
+});
+
 describe('wakeAt 은 상태에서 파생된다', () => {
   it('PLAYING 중 무시된 이벤트도 종료 예약을 유지한다 — 40초 타이머가 사라지면 안 된다', () => {
     let s = playing();
@@ -2093,8 +2115,9 @@ describe('wakeAt 은 상태에서 파생된다', () => {
 
   it('WAITING 과 ENDED 에서는 예약이 없다', () => {
     expect(nextWakeAt(fresh())).toBeNull();
-    const ended = reduce(playing(), { kind: 'LEAVE', slot: 'p2' }, ctx(COUNTDOWN_MS + 1)).state;
-    expect(nextWakeAt(ended)).toBeNull();
+    // ENDED 로 가는 경로(LEAVE·종료 판정)는 Task 9 가 붙인다. 여기서는
+    // nextWakeAt 의 계약만 보면 되므로 상태를 직접 구성한다.
+    expect(nextWakeAt({ ...playing(), phase: 'ENDED' })).toBeNull();
   });
 
   it('COUNTDOWN 에서는 카운트다운 종료 시각이다', () => {
@@ -2289,7 +2312,10 @@ function onTap(
 ): ReduceResult {
   if (s.phase !== 'PLAYING') return noChange(s);
   // 권위 시계로 범위를 검증한다. 클라가 보낸 시각은 쓰지 않는다.
-  if (ctx.now < s.playStartedAt || ctx.now > playDeadline(s)) return noChange(s);
+  // 플레이 구간은 반개구간 [playStartedAt, playStartedAt + 40000) 이다.
+  // 마감 정각에 >= 로 자르지 않으면, TIMER 종료(>=)와 경계가 어긋나 t=40000 에
+  // 도착한 TAP 과 TIMER 중 무엇이 먼저냐로 승패가 갈린다.
+  if (ctx.now < s.playStartedAt || ctx.now >= playDeadline(s)) return noChange(s);
   if (ctx.now < s[slot].lockedUntil) return noChange(s);
 
   const hit = hitTest(s.assignment, s.targetIndices, s.revealed, x, y);
@@ -2367,7 +2393,7 @@ export function reduce(
 - [ ] **Step 4: 테스트 통과 확인**
 
 Run: `npx vitest run server/src/battle/reducer.test.ts`
-Expected: PASS — 28 tests. 특히 다음 넷이 통과해야 한다: `START 페이로드에 좌표가 들어가지 않는다`, `포트를 부르지 않고는 REVEAL 을 만들 수 없다`, `PLAYING 중 무시된 이벤트도 종료 예약을 유지한다`, `리듀서가 입력 상태를 변형하지 않는다`.
+Expected: PASS — 30 tests. 특히 다음 넷이 통과해야 한다: `START 페이로드에 좌표가 들어가지 않는다`, `포트를 부르지 않고는 REVEAL 을 만들 수 없다`, `PLAYING 중 무시된 이벤트도 종료 예약을 유지한다`, `리듀서가 입력 상태를 변형하지 않는다`.
 
 - [ ] **Step 5: 커밋**
 
@@ -2587,6 +2613,19 @@ describe('종료 — 40 초 만료', () => {
     for (const o of r.outbound.filter((x) => x.type === 'END')) {
       expect(o.payload).toMatchObject({ result: 'draw', coinDelta: 1 });
     }
+  });
+
+  it('마감 정각의 TAP 이 승패를 뒤집지 못한다 — TAP 과 TIMER 의 경계가 같다', () => {
+    let s = playing();
+    s = tapNext(s, 'p2', T0 + 100); // p2 가 1 개로 앞선다
+    const atDeadline = s.playStartedAt + MATCH_DURATION_MS;
+
+    const index = s.targetIndices.find((i) => !s.revealed.includes(i))!;
+    const rect = s.assignment.puzzle.rects.find((r) => r.index === index)!;
+    s = reduce(s, { kind: 'TAP', slot: 'p1', x: rect.x + 1, y: rect.y + 1 }, ctx(atDeadline)).state;
+    expect(s.p1.found).toEqual([]); // 마감 정각 TAP 은 무시된다
+
+    expect(reduce(s, { kind: 'TIMER' }, ctx(atDeadline)).state.winner).toBe('p2');
   });
 
   it('만료 전 TIMER 는 종료시키지 않는다', () => {

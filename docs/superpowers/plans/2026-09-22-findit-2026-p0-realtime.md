@@ -134,6 +134,10 @@ server/src/
 
 **Review Focus 3 — 계획이 선점당하는 경우.** `planAiAction` 은 계획 시점의 남은 대상 중 하나를 골라 그 중심 좌표를 `TAP` 으로 만든다. 발화 전에 사람이 그 rect 를 찾으면 그 탭은 MISS 가 되고 AI 는 2 초 잠긴다 — 사람이 빠를수록 AI 가 약해진다. **발화 시점에 `hitTest` 로 대상이 아직 살아 있는지 확인하고, 사라졌으면 누르지 말고 다시 계획한다.**
 
+> **이 계약도 검사가 까다롭다.** 사람이 노출 대상 5 개를 **전부** 찾게 하면 리듀서가 즉시 `ENDED` 로 넘기고(`reducer.ts` 의 `found.length >= targetIndices.length`) `finish()` 가 AI 예약을 취소한다. 그러면 재검증이 있든 없든 AI 콜백이 발화하지 않아 테스트가 통과한다. **AI 가 노리는 대상 하나만 빼앗고 나머지는 남겨 매치를 `PLAYING` 으로 유지해야 한다.** 그러려면 AI 가 무엇을 언제 노리는지 테스트가 알아야 하므로 결정적 `Rng` 를 주입한다.
+>
+> 설계를 **실제 리듀서로 돌려 확인했다.** `aiFindDelayMs(10, fixedRng)` 은 정확히 `6700`ms 다. 사람이 `targetIndices[0]` 하나만 찾으면 `phase=PLAYING`, 남은 대상 4 개로 매치가 살아 있다. 그 시점의 `hitTest` 는 `null` 을 주므로 올바른 구현은 건너뛰고 `lockedUntil` 이 `0` 으로 남고, 변이가 그대로 누르면 `lockedUntil` 이 `+2000`ms 로 올라간다 — 단언이 그 차이를 잡는다.
+
 - [ ] **Step 1: 실패하는 테스트 작성**
 
 `server/src/match/runner.test.ts`:
@@ -141,7 +145,7 @@ server/src/
 ```typescript
 import { describe, expect, it } from 'vitest';
 import { TestClock } from '../platform/clock.js';
-import { createRng } from '../platform/rng.js';
+import { createRng, type Rng } from '../platform/rng.js';
 import { assignPuzzle } from '../content/assigner.js';
 import { createBattle, MATCH_DURATION_MS, COUNTDOWN_MS, type BattleState } from '../battle/state.js';
 import type { MessageType } from '@findit/protocol';
@@ -197,10 +201,22 @@ const puzzle: Puzzle = {
 
 interface Sent { slot: string; type: MessageType; payload: Record<string, unknown> }
 
-function harness(opts: { p2Ai: boolean; seed?: number }) {
+/**
+ * 결정적 Rng. AI 의 대상과 발화 시각을 테스트가 알 수 있게 한다.
+ *   · float = 0.5 → 지터 0 → level 10 의 지연이 정확히 6700ms
+ *   · pick = 첫 원소 → AI 의 대상이 targetIndices[0]
+ * 상태가 없으므로 reduce 와 공유해도 값이 흔들리지 않는다.
+ */
+const fixedRng: Rng = {
+  float: () => 0.5,
+  int: () => 0,
+  pick: <T,>(items: readonly T[]): T => items[0]!,
+};
+
+function harness(opts: { p2Ai: boolean; seed?: number; rng?: Rng }) {
   const clock = new TestClock(1_000_000);
   const scheduler = new TestScheduler();
-  const rng = createRng(opts.seed ?? 42);
+  const rng = opts.rng ?? createRng(opts.seed ?? 42);
   const sent: Sent[] = [];
   const ended: { state: BattleState; ends: EndPayloads }[] = [];
 
@@ -355,21 +371,40 @@ describe('매치 러너 — AI 구동', () => {
     expect(firstFindAt! - playStartedAt).toBeLessThanOrEqual(MAX_AI_DELAY_MS + TAP_INTERVAL_MS);
   });
 
-  it('계획한 rect 를 사람이 먼저 찾으면 AI 는 그것을 누르지 않는다 — 부당한 잠금 금지', () => {
-    const h = harness({ p2Ai: true, seed: 3 });
+  it('계획한 대상 하나만 사람이 먼저 찾아도 AI 는 그것을 누르지 않는다 — 부당한 잠금 금지', () => {
+    // **대상 5 개를 전부 찾게 하면 안 된다.** 한 사람이 5 개를 채우는 순간
+    // 리듀서가 ENDED 로 넘기고(reducer.ts 의 found.length >= targetIndices.length),
+    // finish() 가 AI 예약을 취소해 버린다. 그러면 재검증이 있든 없든 콜백이
+    // 발화하지 않아 lockedUntil 이 0 인 채로 통과한다 — 아무것도 증명하지 못한다.
+    //
+    // AI 가 노리는 **그 하나만** 빼앗고 나머지는 남겨 매치를 PLAYING 으로 둔다.
+    //
+    // fixedRng 가 둘을 결정적으로 만든다:
+    //   · pick → items[0] 이므로 AI 의 대상은 targetIndices[0] 이다.
+    //   · float → 0.5 이므로 지터가 0, level 10 의 지연은 정확히 6700ms 다
+    //     ((7 - 10*0.03) * 1.0 초 — rules/ai.ts).
+    const AI_DELAY_MS = 6_700;
+
+    const h = harness({ p2Ai: true, rng: fixedRng });
     h.runner.start();
     h.runner.submit({ kind: 'READY', slot: 'p1' });
     h.runner.submit({ kind: 'READY', slot: 'p2' });
     h.scheduler.runUntil(h.clock, h.clock.now() + COUNTDOWN_MS);
+    const playStartedAt = h.clock.now();
 
-    // 사람이 노출 대상 5개를 전부 먼저 찾아 버린다. AI 의 계획은 모두 무효가 된다.
-    for (const index of h.runner.state.targetIndices) {
-      h.runner.submit({ kind: 'TAP', slot: 'p1', ...rectCenter(index) });
-    }
-    h.scheduler.runUntil(h.clock, h.clock.now() + 20_000);
+    const aiTarget = h.runner.state.targetIndices[0]!;
+    h.runner.submit({ kind: 'TAP', slot: 'p1', ...rectCenter(aiTarget) });
 
-    // 재검증 없이 그대로 눌렀다면 MISS 로 lockedUntil 이 올라간다.
-    // 대상이 다 사라졌으므로 AI 는 한 번도 누르지 않아야 한다.
+    // 아직 4 개가 남아 매치가 살아 있어야 한다. 이 단언이 없으면 위 주석의
+    // 함정에 다시 빠져도 알아채지 못한다.
+    expect(h.runner.state.phase).toBe('PLAYING');
+    expect(h.runner.state.p1.found).toHaveLength(1);
+
+    // AI 의 예정 시각을 막 지난 지점. 재계획된 다음 발화(+6700ms)는 아직 멀다.
+    h.scheduler.runUntil(h.clock, playStartedAt + AI_DELAY_MS + 100);
+
+    // **이 단언이 변이를 잡는다.** 재검증이 없으면 이미 찾힌 rect 를 눌러
+    // MISS 가 되고 2 초 잠긴다 (lockedUntil = 발화시각 + 2000).
     expect(h.runner.state.p2.lockedUntil).toBe(0);
     expect(h.runner.state.p2.found).toHaveLength(0);
   });
@@ -652,7 +687,7 @@ Expected: PASS — 11 tests.
 
 | 변이 | 깨지는 테스트 |
 |---|---|
-| `scheduleAi` 의 `hitTest` 재검증 블록 제거 | `계획한 rect 를 사람이 먼저 찾으면…` |
+| `scheduleAi` 의 `hitTest` 재검증 블록 제거 | `계획한 대상 하나만 사람이 먼저 찾아도…` |
 | `submit` 끝에서 무조건 `scheduleAi` 재호출 | `사람이 계속 탭해도 AI 의 예정 시각이 미뤄지지 않는다` |
 | `finish` 에서 `clearAll()` 제거 | `매치가 끝나면 예약이 하나도 남지 않는다` |
 | `abort` 가 `onEnd` 를 부르게 변경 | `abort 는 END 를 보내지도 onEnd 를 부르지도 않는다` |

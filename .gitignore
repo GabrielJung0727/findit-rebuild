@@ -7,18 +7,43 @@
 /apk_analysis.iml
 
 # Gradle
-android_project/.gradle/
-android_project/build/
-android_project/app/build/
-android_project/captures/
-android_project/.cxx/
+legacy/android_project/.gradle/
+legacy/android_project/build/
+legacy/android_project/app/build/
+legacy/android_project/captures/
+legacy/android_project/.cxx/
 
 # Android Studio per-machine config (SDK path, signing keys)
-android_project/local.properties
+legacy/android_project/local.properties
 
 # Compiled / generated
-android_project/**/*.class
+legacy/android_project/**/*.class
 out/
 
 # Logs
 *.log
+
+# 서명 키스토어 — 절대 커밋 금지
+*.keystore
+*.jks
+
+# Flutter / Dart 빌드 산출물
+legacy/client_flutter/build/
+legacy/client_flutter/.dart_tool/
+app/build/
+app/.dart_tool/
+
+# Node
+node_modules/
+
+# 에셋 파이프라인 산출물 (tools 로 재생성 가능)
+content/images/
+app/assets/legacy/
+app/assets/audio/
+
+# TypeScript 증분 빌드 정보
+*.tsbuildinfo
+
+# TypeScript composite 빌드 산출물 (tsc -b 가 각 워크스페이스에 생성)
+tools/dist/
+packages/*/dist/

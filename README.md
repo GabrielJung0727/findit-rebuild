@@ -79,78 +79,73 @@
 
 ## 프로젝트 구조
 
+> **2026 재개발 진행 중.** 2012 원작과 v1 재구축본은 `legacy/` 아래로 격리했고, 루트에는
+> 2026 버전을 새로 세우는 중입니다. 설계는 [스펙](docs/superpowers/specs/2026-09-18-findit-2026-p0-design.md),
+> 진행 계획은 [Plan 1](docs/superpowers/plans/2026-09-18-findit-2026-p0-foundation.md)을 보세요.
+
 ```
 findit-rebuild/
-├── client_flutter/          # 신규 Flutter 클라 (정식)
-│   ├── lib/
-│   │   ├── api/             # REST/WS/IAP/Push wrappers (10 모듈)
-│   │   ├── game/            # GameController + Painter + ImageSet (게임 루프)
-│   │   ├── screens/         # 13 screens (Login → Game → Result)
-│   │   ├── state/           # Riverpod providers (auth/lobby)
-│   │   ├── l10n/            # ARB 한·영 145 키
-│   │   └── util/            # Property/Constants/Validation/AssetPaths
-│   ├── test/                # 106 tests
-│   ├── tools/               # strings_xml_to_arb.js (안드 리소스 → ARB 변환)
-│   └── assets/images/       # 안드 drawable 에서 추출한 임시 자산
-├── server/
-│   ├── src/
-│   │   ├── routes/          # 27 endpoints (member/skills/economy/iap/ads/…)
-│   │   ├── socket/          # handlers.js + server.js (TCP) + ws_server.js (WS)
-│   │   └── util/            # balance/iap/fcm/recaptcha/validation
-│   ├── sql/
-│   │   ├── schema.sql       # 8 tables
-│   │   └── migrations/      # 4 (skills, priority2, image_ad_caption, iap_apple)
-│   └── scripts/             # validate-image-set.js (콘텐츠 가이드 검증기)
-├── android_project/         # 디컴파일 원본 — reference 만 (정식 클라 X)
-├── decoded_apk/, jadx_output/, game.apk
-├── docs/
-│   ├── 04-24.md             # 1·2 순위 (서버 + 게임 룰) 체크리스트
-│   ├── 04-26.md             # iOS+Android 도입 16 섹션 체크리스트
-│   ├── CONTENT_PRODUCTION_GUIDE.md  # 외주 디자이너용 콘텐츠 제작 가이드
-│   ├── RELEASE.md           # 출시 절차 + 시크릿 매트릭스
-│   └── (원본 기획서 .xlsx/.docx)
-├── codemagic.yaml           # iOS+Android 자동 출시
-└── .github/workflows/ci.yml # PR/main 분석·테스트
+├── tools/src/               # 에셋 파이프라인 (원작 → content/, app/assets/)
+│   ├── java-constants.ts    #   jadx 상수 심볼 역치환
+│   ├── puzzle-parser.ts     #   Objects.java → 퍼즐 30세트 / rect 262개
+│   ├── paths.ts
+│   └── bin/                 #   extract-puzzles · extract-images · extract-assets
+├── packages/protocol/       # 클라·서버 공유 WS 메시지 (단일 선언 → TS 검증기 + Dart 생성)
+│   ├── src/schema.ts        #   메시지 17종 (c2s 7 + s2c 10)
+│   ├── src/validate.ts      #   decodeEnvelope / encodeEnvelope
+│   └── tools/gen-dart.ts    #   → app/lib/domain/protocol.g.dart
+├── content/puzzles/         # 좌표 JSON 30개 + manifest (추적됨)
+├── content/images/          # WebP 292장 (생성물, 미추적)
+├── app/                     # Flutter 클라 — Plan 3 에서 구축
+├── server/                  # Node + TS 서버 — Plan 2 에서 구축
+├── docs/superpowers/        # 스펙 · 구현 계획
+└── legacy/                  # 읽기 전용 아카이브
+    ├── android_project/     #   2012 원작 디컴파일 (좌표·공식 진실 출처)
+    ├── decoded_apk/         #   원본 에셋 (PNG 481 + OGG 11)
+    ├── client_flutter/      #   v1 Flutter 재구축본
+    ├── server/              #   v1 Node 서버
+    └── artifacts/           #   *.apk, *.zip
 ```
 
 ## 빠른 시작
 
-### 1. 서버
+Node 24 LTS 필요 (`.nvmrc` 참조).
 
 ```bash
-cd server
-npm install
-docker compose up -d         # MySQL 8 컨테이너
-npm run db:init              # 스키마 + 시드
-npm run dev                  # http://localhost:8080
+npm ci
+npm test                     # 67 tests
+npm run typecheck
 ```
 
-테스트 계정: `test@findit.com` / `1234`
-어드민: http://localhost:8080/admin/ui (token: `dev-admin-token-change-me`)
+### 에셋 파이프라인
 
-### 2. 클라이언트
+원작 APK에서 퍼즐 좌표·이미지·UI·효과음을 전부 재생성합니다. 결정론적이라 몇 번을
+돌려도 같은 바이트가 나옵니다.
 
 ```bash
-cd client_flutter
-flutter pub get
-flutter gen-l10n
-flutter run                  # 에뮬레이터/실기기 자동 감지
+npm run content:all          # puzzles → images → assets
 ```
 
-서버 URL 오버라이드:
-```bash
-flutter run --dart-define=FINDIT_SERVER_DOMAIN=https://api.findit.example/ \
-            --dart-define=FINDIT_WS_URL=wss://api.findit.example/ws
-```
+| 산출물 | 내용 |
+|---|---|
+| `content/puzzles/` | 퍼즐 30세트, rect 262개 + 매니페스트 (git 추적) |
+| `content/images/` | WebP 292장 — 베이스 30 + 패치 262 (27MB → 4.5MB) |
+| `app/assets/legacy/` | UI·캐릭터·아이템·이펙트 PNG 189장 (9-patch 8장 포함) |
+| `app/assets/audio/` | 효과음 OGG 11개 |
 
-### 3. 검증
+### 프로토콜 Dart 바인딩
 
 ```bash
-cd client_flutter
-flutter analyze              # 0 issues
-flutter test                 # 106 tests
-flutter build apk --debug    # ~13s 캐시 후
+npm run protocol:dart        # schema.ts → app/lib/domain/protocol.g.dart
 ```
+
+생성물은 커밋되며, 드리프트는 테스트가 막습니다 — `schema.ts`를 고치고 재생성을 잊으면
+`npm test`가 실패합니다.
+
+### v1 (아카이브)
+
+`legacy/client_flutter`, `legacy/server`는 참조용 동결본입니다. 실행 방법은
+[`docs/wiki/`](docs/wiki/)를 보세요 — 경로 앞에 `legacy/`를 붙여야 합니다.
 
 ## 게임 디자인 보존 사항
 
@@ -178,7 +173,7 @@ flutter build apk --debug    # ~13s 캐시 후
 원본 안드 `strings.xml` 145개 키를 **양방향 보존**한 채로 Flutter ARB 로 이식.
 
 ```bash
-node client_flutter/tools/strings_xml_to_arb.js
+node legacy/client_flutter/tools/strings_xml_to_arb.js
 # en keys: 145
 # ko keys: 145
 # parity OK — 145 keys both sides
@@ -232,7 +227,7 @@ git push origin v1.0.0
 
 ## 라이선스 / 법적 사항
 
-본 저장소의 신규 저작물 (`client_flutter/`, `server/`, `docs/`, `.github/` 등) 은 **FindIt: Rebuild Proprietary License v1.0** 하에 배포됩니다 — **All Rights Reserved**, 제한적 fair use 만 허용.
+본 저장소의 신규 저작물 (`tools/`, `packages/`, `app/`, `server/`, `legacy/client_flutter/`, `legacy/server/`, `docs/`, `.github/` 등) 은 **FindIt: Rebuild Proprietary License v1.0** 하에 배포됩니다 — **All Rights Reserved**, 제한적 fair use 만 허용.
 
 | 행위 | 허용? |
 |---|:---:|

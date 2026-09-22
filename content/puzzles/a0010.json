@@ -1,0 +1,87 @@
+{
+  "id": "a0010",
+  "width": 640,
+  "height": 720,
+  "rects": [
+    {
+      "index": 0,
+      "x": 52,
+      "y": 277,
+      "w": 80,
+      "h": 80,
+      "sourceDrawable": "a0010_01"
+    },
+    {
+      "index": 1,
+      "x": 380,
+      "y": 274,
+      "w": 80,
+      "h": 80,
+      "sourceDrawable": "a0010_02"
+    },
+    {
+      "index": 2,
+      "x": 277,
+      "y": 373,
+      "w": 120,
+      "h": 120,
+      "sourceDrawable": "a0010_03"
+    },
+    {
+      "index": 3,
+      "x": 483,
+      "y": 450,
+      "w": 100,
+      "h": 100,
+      "sourceDrawable": "a0010_04"
+    },
+    {
+      "index": 4,
+      "x": 180,
+      "y": 389,
+      "w": 100,
+      "h": 100,
+      "sourceDrawable": "a0010_05"
+    },
+    {
+      "index": 5,
+      "x": 94,
+      "y": 405,
+      "w": 90,
+      "h": 90,
+      "sourceDrawable": "a0010_06"
+    },
+    {
+      "index": 6,
+      "x": 8,
+      "y": 420,
+      "w": 80,
+      "h": 80,
+      "sourceDrawable": "a0010_07"
+    },
+    {
+      "index": 7,
+      "x": 189,
+      "y": 490,
+      "w": 80,
+      "h": 80,
+      "sourceDrawable": "a0010_08"
+    },
+    {
+      "index": 8,
+      "x": 225,
+      "y": 221,
+      "w": 80,
+      "h": 80,
+      "sourceDrawable": "a0010_09"
+    },
+    {
+      "index": 9,
+      "x": 158,
+      "y": 0,
+      "w": 80,
+      "h": 80,
+      "sourceDrawable": "a0010_10"
+    }
+  ]
+}

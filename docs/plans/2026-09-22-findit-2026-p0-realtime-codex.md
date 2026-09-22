@@ -2325,7 +2325,9 @@ EOF
 - `player_profile.coins += coin_delta`
 - `exp_delta` 는 `match_history` 에 기록만 한다. 프로필에 자리가 없다 — 별도 축으로 만들지는 P1 이 정한다.
 
-**Review Focus 1 — 게스트.** 게스트는 `account` 행이 없다. `match_history.account_id` 는 `account(id)` 를 참조하는 FK 이고(널 허용), `player_profile` 행도 없다. 그대로 INSERT 하면 **FK 위반으로 터지고 매치 종료 경로 전체가 죽는다.** 게스트는 `account_id = NULL` 로 전적만 남기고 프로필 갱신은 건너뛴다.
+**Review Focus 1 — 게스트.** 게스트는 `account` 행이 없다. `match_history.account_id` 는 `account(id)` 를 참조하는 FK 이고(널 허용), `player_profile` 행도 없다. 게스트는 `account_id = NULL` 로 전적만 남기고 프로필 갱신은 건너뛴다.
+
+> **이 계약은 결과로 검사되지 않는다.** 가드를 지워도 `WHERE account_id = NULL` 은 아무 행도 찾지 못해 조용히 `null` 을 돌려주고, 전적 INSERT 는 그대로 성공한다 — 반환값도 남는 행도 똑같다. `player_profile` 을 **건드리지 않았다** 는 사실은 질의 기록으로만 잡힌다.
 
 **Review Focus 2 — `bigint` 가 문자열로 온다.** `player_profile.total_score` 와 `coins` 는 `bigint` 다. node-postgres 는 `int8` 을 **문자열로** 준다 — `"100" + 5 === "1005"` 다. Plan 3 에서 같은 계열(다중 문장 질의가 배열을 돌려주는 것)에 한 번 당했다. **덧셈을 SQL 안에서 하고**, 읽어 온 값은 반드시 `Number(...)` 로 좁힌다. `LEVEL_SCORE` 의 최댓값은 약 6.6 억이라 `Number` 정밀도에 안전하다.
 
@@ -2428,6 +2430,30 @@ suite('정산 영속화', () => {
     return accountId;
   }
 
+  /**
+   * 질의 종류만 기록하는 Db 래퍼. 실제 질의는 그대로 흘려보낸다.
+   *
+   * "무엇을 하지 않았는가" 와 "어떤 순서로 했는가" 는 결과 값으로 잡히지
+   * 않는다. 이 저장소에서 반복해서 당한 형태라, 두 계약 모두 호출 기록으로
+   * 본다.
+   */
+  function recording(inner: Db, seen: string[]): Db {
+    const note = (sql: string): void => {
+      if (/player_profile/i.test(sql)) seen.push('profile');
+      if (/match_history/i.test(sql)) seen.push('history');
+    };
+    return {
+      query<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<T[]> {
+        note(sql);
+        return inner.query<T>(sql, params);
+      },
+      tx<T>(fn: (d: Db) => Promise<T>): Promise<T> {
+        return inner.tx((t) => fn(recording(t, seen)));
+      },
+      close(): Promise<void> { return inner.close(); },
+    };
+  }
+
   const row = (over: Partial<SettlementRow> = {}): SettlementRow => ({
     accountId: null, matchId: matchId(), puzzleId: 'a0001',
     result: 'win', foundCount: 3, opponentFound: 2,
@@ -2489,15 +2515,23 @@ suite('정산 영속화', () => {
     expect(afterFlat!.skill_points).toBe(1);
   });
 
-  it('게스트는 전적만 남기고 프로필을 건드리지 않는다 — account 행이 없다', async () => {
+  it('게스트는 전적만 남기고 프로필을 아예 조회하지 않는다 — account 행이 없다', async () => {
     const r = row({ accountId: null });
+    const seen: string[] = [];
+
     // FK 위반으로 던지면 매치 종료 경로 전체가 죽는다.
-    await expect(persistSettlement(db, r)).resolves.toBeNull();
+    await expect(persistSettlement(recording(db, seen), r)).resolves.toBeNull();
 
     const [saved] = await db.query<{ account_id: string | null }>(
       `SELECT account_id FROM match_history WHERE match_id = $1`, [r.matchId],
     );
     expect(saved!.account_id).toBeNull();
+
+    // **이 단언이 가드를 잡는다.** accountId === null 가드를 지우면
+    // WHERE account_id = NULL 로 player_profile 을 조회하게 되는데, 그 조건은
+    // 아무 행도 찾지 못해 조용히 null 을 돌려준다 — 반환값도 전적도 똑같다.
+    // 결과로는 구별되지 않고, "건드리지 않았다" 는 기록으로만 잡힌다.
+    expect(seen).toEqual(['history']);
   });
 
   it('전적과 프로필이 한 트랜잭션이다', async () => {
@@ -2518,21 +2552,7 @@ suite('정산 영속화', () => {
     const accountId = await newAccount();
     const seen: string[] = [];
 
-    // db 를 감싸 질의 순서만 기록한다. 실제 질의는 그대로 흘려보낸다.
-    const record = (sql: string): void => {
-      if (/UPDATE\s+player_profile/i.test(sql)) seen.push('profile');
-      if (/INSERT\s+INTO\s+match_history/i.test(sql)) seen.push('history');
-    };
-    const spy = (inner: Db): Db => ({
-      query<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<T[]> {
-        record(sql);
-        return inner.query<T>(sql, params);
-      },
-      tx<T>(fn: (d: Db) => Promise<T>): Promise<T> { return inner.tx((t) => fn(spy(t))); },
-      close(): Promise<void> { return inner.close(); },
-    });
-
-    await persistSettlement(spy(db), row({ accountId }));
+    await persistSettlement(recording(db, seen), row({ accountId }));
 
     // 순서를 뒤집으면 `전적과 프로필이 한 트랜잭션이다` 가 db.tx 를 지워도
     // 통과하게 된다 — 검사가 조용히 무력화된다. 그래서 순서 자체를 못 박는다.
@@ -2754,7 +2774,7 @@ Expected: PASS — **12 tests** (순수 4 + DB 8).
 | `foundCount` 를 `me.found.length` 로 되돌림 | `사람 둘이면 두 행이 나오고 숫자는 END 페이로드에서 온다` |
 
 > **순서 변경은 단독으로는 `전적과 프로필이 한 트랜잭션이다` 를 깨뜨리지 않는다.** 트랜잭션이 살아 있는 한 어느 순서든 롤백되기 때문이다. 순서가 중요한 이유는 그 검사를 **살려 두기 위해서**다 — 순서를 뒤집고 `db.tx` 까지 지우면 둘 다 통과해 버린다. 그래서 순서 자체를 별도 테스트로 못 박았다.
-| `accountId === null` 가드 제거 | `게스트는 전적만 남기고…` (FK 위반으로 던진다) |
+| `accountId === null` 가드 제거 | `게스트는 전적만 남기고 프로필을 아예 조회하지 않는다` |
 | `GREATEST(0, ...)` 제거 | `점수는 음수로 내려가지 않는다` (CHECK 위반) |
 
 - [ ] **Step 5: 커밋**

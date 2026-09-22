@@ -1015,6 +1015,7 @@ interface Harness {
   url: string;
   inputs: { conn: Conn; input: GameInput }[];
   joins: string[];
+  leaves: number;
   closed: number;
   logged: string[];
   stop(): Promise<void>;
@@ -1025,6 +1026,7 @@ async function start(overrides: Partial<GatewayDeps> = {}): Promise<Harness> {
   const joins: string[] = [];
   const logged: string[] = [];
   let closed = 0;
+  let leaves = 0;
 
   const server: Server = createServer();
   const deps: GatewayDeps = {
@@ -1033,7 +1035,7 @@ async function start(overrides: Partial<GatewayDeps> = {}): Promise<Harness> {
     verify: async (token: string) =>
       token === 'good' ? { kind: 'account', accountId: 'acc-1' } : null,
     onJoin: async (_conn, mode) => { joins.push(mode); },
-    onLeaveQueue: async () => {},
+    onLeaveQueue: async () => { leaves += 1; },
     onGameInput: (conn, input) => { inputs.push({ conn, input }); },
     onClose: () => { closed += 1; },
     ...overrides,
@@ -1046,6 +1048,7 @@ async function start(overrides: Partial<GatewayDeps> = {}): Promise<Harness> {
   return {
     url: `ws://127.0.0.1:${port}`,
     inputs, joins, logged,
+    get leaves() { return leaves; },
     get closed() { return closed; },
     async stop() {
       await gw.close();
@@ -1182,6 +1185,38 @@ describe('매치 이벤트 전달', () => {
     ws.send(frame('QUEUE_JOIN', { mode: 'casual' }));
     await new Promise((r) => setTimeout(r, 50));
     expect(h.joins).toEqual(['casual']);
+    ws.close();
+  });
+
+  it('QUEUE_LEAVE 가 큐 이탈로 넘어간다', async () => {
+    const ws = await open(h.url);
+    ws.send(frame('AUTH', { token: 'good' }));
+    await next(ws);
+    ws.send(frame('QUEUE_LEAVE'));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(h.leaves).toBe(1);
+    ws.close();
+  });
+
+  it('READY · SKILL · LEAVE 가 모두 아래로 넘어간다 — switch 에 빠진 갈래가 없다', async () => {
+    const ws = await open(h.url);
+    ws.send(frame('AUTH', { token: 'good' }));
+    await next(ws);
+    ws.send(frame('READY'));
+    ws.send(frame('SKILL', { skillId: 'hand_01' }));
+    ws.send(frame('LEAVE'));
+    await new Promise((r) => setTimeout(r, 80));
+
+    // c2s 7 종 중 이 셋은 여기서만 검증된다. switch 에서 갈래 하나를
+    // 빠뜨리면 default 로 떨어져 연결이 끊기는데, 그 결함은 Task 7 의
+    // 통합 테스트까지 드러나지 않는다.
+    expect(h.inputs.map((item) => item.input)).toEqual([
+      { kind: 'READY' },
+      { kind: 'SKILL', skillId: 'hand_01' },
+      { kind: 'LEAVE' },
+    ]);
+    // default 로 떨어졌다면 연결이 이미 닫혀 있다.
+    expect(ws.readyState).toBe(ws.OPEN);
     ws.close();
   });
 
@@ -1420,7 +1455,9 @@ export function attachGateway(
 - [ ] **Step 4: 통과 확인**
 
 Run: `npx vitest run server/src/ws/ && npm run typecheck`
-Expected: PASS — 13 tests.
+Expected: PASS — **14 tests.**
+
+c2s 7 종이 전부 한 번씩은 지나간다: `AUTH`(인증 4개) · `QUEUE_JOIN` · `QUEUE_LEAVE` · `TAP` · `READY`·`SKILL`·`LEAVE`(한 테스트에 묶음).
 
 **변이로 확인할 것:**
 
@@ -1429,6 +1466,8 @@ Expected: PASS — 13 tests.
 | `decodeEnvelope` 의 `'c2s'` 인자 제거 | `s2c 전용 메시지를 클라가 보내면 끊는다` |
 | `session.principal === null` 가드 제거 | `AUTH 전에 온 QUEUE_JOIN 은 처리되지 않는다` · `AUTH 전에 온 TAP 은…` |
 | `onGameInput` 에 `slot: 'p1'` 을 함께 실어 보냄 | `인증된 TAP 이 좌표 그대로 넘어간다` |
+| `switch` 에서 `case 'SKILL'` 갈래 제거 | `READY · SKILL · LEAVE 가 모두 아래로 넘어간다` |
+| `case 'QUEUE_LEAVE'` 갈래 제거 | `QUEUE_LEAVE 가 큐 이탈로 넘어간다` |
 
 - [ ] **Step 5: 커밋**
 
@@ -1462,6 +1501,10 @@ p2 의 탭이 p1 의 점수가 된다.
 
 소켓 error 리스너를 반드시 붙인다. ws 는 리스너가 없으면 프로세스 수준
 예외를 낸다 — 연결 하나의 오류로 서버가 죽는다.
+
+c2s 7 종이 전부 한 번씩은 테스트를 지나간다. switch 에서 갈래 하나를
+빠뜨리면 default 로 떨어져 연결이 끊기는데, 그 결함은 통합 테스트까지
+드러나지 않고 "READY 를 눌러도 아무 일도 안 난다" 로만 보인다.
 
 EOF
 )"

@@ -1710,7 +1710,7 @@ EOF
 
 **Files:**
 - Create: `server/src/content/urls.ts`, `server/src/content/manifest.ts`
-- Test: `server/src/content/urls.test.ts`
+- Test: `server/src/content/urls.test.ts`, `server/src/content/manifest.test.ts`
 
 **Interfaces:**
 - Consumes: Task 1 `AppConfig`, Plan 2 `ContentUrls` 인터페이스·`Clock`
@@ -1811,6 +1811,18 @@ describe('서명 검증', () => {
     expect(verifyContentUrl({ secret, clock }, p)).toBe(true);
   });
 
+  it('정확히 exp 인 순간 거부한다 — 반개구간이다', () => {
+    const { clock, urls } = make();
+    const p = parseContentUrl(urls.patch('m1', 2))!;
+    clock.advance(ttlMs);
+    // 경계에 정확히 서 있는지부터 확인한다. 안 그러면 이 테스트가
+    // 무엇을 보는지 알 수 없다.
+    expect(clock.now()).toBe(p.exp);
+    // now() >= exp 를 now() > exp 로 바꾸면 여기가 true 가 된다.
+    // -1ms 와 +1ms 만 보는 테스트는 그 변이를 놓친다.
+    expect(verifyContentUrl({ secret, clock }, p)).toBe(false);
+  });
+
   it('다른 키로 만든 서명을 거부한다', () => {
     const { clock, urls } = make();
     const p = parseContentUrl(urls.patch('m1', 2))!;
@@ -1835,6 +1847,87 @@ describe('열거 시나리오 — 스펙 §6.3', () => {
   });
 });
 ```
+
+
+`server/src/content/manifest.test.ts` — **`buildManifest` 는 Task 5 에서 단위 테스트를 받는다.**
+
+Task 6 의 라우트 테스트가 실제 퍼즐로 키 집합을 확인하긴 한다. 그래도 여기에 두는 이유는
+둘이다. Task 5 가 `manifest.ts` 를 **테스트 없이 커밋**하면 그 Task 의 리뷰가 결함을 잡을
+방법이 없고, 계약 위반이 한 Task 늦게 드러난다. 그리고 값 수준 검사는 여기서만 한다 —
+키 이름을 바꿔 좌표를 내보내는 변이는 키 집합 검사로 잡히지 않는다.
+
+```typescript
+import { describe, expect, it } from 'vitest';
+import { buildManifest } from './manifest.js';
+import type { Puzzle } from './types.js';
+
+// 좌표 값을 width·height 와 겹치지 않게 고른다. 그래야 "이 숫자가 JSON 에
+// 없다" 는 단언이 의미를 갖는다.
+const puzzles: readonly Puzzle[] = [
+  {
+    id: 'a0001', width: 480, height: 320,
+    rects: [
+      { index: 0, x: 11, y: 22, w: 33, h: 44, sourceDrawable: 'a0001_0' },
+      { index: 1, x: 55, y: 66, w: 77, h: 88, sourceDrawable: 'a0001_1' },
+      { index: 2, x: 99, y: 111, w: 122, h: 133, sourceDrawable: 'a0001_2' },
+    ],
+  },
+  {
+    id: 'a0002', width: 640, height: 576,
+    rects: [{ index: 0, x: 17, y: 29, w: 38, h: 51, sourceDrawable: 'a0002_0' }],
+  },
+];
+
+describe('클라이언트 매니페스트', () => {
+  it('버전과 퍼즐의 id·크기를 싣는다', () => {
+    const m = buildManifest(puzzles, 'v7');
+    expect(m.version).toBe('v7');
+    expect(m.puzzles).toEqual([
+      { id: 'a0001', width: 480, height: 320 },
+      { id: 'a0002', width: 640, height: 576 },
+    ]);
+  });
+
+  it('엔트리의 키가 정확히 id·width·height 뿐이다 — 스펙 §6.3', () => {
+    // toEqual 은 통과시키지만 이 검사는 통과시키지 않는 변이가 있다:
+    // `{ ...p, id: p.id }` 로 펼치면 rects 가 딸려 나온다.
+    for (const entry of buildManifest(puzzles, 'v7').puzzles) {
+      expect(Object.keys(entry).sort()).toEqual(['height', 'id', 'width']);
+    }
+  });
+
+  it('직렬화한 어디에도 좌표 값이 없다 — 스펙 §6.3', () => {
+    const json = JSON.stringify(buildManifest(puzzles, 'v7'));
+
+    // 필드 이름을 바꿔 내보내는 변이(`coords: p.rects`)는 키 집합 검사를
+    // 통과한다. 값을 직접 찾는 이유가 이것이다.
+    for (const v of [11, 22, 33, 44, 55, 66, 77, 88, 99, 111, 122, 133, 17, 29, 38, 51]) {
+      expect(json).not.toContain(String(v));
+    }
+    for (const key of ['rects', 'sourceDrawable', 'index']) {
+      expect(json).not.toContain(key);
+    }
+  });
+
+  it('rect 개수를 어떤 형태로도 싣지 않는다 — 스펙 §6.4', () => {
+    const m = buildManifest(puzzles, 'v7');
+    const json = JSON.stringify(m);
+    expect(json).not.toContain('Count');
+    // 개수는 배열 길이로도 샌다. 엔트리에 배열이 있으면 안 된다.
+    for (const entry of m.puzzles) {
+      for (const value of Object.values(entry)) {
+        expect(Array.isArray(value)).toBe(false);
+      }
+    }
+  });
+
+  it('퍼즐이 없어도 형태를 지킨다', () => {
+    expect(buildManifest([], 'v0')).toEqual({ version: 'v0', puzzles: [] });
+  });
+});
+```
+
+> 이 검사들은 **변이를 넣어 확인했다.** 정상 구현은 통과하고, `{ ...p }` 로 펼치는 변이·`coords: p.rects` 로 이름만 바꾸는 변이·길이만 노출하는 변이는 셋 다 실패한다. 고른 좌표 값(11·22·…·133·17·29·38·51)은 정상 JSON 의 어디에도 부분 문자열로 나타나지 않는다 — `480`·`320`·`640`·`576`·`a0001`·`v7` 과 겹치지 않게 골랐다.
 
 - [ ] **Step 2: 실패 확인**
 
@@ -1963,7 +2056,12 @@ export function buildManifest(puzzles: readonly Puzzle[], version: string): Clie
 - [ ] **Step 4: 통과 확인**
 
 Run: `npx vitest run server/src/content/ && npm run typecheck`
-Expected: PASS — urls 15 + 기존 content 테스트. 특히 `rect 0 의 URL 을 가진 클라가 rect 1~9 의 URL 을 만들 수 없다` 가 통과해야 한다.
+Expected: PASS — **urls 14 + manifest 5** + 기존 content 테스트.
+
+특히 다음 셋이 통과해야 한다. 셋 다 결함을 실제로 잡는 검사다:
+- `rect 0 의 URL 을 가진 클라가 rect 1~9 의 URL 을 만들 수 없다`
+- `정확히 exp 인 순간 거부한다` — `>=` 를 `>` 로 바꾸면 실패해야 한다
+- `직렬화한 어디에도 좌표 값이 없다` — `{ ...p }` 로 펼치면 실패해야 한다
 
 - [ ] **Step 5: 커밋**
 
@@ -1988,7 +2086,13 @@ Redis 사용 표시가 필요한데 이미지 로딩 재시도가 깨진다. 열
 막히고, 공격자가 얻는 것은 자기가 이미 맞힌 rect 의 URL 뿐이다.
 
 매니페스트에서 rect 개수를 뺀다. 인덱스 규칙과 함께 알려지면 URL 전체가
-계산 가능해진다.
+계산 가능해진다. 좌표는 말할 것도 없다.
+
+manifest 를 키 집합과 값 양쪽으로 검사한다. 키 집합만 보면 필드 이름을
+바꿔 내보내는 변이를 놓치고, 값만 보면 빈 배열 필드를 놓친다.
+
+만료 검사에 정확히 exp 인 순간을 넣는다. -1ms 와 +1ms 만 보면 now() >= exp
+를 now() > exp 로 바꾸는 변이가 살아남는다.
 EOF
 )"
 ```
@@ -2769,7 +2873,8 @@ Task 2 에서 한 번, Task 3 에서 두 번 걸렸다.
 2. `/health` 가 200 을 준다
 3. 게스트 세션을 발급받고 `/content/manifest` 를 받을 수 있다
 4. 서명된 콘텐츠 URL 로 이미지를 받고, **인덱스를 바꾸면 403** 이다
-5. 매니페스트에 좌표도 rect 개수도 없다
+5. 매니페스트에 좌표도 rect 개수도 없다 — 키 집합과 **직렬화된 값** 양쪽으로 확인한다
+5-1. 서명 URL 이 정확히 `exp` 인 순간 거부된다 — 만료는 반개구간이다
 6. 로그인 401 이 계정 존재 여부를 흘리지 않는다
 7. 스키마가 재실행 가능하다 — 두 번 적용해도 실패하지 않는다
 8. 세션 토큰 원문이 Postgres 에도 로그에도 남지 않는다

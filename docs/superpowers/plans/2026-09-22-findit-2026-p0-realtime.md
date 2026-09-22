@@ -19,6 +19,7 @@
 - **Node 24 LTS**, TypeScript 5.7 strict + `noUncheckedIndexedAccess` + **`verbatimModuleSyntax`**. `engines` 로 강제돼 있다.
   > `verbatimModuleSyntax` 때문에 **타입 전용 심볼은 반드시 `import type`** 이어야 한다. `import { AddressInfo } from 'node:net'` 처럼 쓰면 `TS1484` 로 typecheck 가 깨진다. `esModuleInterop` 은 켜져 있지 않지만 `moduleResolution: "bundler"` 가 `allowSyntheticDefaultImports` 를 함께 켜므로 `import WebSocket from 'ws'` 는 통과한다.
 - **모든 판정은 서버가 한다** (스펙 §10-3). 클라이언트가 보낸 시각은 판정에 쓰지 않는다.
+- **시간은 `Clock` 포트로만 읽는다.** `Date.now()` 를 직접 부르지 않는다. 다만 **난수 시드는 시계에서 뽑지 않는다** — `SystemClock` 은 `performance.now()` 라 부팅 직후 값이 뭉쳐 있어, 재시작할 때마다 거의 같은 수열이 나온다. 시드는 `node:crypto` 의 `randomInt` 로 뽑는다.
 - **좌표는 절대 클라로 나가지 않는다** (스펙 §6.3). `START` 는 `targetCount` 만, `REVEAL` 은 **이미 찾은** rect 의 좌표만 싣는다.
   > 이것을 "직렬화한 JSON 에 좌표 값이 없다" 로 검사할 때는 **테스트 픽스처의 좌표가 메타데이터와 겹치지 않아야 한다.** 겹치면 정상 구현이 누출로 오진된다 — 예전 Task 1 픽스처는 `height: 300` 에 rect `x: 300` 을 두어 실제로 그랬다. 검사 목록도 손으로 쓰지 말고 픽스처를 순회할 것.
 - **패치 URL 은 매치별 서명 URL** 이다 (스펙 §6.3). 리듀서가 `ctx.urls` 로 받아 쓴다 — Plan 4 는 그 구현을 바꾸지 않는다.
@@ -3460,32 +3461,56 @@ export function createRealtime(deps: RealtimeDeps): {
 >
 > **연결이 끊긴 사람에게는 난입하지 않는다** (`conn === null`). 그 사람은 곧 `LEAVE` 로 판이 끝나므로, 난입해 봐야 상대 없는 매치가 하나 더 생길 뿐이다.
 
-`server/src/main.ts` 를 고친다 — `resolvePuzzleId` 를 실제 조회로 바꾸고 실시간 계층을 붙인다:
+`server/src/main.ts` 를 고친다.
+
+**import 넷을 더한다.** 빠뜨리면 `TS2304: Cannot find name ...` 로 typecheck 가 죽는다:
 
 ```typescript
-  const matchIndex = createMatchIndex(cache);
+import { randomInt } from 'node:crypto';
+import { createRng } from './platform/rng.js';
+import { createContentUrls } from './content/urls.js';
+import { createMatchIndex } from './match/index.js';
+import { createRealtime } from './match/wiring.js';
+```
 
-  const app = createApp({
-    // ... 기존 그대로 ...
+**`contentUrls` 와 `matchIndex` 를 만든다.** Plan 3 의 `main.ts` 에는 둘 다 없다 — `createApp` 은 URL 을 **검증**만 했고 **발급**할 일이 없었다. 매치를 여는 지금부터 발급기가 필요하다. `clock` · `config` 선언 뒤, `createApp` 호출 앞에 넣는다:
+
+```typescript
+  const contentUrls = createContentUrls({
+    secret: config.contentUrlSecret,
+    ttlMs: config.contentUrlTtlMs,
+    clock,
+  });
+  const matchIndex = createMatchIndex(cache);
+```
+
+**`createApp` 의 `resolvePuzzleId` 를 실제 조회로 바꾼다:**
+
+```typescript
     // Plan 3 의 항등 함수를 실제 조회로 바꾼다. 이제 진행 중인 매치의 id 를
     // 알아야 그 퍼즐의 이미지를 받을 수 있다.
     resolvePuzzleId: (matchId) => matchIndex.puzzleIdOf(matchId),
-  });
+```
 
-  const server = app.listen(config.port, () => {
-    log.info('서버 기동', { port: config.port, nodeEnv: config.nodeEnv });
-  });
+**`app.listen` 뒤에 실시간 계층을 붙인다:**
 
+```typescript
   const realtime = createRealtime({
-    db, cache, clock, rng: createRng(Date.now() >>> 0),
-    puzzles, urls: contentUrls, log,
+    db, cache, clock, puzzles, log,
+    // **시드를 시계에서 뽑지 않는다.** SystemClock 은 performance.now() 라
+    // 부팅 직후 값이 20~200 남짓이다. 그것을 시드로 쓰면 재시작할 때마다
+    // 거의 같은 수열이 나와 **첫 매치의 퍼즐이 늘 같아진다** — 공정성 문제이자
+    // 콘텐츠가 예측 가능해지는 경로다. Date.now() 는 Clock 포트 제약에 걸리고
+    // 시드로서도 1 초 단위로 뭉친다. 암호학적 난수로 뽑는다.
+    rng: createRng(randomInt(0, 2 ** 32)),
+    urls: contentUrls,
     queueKey: 'findit:queue:casual',
     verify: (token) => verifySession(sessionDeps, token),
   });
   realtime.attach(server);
 ```
 
-종료 처리에 한 줄 더한다:
+**종료 처리에 한 줄 더한다:**
 
 ```typescript
   const shutdown = async (signal: string): Promise<void> => {
@@ -3594,4 +3619,6 @@ EOF
 
 **5. 큐 직렬화가 다중 인스턴스에서 무의미하다.** 프로세스 안 직렬화는 P0(단일 프로세스)에서만 맞다. 인스턴스를 늘리는 순간 Review Focus 4 의 경쟁이 그대로 돌아온다. Lua 나 `BLMOVE` 가 필요하고 P1 의 문제다.
 
-**6. 재접속이 없다.** 연결이 끊기면 `LEAVE` 다. 지하철에서 한 칸 지나가면 판이 끝난다. 스펙 §1 의 비목표에 명시돼 있지는 않지만 P0 범위 밖으로 둔다 — 재접속은 매치 상태를 프로세스 밖에 두는 설계를 요구하고, 그건 Task 1 의 결정(메모리 보관)을 뒤집는 일이다.
+**6. `createRealtime` 의 `rng` 가 매치 전체를 좌우한다.** 퍼즐 배정과 AI 지연이 같은 `Rng` 하나에서 나온다. 프로세스 수명 동안 한 인스턴스를 공유하므로, 어느 한쪽의 소비 패턴이 바뀌면 다른 쪽 수열도 함께 바뀐다. P0 에서는 문제가 아니지만, 리플레이나 재현 가능한 매치가 필요해지면 매치별로 시드를 갈라야 한다.
+
+**7. 재접속이 없다.** 연결이 끊기면 `LEAVE` 다. 지하철에서 한 칸 지나가면 판이 끝난다. 스펙 §1 의 비목표에 명시돼 있지는 않지만 P0 범위 밖으로 둔다 — 재접속은 매치 상태를 프로세스 밖에 두는 설계를 요구하고, 그건 Task 1 의 결정(메모리 보관)을 뒤집는 일이다.

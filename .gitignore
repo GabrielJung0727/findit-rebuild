@@ -33,6 +33,9 @@ legacy/client_flutter/build/
 legacy/client_flutter/.dart_tool/
 app/build/
 app/.dart_tool/
+app/ios/
+app/android/
+app/.flutter-plugins-dependencies
 
 # Node
 node_modules/

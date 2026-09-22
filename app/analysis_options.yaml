@@ -1,0 +1,13 @@
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  errors:
+    # 생성물은 검사하지 않는다. 손으로 고치지 않기 때문이다.
+    unused_import: error
+  exclude:
+    - lib/domain/protocol.g.dart
+
+linter:
+  rules:
+    - prefer_const_constructors
+    - avoid_print

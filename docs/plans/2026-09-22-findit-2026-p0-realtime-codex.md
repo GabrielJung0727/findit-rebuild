@@ -991,7 +991,9 @@ EOF
 
 **문 앞 검문 셋.** 게이트웨이는 게임 규칙을 하나도 모른다. 대신 세 가지를 지킨다.
 
-1. **`decodeEnvelope(raw, 'c2s')`** — 방향까지 검사한다. 이게 없으면 클라가 `END` 를 자칭해 보낼 수 있다. Plan 1 이 만든 검증기가 이미 그 인자를 받는다.
+1. **`decodeEnvelope(raw, 'c2s')`** — 방향까지 검사한다. Plan 1 이 만든 검증기가 이미 그 인자를 받는데 쓰는 곳이 없었다.
+
+   > **이 계약을 "END 를 보내면 끊긴다" 로 검사하면 안 된다.** 방향 인자를 빼도 `END` 는 `switch` 의 `default` 에 걸려 똑같이 끊긴다. 방향 검문이 실제로 사는 자리는 **봉투 단계** 다 — 세션 검사보다, 분기보다 앞이다. 인증하지 않은 연결로 `END` 를 보내 보면 갈린다: 검문이 있으면 `bad_frame`, 없으면 세션 검사까지 내려가 `unauthorized` 가 된다.
 2. **`AUTH` 가 먼저다.** 인증되지 않은 연결은 `AUTH` 외의 어떤 메시지도 처리하지 않는다.
 3. **`ProtocolError` 는 연결을 끊는다.** 조작된 프레임을 보내는 클라와 협상하지 않는다. 다만 **끊기 전에 `ERROR` 를 보낸다** — 정상 클라의 버그를 디버깅할 수 있어야 한다.
 
@@ -1121,16 +1123,28 @@ describe('인증', () => {
 });
 
 describe('프레임 검문', () => {
-  it('s2c 전용 메시지를 클라가 보내면 끊는다 — 스스로 END 를 자칭할 수 없다', async () => {
+  it('s2c 전용 메시지는 세션 검사에 닿기 전에 잘린다 — 봉투 단계의 방향 검문', async () => {
+    // **인증하지 않은 채로** 보낸다. 그래야 방향 검문이 없을 때와 결과가 갈린다.
+    //
+    // 인증한 뒤에 보내면 두 구현 모두 끊는다 — 방향 검문이 없어도 END 는
+    // switch 의 default 라는 마지막 그물에 걸린다. "ERROR 후 종료" 만 보는
+    // 테스트는 그래서 아무것도 증명하지 못한다.
+    //
+    // 인증 전이면 갈린다:
+    //   · 방향 검문 있음 → decodeEnvelope 이 던짐 → code 'bad_frame'
+    //   · 방향 검문 없음 → 봉투를 통과해 세션 검사로 내려감 → code 'unauthorized'
     const ws = await open(h.url);
-    ws.send(frame('AUTH', { token: 'good' }));
-    await next(ws);
     ws.send(JSON.stringify({
-      t: 'END', seq: 2,
+      t: 'END', seq: 1,
       d: { result: 'win', myFound: 5, opponentFound: 0, score: 9999, coinDelta: 9999, expDelta: 9999 },
     }));
+
     const reply = await next(ws);
     expect(reply.t).toBe('ERROR');
+    // 구조로 한 번 (코드가 다르다)
+    expect(reply.d['code']).toBe('bad_frame');
+    // 근거로 한 번 (거부의 이유가 방향이어야 한다)
+    expect(String(reply.d['message'])).toContain('방향 불일치');
     expect(await closedWith(ws)).toBeGreaterThan(0);
   });
 
@@ -1463,7 +1477,7 @@ c2s 7 종이 전부 한 번씩은 지나간다: `AUTH`(인증 4개) · `QUEUE_JO
 
 | 변이 | 깨지는 테스트 |
 |---|---|
-| `decodeEnvelope` 의 `'c2s'` 인자 제거 | `s2c 전용 메시지를 클라가 보내면 끊는다` |
+| `decodeEnvelope` 의 `'c2s'` 인자 제거 | `s2c 전용 메시지는 세션 검사에 닿기 전에 잘린다` |
 | `session.principal === null` 가드 제거 | `AUTH 전에 온 QUEUE_JOIN 은 처리되지 않는다` · `AUTH 전에 온 TAP 은…` |
 | `onGameInput` 에 `slot: 'p1'` 을 함께 실어 보냄 | `인증된 TAP 이 좌표 그대로 넘어간다` |
 | `switch` 에서 `case 'SKILL'` 갈래 제거 | `READY · SKILL · LEAVE 가 모두 아래로 넘어간다` |

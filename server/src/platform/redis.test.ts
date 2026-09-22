@@ -15,6 +15,16 @@ describe('KEY 네임스페이스', () => {
   });
 });
 
+describe('연결 확인', () => {
+  it('닿을 수 없으면 ping 이 거부된다 — 부팅을 실패시키기 위한 계약', async () => {
+    const seen: Error[] = [];
+    const dead = createCache('redis://127.0.0.1:1', (error) => seen.push(error));
+    await expect(dead.ping(3_000)).rejects.toThrow();
+    expect(seen.length).toBeGreaterThan(0);
+    await dead.close();
+  }, 10_000);
+});
+
 const url = process.env['REDIS_URL'];
 const suite = url ? describe : describe.skip;
 
@@ -57,5 +67,9 @@ suite('Redis 어댑터', () => {
 
   it('TTL 이 0 이하면 던진다 — 즉시 사라지는 세션은 버그다', async () => {
     await expect(cache.setEx('findit:test:bad', 'value', 0)).rejects.toThrow(/ttl/i);
+  });
+
+  it('살아 있는 서버에는 ping 이 통과한다', async () => {
+    await expect(cache.ping(3_000)).resolves.toBeUndefined();
   });
 });

@@ -15,11 +15,21 @@ export interface Cache {
   get(key: string): Promise<string | null>;
   setEx(key: string, value: string, ttlMs: number): Promise<void>;
   del(key: string): Promise<void>;
+  /**
+   * 연결이 실제로 가능한지 확인한다. 부팅 경로에서 반드시 await 해야 한다.
+   * createCache 는 동기로 반환하고 ioredis 는 연결 실패를 이벤트로만 알린다.
+   */
+  ping(timeoutMs?: number): Promise<void>;
   close(): Promise<void>;
 }
 
-export function createCache(redisUrl: string): Cache {
+export function createCache(redisUrl: string, onError?: (error: Error) => void): Cache {
   const client = new Redis(redisUrl, { lazyConnect: false, maxRetriesPerRequest: 3 });
+
+  // 리스너가 없으면 ioredis 는 경고만 찍고 프로세스는 계속 돈다.
+  client.on('error', (error: Error) => {
+    onError?.(error);
+  });
 
   return {
     async get(key: string): Promise<string | null> {
@@ -37,8 +47,42 @@ export function createCache(redisUrl: string): Cache {
       await client.del(key);
     },
 
+    async ping(timeoutMs = 5_000): Promise<void> {
+      if (client.status === 'ready') {
+        await client.ping();
+        return;
+      }
+
+      await new Promise<void>((resolve, reject) => {
+        const cleanup = (): void => {
+          clearTimeout(timer);
+          client.off('ready', onReady);
+          client.off('error', onFail);
+        };
+        const onReady = (): void => {
+          cleanup();
+          resolve();
+        };
+        const onFail = (error: Error): void => {
+          cleanup();
+          reject(error);
+        };
+        const timer = setTimeout(() => {
+          cleanup();
+          reject(new Error(`Redis 연결 시간 초과 (${timeoutMs}ms)`));
+        }, timeoutMs);
+
+        client.once('ready', onReady);
+        client.once('error', onFail);
+      });
+    },
+
     async close(): Promise<void> {
-      await client.quit();
+      try {
+        await client.quit();
+      } catch {
+        client.disconnect();
+      }
     },
   };
 }

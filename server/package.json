@@ -5,6 +5,7 @@
   "version": "0.0.0",
   "dependencies": {
     "@findit/protocol": "*",
+    "ioredis": "^6.0.0",
     "pg": "^8.23.0"
   },
   "devDependencies": {

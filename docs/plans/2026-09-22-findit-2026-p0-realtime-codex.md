@@ -132,6 +132,8 @@ server/src/
 - `wakeAt` 타이머는 **매 `submit` 마다** 취소하고 다시 건다. 상태가 바뀌면 다음 깨어날 시각도 바뀐다.
 - AI 타이머는 **그러면 안 된다.** 매번 다시 계획하면 사람이 탭할 때마다 AI 의 지연이 새로 굴려져, 사람이 자주 움직이면 AI 는 영원히 발화하지 못한다. AI 는 **자기 행동이 끝난 뒤에만** 다음을 계획한다(발화 → 적용 → 재계획의 사슬).
 
+> **정리(`clearAll`)를 검사할 때도 이 비대칭이 발목을 잡는다.** `reschedule()` 은 매 `submit` 마다 `wakeTimer` 를 **무조건 먼저 취소**하고, AI 사슬은 `ENDED` 를 보면 스스로 재예약을 멈춘다. 그래서 **AI 가 스스로 매치를 끝내는 경로에서는 `clearAll()` 을 통째로 지워도 남는 예약이 없다.** 누수를 실제로 만들려면 AI 예약이 살아 있는 동안 매치를 **밖에서** 끝내야 한다 — `LEAVE` 가 그 자리다.
+
 > **이 계약을 검사하려면 가상 시간을 전진시키며 탭해야 한다.** 같은 시각에 여러 번 두드린 뒤 넉넉한 창을 흘려보내는 테스트는 재계획 변이를 잡지 못한다 — 마지막 계획도 AI 지연 상한(7 초) 안에 발화하므로 창 안에서 그대로 통과한다. 탭 간격을 **지연 하한보다 짧게**, 전체 구간을 **지연 상한보다 길게** 두어야 한다.
 >
 > 수치는 실측했다. `aiFindDelayMs` 의 범위는 level 1 → `[5925, 7000]`, level 10 → `[5695, 7000]`, level 50 → `[4675, 6325]`, level 100 → `[3400, 4600]` ms 다. 테스트가 쓰는 level 10 에서 탭 간격 500ms · 30회(15000ms)를 **시드 5000개로 시뮬레이션해** 올바른 구현은 5000/5000 발화(가장 늦은 발화 7000ms), 재계획 변이는 0/5000 발화임을 확인했다. 시드와 무관하게 갈린다.
@@ -292,12 +294,30 @@ describe('매치 러너 — 진행', () => {
     expect(json).not.toContain('rects');
   });
 
-  it('매치가 끝나면 예약이 하나도 남지 않는다 — 타이머 누수', () => {
-    const h = harness({ p2Ai: true });
+  it('밖에서 끝난 매치도 예약을 하나도 남기지 않는다 — 타이머 누수', () => {
+    // **어떻게 끝내느냐가 이 검사의 전부다.**
+    //
+    // AI 가 5 개를 채워 끝나는 경로로는 clearAll() 제거가 드러나지 않는다.
+    // 그 마지막 submit 에서 reschedule() 이 wakeTimer 를 **먼저 무조건**
+    // 취소하고, AI 사슬도 ENDED 를 보고 스스로 재예약을 멈추기 때문에 거둘
+    // 것이 남지 않는다. 마감(40000ms)까지 돌려도 마찬가지다 — fixedRng 기준
+    // AI 는 33500ms 에 완주하므로 마감 타이머는 그 전에 이미 취소된다.
+    //
+    // 매치를 **밖에서** 끝내야 한다. LEAVE 가 그것이다. 그 순간 AI 예약이
+    // 살아 있고, 그것을 거둘 수 있는 것은 clearAll() 뿐이다.
+    const h = harness({ p2Ai: true, rng: fixedRng });
     h.runner.start();
     h.runner.submit({ kind: 'READY', slot: 'p1' });
     h.runner.submit({ kind: 'READY', slot: 'p2' });
-    h.scheduler.runUntil(h.clock, h.clock.now() + COUNTDOWN_MS + MATCH_DURATION_MS + 10);
+    h.scheduler.runUntil(h.clock, h.clock.now() + COUNTDOWN_MS);
+
+    // 거둘 것이 실제로 있는 상태인지 먼저 확인한다. 이 단언이 없으면 애초에
+    // 아무것도 예약되지 않았어도 아래가 통과한다.
+    //   · 40 초 마감 wakeTimer 1 개 (nextWakeAt 이 PLAYING 에서 마감을 준다)
+    //   · p2 의 AI 예약 1 개
+    expect(h.scheduler.pending).toBe(2);
+
+    h.runner.submit({ kind: 'LEAVE', slot: 'p1' });
 
     expect(h.runner.state.phase).toBe('ENDED');
     expect(h.scheduler.pending).toBe(0);
@@ -695,7 +715,7 @@ Expected: PASS — 11 tests.
 |---|---|
 | `scheduleAi` 의 `hitTest` 재검증 블록 제거 | `계획한 대상 하나만 사람이 먼저 찾아도…` |
 | `submit` 끝에서 무조건 `scheduleAi` 재호출 | `사람이 계속 탭해도 AI 의 예정 시각이 미뤄지지 않는다` |
-| `finish` 에서 `clearAll()` 제거 | `매치가 끝나면 예약이 하나도 남지 않는다` |
+| `finish` 에서 `clearAll()` 제거 | `밖에서 끝난 매치도 예약을 하나도 남기지 않는다` |
 | `abort` 가 `onEnd` 를 부르게 변경 | `abort 는 END 를 보내지도 onEnd 를 부르지도 않는다` |
 | `finish(ends)` 에 빈 객체를 넘김 | `40초가 지나면 아무도 손대지 않아도 끝난다` |
 

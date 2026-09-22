@@ -503,7 +503,15 @@ export type TimerHandle = number;
  * 시각이기 때문이다 — 상대 지연으로 변환하는 일은 어댑터가 한다.
  */
 export interface Scheduler {
-  at(time: number, fn: () => void): TimerHandle;
+  /**
+   * 예약. **콜백이 Promise 를 돌려주면 구현이 그것까지 기다린다.**
+   *
+   * 큐의 AI 전환 콜백이 Redis 를 때리기 때문에 필요하다. 테스트 스케줄러가
+   * await 하지 않으면 단언이 I/O 보다 먼저 실행돼, 아직 일어나지 않은 일을
+   * "일어나지 않았다" 로 읽는다 — 마이크로태스크를 몇 번 비우는 것으로는
+   * 실제 Redis 왕복이 끝나지 않는다.
+   */
+  at(time: number, fn: () => void | Promise<void>): TimerHandle;
   cancel(handle: TimerHandle): void;
 }
 
@@ -1531,6 +1539,11 @@ EOF
 **Files:**
 - Create: `server/src/match/queue.ts`
 - Test: `server/src/match/queue.test.ts`
+- Modify: `server/src/platform/redis.ts` (`Cache` 에 리스트 연산 4개)
+- Modify: `server/src/match/runner.ts` (`Scheduler.at` 이 비동기 콜백을 받도록)
+- Modify: **`Cache` 를 객체 리터럴로 만드는 모든 곳** — `server/src/identity/session.test.ts`, `server/src/match/index.test.ts`
+
+> **포트를 넓히면 그것을 구현한 스텁이 전부 깨진다.** 저장소에 `Cache` 리터럴은 두 곳뿐이지만(`session.test.ts` 의 `counting`, `index.test.ts` 의 `counting`), 빠뜨리면 `npm run typecheck` 가 그 파일에서 죽는다. 아래 Step 3 에 두 곳 모두의 교체 코드를 적어 뒀다.
 
 **Interfaces:**
 - Consumes: Plan 3 `Cache`, `Clock`; Task 1 `Scheduler`, `TimerHandle`
@@ -1544,6 +1557,10 @@ EOF
 > **매치를 만드는 것은 큐의 일이 아니다.** `startMatch` 를 포트로 받는다. 큐는 "누가 누구와 붙는가" 만 정하고, 퍼즐 배정·러너 생성·Redis 인덱스 기록은 Task 7 의 배선층이 한다. 그래야 큐를 Redis 하나만으로 테스트할 수 있다.
 
 **AI 전환 5 초는 원작 수치다.** `SINGLETIME = 100` 프레임 ÷ 20 프레임/초 = 5 초 (조사 기록 참조). 상수로 박되 포트로 주입받아 테스트가 줄일 수 있게 한다.
+
+**직렬화 범위는 `join` 하나가 아니다.** `leave` 와 타이머의 AI 전환도 같은 줄에 세워야 한다. `join` 이 `LPOP` 에서 await 하는 동안 `QUEUE_LEAVE` 가 들어오면, 그 사람은 아직 `waiting` 에 없으므로 `leave` 가 그냥 돌아가고 뒤이어 완료된 `join` 이 그를 큐에 남긴다 — **나가려던 사람이 5 초 뒤 AI 와 붙는다.**
+
+**타이머 콜백은 `Promise` 를 돌려줘야 한다.** AI 전환이 Redis 를 때리기 때문이다. 스케줄러가 그것을 기다리지 않으면, 테스트가 아직 일어나지 않은 일을 보고 "안 일어났다" 로 읽는다. 마이크로태스크를 몇 번 비우는 것으로는 실제 왕복이 끝나지 않는다.
 
 **Review Focus 4 — 동시 진입.** 두 사람이 같은 순간에 `QUEUE_JOIN` 하면 이런 순서가 가능하다.
 
@@ -1578,8 +1595,10 @@ import { Matchmaker, AI_TRANSITION_MS, type Waiting } from './queue.js';
 /** Task 1 의 테스트와 같은 가짜 스케줄러. 실시간을 기다리지 않는다. */
 class TestScheduler {
   private seq = 0;
-  private readonly jobs = new Map<number, { at: number; fn: () => void }>();
-  at(time: number, fn: () => void): number { const id = ++this.seq; this.jobs.set(id, { at: time, fn }); return id; }
+  private readonly jobs = new Map<number, { at: number; fn: () => void | Promise<void> }>();
+  at(time: number, fn: () => void | Promise<void>): number {
+    const id = ++this.seq; this.jobs.set(id, { at: time, fn }); return id;
+  }
   cancel(h: number): void { this.jobs.delete(h); }
   get pending(): number { return this.jobs.size; }
   async runUntil(clock: TestClock, to: number): Promise<void> {
@@ -1589,10 +1608,10 @@ class TestScheduler {
       const [id, job] = due;
       this.jobs.delete(id);
       clock.set(Math.max(clock.now(), job.at));
-      job.fn();
-      // 전환 콜백이 비동기라 마이크로태스크를 비워 준다.
-      await Promise.resolve();
-      await Promise.resolve();
+      // **반드시 await 한다.** AI 전환 콜백은 Redis 를 때린다.
+      // 마이크로태스크를 몇 번 비우는 것으로는 그 왕복이 끝나지 않아,
+      // 단언이 아직 일어나지 않은 일을 보고 "안 일어났다" 로 읽는다.
+      await job.fn();
     }
     clock.set(to);
   }
@@ -1695,6 +1714,26 @@ suite('매칭 큐', () => {
     expect(await h.maker.waitingCount()).toBe(0);
   });
 
+it('join 이 Redis 를 기다리는 동안 들어온 leave 가 무시되지 않는다', async () => {
+    const h = harness();
+    const a = player('A');
+
+    // await 하지 않고 곧바로 leave 를 부른다. join 은 지금 LPOP 에서 멈춰 있다.
+    //
+    // join 만 직렬화하면: leave 가 그 순간 waiting 을 비어 있는 것으로 보고
+    // 그냥 돌아가고, 뒤이어 완료된 join 이 그 사람을 큐에 남긴다 —
+    // **나가려던 사람이 5 초 뒤 AI 와 붙는다.**
+    const joining = h.maker.join(a);
+    const leaving = h.maker.leave(a.key);
+    await Promise.all([joining, leaving]);
+
+    expect(await h.maker.waitingCount()).toBe(0);
+    expect(h.scheduler.pending).toBe(0);
+
+    await h.scheduler.runUntil(h.clock, h.clock.now() + AI_TRANSITION_MS + 1);
+    expect(h.started).toEqual([]);
+  });
+
   it('같은 사람이 두 번 들어가도 자기 자신과 붙지 않는다', async () => {
     const h = harness();
     const a = player('A');
@@ -1755,7 +1794,7 @@ export class Matchmaker {
   private readonly timers = new Map<string, TimerHandle>();
   /** key → 대기자. Redis 에는 키만 넣고 본문은 여기 둔다. */
   private readonly waiting = new Map<string, Waiting>();
-  /** join 직렬화용 꼬리. 아래 주석 참조. */
+  /** 직렬화용 꼬리. join · leave · AI 전환이 **모두** 여기를 지난다. */
   private tail: Promise<void> = Promise.resolve();
 
   constructor(private readonly ports: MatchmakerPorts) {
@@ -1775,7 +1814,19 @@ export class Matchmaker {
    * 필요하고, 그건 P1 의 문제다.
    */
   async join(w: Waiting): Promise<void> {
-    const run = this.tail.then(() => this.joinLocked(w));
+    return this.serialize(() => this.joinLocked(w));
+  }
+
+  /**
+   * 큐를 건드리는 모든 작업을 한 줄로 세운다.
+   *
+   * **join 만 보호하면 안 된다.** join 이 LPOP 에서 await 하는 동안 leave 가
+   * 들어오면, 그 사람은 아직 waiting 에 없으므로 leave 가 그냥 돌아가고
+   * 뒤이어 완료된 join 이 그를 큐에 남긴다 — 나가려던 사람이 5 초 뒤 AI 와
+   * 붙는다. 타이머의 AI 전환도 같은 경쟁을 갖는다.
+   */
+  private serialize<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.tail.then(fn);
     // 앞선 작업이 실패해도 꼬리가 끊기지 않게 한다.
     this.tail = run.then(() => undefined, () => undefined);
     return run;
@@ -1803,12 +1854,15 @@ export class Matchmaker {
     await this.ports.cache.listPushRight(this.ports.queueKey, w.key);
 
     const at = this.ports.clock.now() + this.aiMs;
-    this.timers.set(w.key, this.ports.scheduler.at(at, () => {
-      void this.toAi(w.key);
-    }));
+    // 콜백이 Promise 를 돌려준다. 스케줄러가 그것까지 기다린다.
+    this.timers.set(w.key, this.ports.scheduler.at(at, () => this.toAi(w.key)));
   }
 
   async leave(key: string): Promise<void> {
+    return this.serialize(() => this.leaveLocked(key));
+  }
+
+  private async leaveLocked(key: string): Promise<void> {
     if (!this.waiting.has(key)) return;
     this.forget(key);
     await this.ports.cache.listRemove(this.ports.queueKey, key);
@@ -1818,7 +1872,12 @@ export class Matchmaker {
     return this.ports.cache.listLength(this.ports.queueKey);
   }
 
-  private async toAi(key: string): Promise<void> {
+  /** 타이머 콜백. 스케줄러가 이 Promise 를 기다린다. */
+  private toAi(key: string): Promise<void> {
+    return this.serialize(() => this.toAiLocked(key));
+  }
+
+  private async toAiLocked(key: string): Promise<void> {
     const w = this.waiting.get(key);
     this.timers.delete(key);
     if (w === undefined) return;
@@ -1877,12 +1936,26 @@ export interface Cache {
     },
 ```
 
-> Task 2 의 테스트가 만든 `Cache` 스텁(`counting`)에도 이 넷을 더해야 한다. 안 그러면 `npm run typecheck` 가 깨진다.
+**`Cache` 리터럴 두 곳을 함께 고친다.** 빠뜨리면 `npm run typecheck` 가 그 파일에서 죽는다. 두 곳 모두 아래 네 줄을 `del` 다음에 넣으면 된다:
+
+```typescript
+      listPushRight: async () => { calls += 1; },
+      listPopLeft: async () => { calls += 1; return null; },
+      listRemove: async () => { calls += 1; },
+      listLength: async () => { calls += 1; return 0; },
+```
+
+- `server/src/identity/session.test.ts` — Plan 3 이 만든 `빈 토큰 가드` 의 `counting`
+- `server/src/match/index.test.ts` — Task 2 가 만든 `빈 matchId` 의 `counting`
+
+> 두 스텁의 단언은 `calls === 0` 이므로, 새 메서드가 호출되지 않는 한 값은 그대로다. 호출되면 그 테스트가 먼저 깨져 알려 준다 — 그게 맞는 동작이다.
+
+**`Scheduler.at` 의 콜백 타입도 넓힌다** (`server/src/match/runner.ts`). Task 1 의 `TestScheduler` 도 같은 형태로 맞춰 둔다 — 메서드 매개변수는 이변성이라 그대로도 컴파일되지만, 나중에 러너 테스트에 비동기 콜백이 들어오면 조용히 기다리지 않게 된다.
 
 - [ ] **Step 4: 통과 확인**
 
 Run: `REDIS_URL=redis://localhost:6379 npx vitest run server/src/match/ && npm run typecheck`
-Expected: PASS — Task 1 의 11 + Task 2 의 6 + 이번 9 = 26 tests.
+Expected: PASS — Task 1 의 11 + Task 2 의 6 + 이번 10 = 27 tests.
 
 **변이로 확인할 것:**
 
@@ -1891,11 +1964,15 @@ Expected: PASS — Task 1 의 11 + Task 2 의 6 + 이번 9 = 26 tests.
 | `join` 의 직렬화 제거 (`joinLocked` 를 직접 호출) | `동시에 들어온 둘이 서로를 만난다` |
 | `forget` 에서 `scheduler.cancel` 제거 | `leave 하면 AI 전환도 취소된다` · `붙은 뒤에는 AI 전환 타이머가 남지 않는다` |
 | `joinLocked` 첫 줄의 `waiting.has` 가드 제거 | `같은 사람이 두 번 들어가도 자기 자신과 붙지 않는다` |
+| `leave` 를 `serialize` 없이 `leaveLocked` 직접 호출 | `join 이 Redis 를 기다리는 동안 들어온 leave 가 무시되지 않는다` |
+| `TestScheduler.runUntil` 의 `await job.fn()` → `job.fn()` | `5초가 지나면 AI 와 붙는다` (Redis 왕복 전에 단언한다) |
 
 - [ ] **Step 5: 커밋**
 
 ```bash
-git add server/src/match/queue.ts server/src/match/queue.test.ts server/src/platform/redis.ts server/src/match/index.test.ts
+git add server/src/match/queue.ts server/src/match/queue.test.ts server/src/platform/redis.ts \
+        server/src/match/runner.ts server/src/match/runner.test.ts \
+        server/src/match/index.test.ts server/src/identity/session.test.ts
 git commit -m "$(cat <<'EOF'
 feat(server): 매칭 큐 + 5초 AI 전환
 
@@ -1914,8 +1991,20 @@ join 을 프로세스 안에서 직렬화한다. LPOP 자체는 원자적이지�
 다중 인스턴스에서는 이것으로 부족하고 Lua 나 BLMOVE 가 필요하다. P1 의
 문제이며 주석으로 남겼다.
 
+직렬화 범위는 join 하나가 아니다. leave 와 타이머의 AI 전환도 같은 줄에
+세운다. join 이 LPOP 에서 await 하는 동안 QUEUE_LEAVE 가 들어오면 그 사람은
+아직 waiting 에 없어서 leave 가 그냥 돌아가고, 뒤이어 완료된 join 이 그를
+큐에 남긴다 — 나가려던 사람이 5 초 뒤 AI 와 붙는다.
+
+Scheduler.at 의 콜백이 Promise 를 돌려줄 수 있게 넓힌다. AI 전환이 Redis 를
+때리므로 스케줄러가 그것을 기다려야 한다. 마이크로태스크를 비우는 것으로는
+실제 왕복이 끝나지 않아, 테스트가 아직 일어나지 않은 일을 "안 일어났다" 로
+읽는다.
+
 Cache 포트에 리스트 연산 넷을 더한다. 큐는 FIFO 여야 하므로 오른쪽에 넣고
 왼쪽에서 뺀다. listRemove 는 count 0 으로 일치하는 값을 전부 지운다.
+Cache 리터럴 두 곳(session.test.ts, index.test.ts)도 함께 고친다 —
+포트를 넓히면 그것을 구현한 스텁이 전부 깨진다.
 
 EOF
 )"
@@ -2074,9 +2163,8 @@ export interface MatchmakerPorts {
     await this.ports.cache.listPushRight(this.ports.queueKey, w.key);
 
     const at = this.ports.clock.now() + this.aiMs;
-    this.timers.set(w.key, this.ports.scheduler.at(at, () => {
-      void this.toAi(w.key);
-    }));
+    // 콜백이 Promise 를 돌려준다. 스케줄러가 그것까지 기다린다.
+    this.timers.set(w.key, this.ports.scheduler.at(at, () => this.toAi(w.key)));
   }
 ```
 
@@ -2827,15 +2915,24 @@ export interface RealtimeDeps {
  * 절대 시각을 상대 지연으로 바꿀 때 Date.now() 를 섞으면 두 기준이 어긋나
  * 타이머가 즉시 발화하거나 영원히 오지 않는다. 반드시 같은 clock 을 쓴다.
  */
-function realScheduler(clock: Clock): Scheduler {
+function realScheduler(clock: Clock, log: RealtimeDeps['log']): Scheduler {
   let seq = 0;
   const handles = new Map<number, NodeJS.Timeout>();
   return {
     at(time, fn) {
       seq += 1;
       const id = seq;
-      handles.set(id, setTimeout(() => { handles.delete(id); fn(); },
-        Math.max(0, time - clock.now())));
+      handles.set(id, setTimeout(() => {
+        handles.delete(id);
+        // 콜백이 Promise 를 돌려줄 수 있다 (큐의 AI 전환은 Redis 를 때린다).
+        // 그대로 버리면 rejection 이 아무 데도 닿지 않아 매칭이 조용히
+        // 멈춘다 — 사용자에게는 "큐에서 영원히 안 나온다" 로 보인다.
+        void Promise.resolve(fn()).catch((err: unknown) => {
+          log.error('예약 콜백 실패', {
+            err: err instanceof Error ? err.message : String(err),
+          });
+        });
+      }, Math.max(0, time - clock.now())));
       return id;
     },
     cancel(handle: TimerHandle) {
@@ -2850,7 +2947,7 @@ export function createRealtime(deps: RealtimeDeps): {
   close(): Promise<void>;
   readonly matchCount: number;
 } {
-  const scheduler = realScheduler(deps.clock);
+  const scheduler = realScheduler(deps.clock, deps.log);
   const registry = new MatchRegistry();
   const index = createMatchIndex(deps.cache);
   /**
@@ -3185,7 +3282,9 @@ main.ts 의 resolvePuzzleId 를 Redis 실조회로 바꾼다. Plan 3 의 항등 
 
 타이머 어댑터는 주입받은 clock 만 쓴다. SystemClock 은 performance.now()
 기준이라 Date.now() 를 섞으면 두 기준이 어긋나 타이머가 즉시 발화하거나
-영원히 오지 않는다.
+영원히 오지 않는다. 콜백이 돌려준 Promise 의 rejection 도 잡는다 — 큐의
+AI 전환이 Redis 를 때리므로, 그대로 버리면 매칭이 조용히 멈추고 사용자에게는
+"큐에서 영원히 안 나온다" 로 보인다.
 
 EOF
 )"

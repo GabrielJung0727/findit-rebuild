@@ -1004,7 +1004,7 @@ EOF
 
 **Files:**
 - Create: `server/src/identity/types.ts`, `password.ts`, `repository.ts`, `session.ts`
-- Test: `server/src/identity/password.test.ts`, `server/src/identity/session.test.ts`
+- Test: `server/src/identity/password.test.ts`, `server/src/identity/session.test.ts`, `server/src/identity/repository.test.ts`
 
 **Interfaces:**
 - Consumes: Task 2 `Db`, Task 3 `Cache`·`KEY`, Plan 2 `Clock`
@@ -1022,6 +1022,10 @@ EOF
 **단일 활성 세션은 유지한다** — v1 과 원작의 동작이고, 중복 로그인 감지가 P1 의 요구사항이다.
 
 **비밀번호는 4~12자** (스펙 §6 UI 플로우). 짧지만 원작 제약이라 따른다. 그래서 해싱 강도가 더 중요하다 — bcrypt cost 12.
+
+**`repository.ts` 는 반드시 실제 Postgres 로 테스트한다.** 이 파일은 전부 SQL 문자열이라 타입 검사를 한 줄도 받지 않는다. 컬럼 오타, 빠뜨린 트랜잭션, `guest_session` 배선 오류는 실행해야만 드러난다. 세션 테스트가 아무리 많이 통과해도 이쪽은 한 줄도 돌지 않는다 — 그 결함들은 Task 7 에서 컨테이너를 띄울 때에야 나온다.
+
+**"Redis 를 때리기 전에 걸러야 한다" 같은 계약은 결과가 아니라 호출을 단언해야 한다.** 빈 토큰 조회는 가드가 있든 없든 `null` 을 준다. 결과만 보는 테스트는 가드를 지워도 통과하므로 아무것도 지키지 못한다.
 
 - [ ] **Step 1: 실패하는 테스트 작성**
 
@@ -1064,7 +1068,7 @@ describe('비밀번호', () => {
 });
 ```
 
-`server/src/identity/session.test.ts` — Redis 가 필요하다.
+`server/src/identity/session.test.ts` — 대부분 Redis 가 필요하지만 **전부는 아니다.**
 
 ```typescript
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -1073,6 +1077,40 @@ import { createCache, KEY, type Cache } from '../platform/redis.js';
 import {
   createGuestSession, createSession, revokeSession, verifySession, type SessionDeps,
 } from './session.js';
+```
+
+**빈 토큰 가드는 Redis 없이 검증한다.** 가드가 동작하면
+`Cache` 에 닿지 않는다는 것이 요점이므로, 진짜 Redis 대신 호출을 세는 더블을 쓴다.
+
+```typescript
+describe('빈 토큰 가드', () => {
+  it('빈 토큰은 Redis 를 때리지 않고 null 이다', async () => {
+    let calls = 0;
+    const counting: Cache = {
+      get: async () => { calls += 1; return null; },
+      setEx: async () => { calls += 1; },
+      del: async () => { calls += 1; },
+      ping: async () => {},
+      close: async () => {},
+    };
+    const spyDeps: SessionDeps = {
+      cache: counting,
+      clock: new TestClock(1_000_000),
+      guests: { register: async () => 'guest-x' },
+      audit: { recordIssued: async () => {}, recordRevoked: async () => {} },
+    };
+
+    expect(await verifySession(spyDeps, '')).toBeNull();
+    // 결과만 보면 `if (!token) return null` 을 지워도 통과한다 —
+    // 빈 키 조회도 null 을 주기 때문이다. 잡아야 하는 것은 "닿지 않았다" 는 사실이다.
+    expect(calls).toBe(0);
+  });
+});
+```
+
+나머지 통합 테스트는 Redis 를 요구한다:
+
+```typescript
 
 const url = process.env['REDIS_URL'];
 const suite = url ? describe : describe.skip;
@@ -1154,10 +1192,6 @@ suite('세션', () => {
     expect(await verifySession(deps, 'nope')).toBeNull();
   });
 
-  it('빈 토큰은 null 이다 — Redis 를 때리기 전에 걸러야 한다', async () => {
-    expect(await verifySession(deps, '')).toBeNull();
-  });
-
   it('폐기한 세션은 검증되지 않는다', async () => {
     const { token } = await createSession(deps, 'acc-2');
     await revokeSession(deps, token);
@@ -1204,6 +1238,147 @@ suite('세션', () => {
     const raw = await cache.get(KEY.session(token));
     expect(raw).not.toBeNull();
     expect(raw).not.toContain(token);
+  });
+});
+```
+
+
+`server/src/identity/repository.test.ts` — **Postgres 를 실제로 때린다.** `repository.ts` 의 SQL 은
+타입 검사를 받지 않는다. 컬럼 오타, 트랜잭션 누락, `guest_session` 배선 오류는 오직 실행해야
+드러난다. 이 파일이 없으면 그 결함들이 Task 7 에서 컨테이너를 띄울 때까지 살아남는다.
+
+```typescript
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { createDb, type Db } from '../platform/pg.js';
+import {
+  createAccount, createGuestRegistry, createSessionAudit, findAccountByEmail,
+} from './repository.js';
+
+let seq = 0;
+const email = (): string => `t${process.pid}-${++seq}@example.test`;
+const hash = (): string => `h${process.pid}-${++seq}`;
+
+const url = process.env['DATABASE_URL'];
+const suite = url ? describe : describe.skip;
+
+suite('identity 저장소', () => {
+  let db: Db;
+
+  beforeAll(async () => {
+    db = createDb(url!);
+    await db.query(readFileSync(resolve(import.meta.dirname, '../../sql/001_init.sql'), 'utf8'));
+  });
+
+  afterAll(async () => { await db.close(); });
+
+  it('계정과 프로필을 함께 만든다', async () => {
+    const { accountId } = await createAccount(db, {
+      email: email(), passwordHash: 'bcrypt-stub', nickname: '테스터', characterId: 3,
+    });
+
+    // 프로필이 없으면 로그인 직후 레벨·코인 조회가 전부 빈다.
+    const profile = await db.query<{ level: number; coins: string }>(
+      `SELECT level, coins FROM player_profile WHERE account_id = $1`, [accountId],
+    );
+    expect(profile).toHaveLength(1);
+    expect(profile[0]!.level).toBe(1);
+  });
+
+  it('프로필 생성이 실패하면 계정도 남지 않는다 — 한 트랜잭션이어야 한다', async () => {
+    const dup = email();
+    await createAccount(db, {
+      email: dup, passwordHash: 'h', nickname: 'a', characterId: 0,
+    });
+
+    // 같은 이메일로 한 번 더. UNIQUE 제약에 걸려 던져야 한다.
+    await expect(createAccount(db, {
+      email: dup, passwordHash: 'h', nickname: 'b', characterId: 0,
+    })).rejects.toThrow();
+
+    // 계정이 하나뿐이어야 한다. tx 를 빼면 첫 INSERT 가 살아남아 2개가 된다.
+    const rows = await db.query(`SELECT id FROM account WHERE email = $1`, [dup]);
+    expect(rows).toHaveLength(1);
+  });
+
+  it('이메일로 계정을 찾고 password_hash 를 함께 준다', async () => {
+    const addr = email();
+    const { accountId } = await createAccount(db, {
+      email: addr, passwordHash: 'bcrypt-stub', nickname: '테스터', characterId: 7,
+    });
+
+    const found = await findAccountByEmail(db, addr);
+    expect(found?.id).toBe(accountId);
+    // 로그인 경로가 이 필드를 쓴다. 컬럼 이름이 틀리면 여기서 드러난다.
+    expect(found?.password_hash).toBe('bcrypt-stub');
+    expect(found?.character_id).toBe(7);
+  });
+
+  it('없는 이메일은 null 이다 — 던지지 않는다', async () => {
+    expect(await findAccountByEmail(db, `missing-${email()}`)).toBeNull();
+  });
+
+  it('게스트 등록이 guest_session 행을 남긴다 — 광고 카운팅의 근거다', async () => {
+    const th = hash();
+    const guestId = await createGuestRegistry(db).register(th);
+    expect(guestId).toMatch(/^guest-/);
+
+    const rows = await db.query<{ ad_views: number }>(
+      `SELECT ad_views FROM guest_session WHERE token_hash = $1`, [th],
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.ad_views).toBe(0);
+  });
+
+  it('발급 감사가 session_log 에 기록된다 — 원문 토큰은 들어가지 않는다', async () => {
+    const { accountId } = await createAccount(db, {
+      email: email(), passwordHash: 'h', nickname: 'n', characterId: 0,
+    });
+    const th = hash();
+    await createSessionAudit(db).recordIssued(accountId, th);
+
+    const rows = await db.query<{ account_id: string; revoked_at: Date | null }>(
+      `SELECT account_id, revoked_at FROM session_log WHERE token_hash = $1`, [th],
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.account_id).toBe(accountId);
+    expect(rows[0]!.revoked_at).toBeNull();
+  });
+
+  it('폐기 감사가 revoked_at 을 채운다', async () => {
+    const { accountId } = await createAccount(db, {
+      email: email(), passwordHash: 'h', nickname: 'n', characterId: 0,
+    });
+    const audit = createSessionAudit(db);
+    const th = hash();
+    await audit.recordIssued(accountId, th);
+    await audit.recordRevoked(th);
+
+    const rows = await db.query<{ revoked_at: Date | null }>(
+      `SELECT revoked_at FROM session_log WHERE token_hash = $1`, [th],
+    );
+    expect(rows[0]!.revoked_at).not.toBeNull();
+  });
+
+  it('이미 폐기된 기록의 시각을 덮어쓰지 않는다 — revoked_at IS NULL 조건', async () => {
+    const { accountId } = await createAccount(db, {
+      email: email(), passwordHash: 'h', nickname: 'n', characterId: 0,
+    });
+    const audit = createSessionAudit(db);
+    const th = hash();
+    await audit.recordIssued(accountId, th);
+    await audit.recordRevoked(th);
+
+    const [first] = await db.query<{ revoked_at: Date }>(
+      `SELECT revoked_at FROM session_log WHERE token_hash = $1`, [th],
+    );
+    await audit.recordRevoked(th);
+    const [second] = await db.query<{ revoked_at: Date }>(
+      `SELECT revoked_at FROM session_log WHERE token_hash = $1`, [th],
+    );
+    // WHERE 의 revoked_at IS NULL 을 지우면 두 번째 호출이 시각을 갱신한다.
+    expect(second!.revoked_at.getTime()).toBe(first!.revoked_at.getTime());
   });
 });
 ```
@@ -1442,8 +1617,18 @@ export function createSessionAudit(db: Db): SessionAudit {
 
 - [ ] **Step 4: 통과 확인**
 
-Run: `REDIS_URL=redis://localhost:6379 npx vitest run server/src/identity/ && npm run typecheck`
-Expected: PASS — password 8 + session 13 = 21 tests.
+**Postgres 와 Redis 를 둘 다 준다.** 하나라도 빠지면 그쪽 suite 가 조용히 skip 되고,
+`repository.ts` 의 SQL 은 한 줄도 실행되지 않은 채 "통과" 로 보인다.
+
+```bash
+DATABASE_URL=postgres://findit:findit@localhost:5432/findit \
+REDIS_URL=redis://localhost:6379 \
+npx vitest run server/src/identity/ && npm run typecheck
+```
+Expected: PASS — password 8 + session 13 + repository 8 = **29 tests**.
+
+**skip 이 0 인지 확인할 것.** `21 passed / 8 skipped` 는 통과가 아니다 —
+Postgres 를 주지 않았다는 뜻이고, 이 Task 가 막으려는 결함이 정확히 그 8개 안에 있다.
 
 - [ ] **Step 5: 커밋**
 
@@ -2550,6 +2735,8 @@ Task 2 에서 한 번, Task 3 에서 두 번 걸렸다.
 11. 동시 로그인에서도 활성 세션이 하나만 남는다
 12. 뒤늦게 도착한 logout 이 새 로그인 세션을 무효화하지 않는다
 13. 라우트 의존성이 throw 해도 500 으로 응답이 끝난다 — 매달리지 않는다
+13-1. `repository.ts` 의 모든 SQL 이 실제 Postgres 에서 한 번 이상 실행된다 — 계정·프로필 생성, 이메일 조회, 게스트 등록, 감사 발급·폐기
+13-2. 계정 생성이 한 트랜잭션이다 — 프로필 생성이 실패하면 계정도 남지 않는다
 14. Plan 1·2 의 기존 259 테스트가 전부 그대로 통과한다
 15. `DATABASE_URL`·`REDIS_URL` 없이 돌렸을 때 통합 테스트가 **외부 연결을 시도하지 않는다** — `[ioredis]` 경고가 없어야 한다
 16. **Redis 에 닿지 못하면 부팅이 실패한다** — Postgres 가 살아 있어도 exit 1 이고 `서버 기동` 이 찍히지 않는다

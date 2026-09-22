@@ -366,9 +366,27 @@ suite('pg 어댑터', () => {
     );
   });
 
-  it('001_init.sql 을 두 번 적용해도 실패하지 않는다 — 재기동 시 매번 돈다', async () => {
+  it('001_init.sql 을 두 번 적용해도 스키마가 그대로다 — 재기동 시 매번 돈다', async () => {
+    // toBeDefined() 로는 목적을 검증하지 못한다. DDL 은 행을 내지 않으므로
+    // [] 를 단언하고, 재적용 뒤에도 테이블이 온전한지 직접 확인한다.
     const sql = readFileSync(resolve(import.meta.dirname, '../../sql/001_init.sql'), 'utf8');
-    await expect(db.query(sql)).resolves.toBeDefined();
+    await expect(db.query(sql)).resolves.toEqual([]);
+
+    const rows = await db.query<{ table_name: string }>(
+      `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`,
+    );
+    expect(rows.map((r) => r.table_name).sort()).toEqual(
+      ['account', 'content_version', 'guest_session', 'inventory_item',
+       'match_history', 'player_profile', 'session_log'].sort(),
+    );
+  });
+
+  it('다중 문장 질의도 T[] 계약을 지킨다', async () => {
+    // node-postgres 는 여기서 QueryResult 배열을 돌려준다. 어댑터가 정규화하지
+    // 않으면 .rows 가 undefined 가 되어 Promise<T[]> 계약이 깨진다.
+    const rows = await db.query<{ n: number }>('SELECT 1 AS n; SELECT 2 AS n;');
+    expect(Array.isArray(rows)).toBe(true);
+    expect(rows.map((r) => r.n)).toEqual([1, 2]);
   });
 
   it('파라미터 바인딩이 동작한다', async () => {
@@ -560,9 +578,25 @@ npm install --workspace server --save-dev @types/pg
 `server/src/platform/pg.ts`:
 
 ```typescript
-import { Pool, type PoolClient } from 'pg';
+import { Pool, type PoolClient, type QueryResult } from 'pg';
+
+/**
+ * node-postgres 는 **다중 문장 질의**(파라미터 없는 simple query)에 `QueryResult` 하나가
+ * 아니라 **배열**을 돌려준다. 타입 정의에는 없는 런타임 동작이라 `.rows` 를 그냥 읽으면
+ * `undefined` 가 나온다 — `001_init.sql` 처럼 DDL 여러 개를 한 번에 보낼 때 정확히 그렇다.
+ *
+ * 둘 다 `T[]` 로 정규화한다. DDL 은 행을 내지 않으므로 `[]` 가 된다.
+ */
+function toRows<T>(result: QueryResult | QueryResult[]): T[] {
+  if (Array.isArray(result)) return result.flatMap((r) => (r.rows ?? []) as T[]);
+  return (result.rows ?? []) as T[];
+}
 
 export interface Db {
+  /**
+   * 항상 배열을 돌려준다. 행을 내지 않는 질의(DDL 등)는 `[]` 다.
+   * 다중 문장 질의는 모든 문장의 행을 이어 붙인다.
+   */
   query<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<T[]>;
   /** 콜백 안의 모든 질의가 한 트랜잭션으로 묶인다. 예외가 나면 롤백한다. */
   tx<T>(fn: (db: Db) => Promise<T>): Promise<T>;
@@ -572,7 +606,7 @@ export interface Db {
 function wrapClient(client: PoolClient): Db {
   return {
     async query<T>(sql: string, params: unknown[] = []): Promise<T[]> {
-      return (await client.query(sql, params)).rows as T[];
+      return toRows<T>((await client.query(sql, params)) as unknown as QueryResult);
     },
     // 중첩 트랜잭션은 쓰지 않는다. 필요해지면 SAVEPOINT 로 명시적으로 도입한다.
     async tx<T>(fn: (db: Db) => Promise<T>): Promise<T> {
@@ -589,7 +623,7 @@ export function createDb(databaseUrl: string): Db {
 
   return {
     async query<T>(sql: string, params: unknown[] = []): Promise<T[]> {
-      return (await pool.query(sql, params)).rows as T[];
+      return toRows<T>((await pool.query(sql, params)) as unknown as QueryResult);
     },
 
     async tx<T>(fn: (db: Db) => Promise<T>): Promise<T> {
@@ -624,7 +658,7 @@ docker run -d --name findit-pg-test -e POSTGRES_USER=findit -e POSTGRES_PASSWORD
 ```
 
 Run: `DATABASE_URL=postgres://findit:findit@localhost:5432/findit npx vitest run server/src/platform/pg.test.ts`
-Expected: PASS — 10 tests. `DATABASE_URL` 없이 돌리면 전부 skip 되고 실패하지 않아야 한다 (확인할 것).
+Expected: PASS — 11 tests. `DATABASE_URL` 없이 돌리면 전부 skip 되고 실패하지 않아야 한다 (확인할 것).
 
 - [ ] **Step 6: 커밋**
 
@@ -648,8 +682,13 @@ PlayerState.itemAttackBonusMs 가 0 으로 비어 있고 "Plan 3 의 인벤토�
 session_log 는 토큰 해시만 저장한다. v1 은 원문을 저장했는데(login_logs
 .session_token), DB 가 유출되면 그대로 세션 탈취가 된다.
 
-스키마는 재실행 가능하다 — 서버 부팅마다 적용되므로 두 번 돌아도
-실패하면 안 된다. 테스트가 이를 강제한다.
+스키마는 재실행 가능하다 — 서버 부팅마다 적용되므로 두 번 돌아도 실패하면
+안 된다. 재적용 후 테이블이 온전한지까지 테스트가 확인한다.
+
+어댑터는 단일 결과와 다중 결과를 모두 T[] 로 정규화한다. node-postgres 는
+다중 문장 질의에 QueryResult 배열을 돌려주는데 타입 정의에는 없는 런타임
+동작이라, .rows 를 그냥 읽으면 undefined 가 나온다. 스키마 적용이 정확히
+그 경로다.
 
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 EOF

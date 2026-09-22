@@ -47,3 +47,4 @@ app/assets/audio/
 # TypeScript composite 빌드 산출물 (tsc -b 가 각 워크스페이스에 생성)
 tools/dist/
 packages/*/dist/
+server/dist/

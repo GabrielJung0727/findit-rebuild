@@ -984,6 +984,13 @@ EOF
 
 **비밀번호는 4~12자** (스펙 §6 UI 플로우). 짧지만 원작 제약이라 따른다. 그래서 해싱 강도가 더 중요하다 — bcrypt cost 12.
 
+**두 테스트는 "실패시킬 수 있는가" 를 따로 따져야 한다.**
+
+- **트랜잭션**: 중복 이메일로는 롤백을 검사할 수 없다. UNIQUE 제약은 **첫 INSERT 에서** 터지므로 롤백할 계정 행이 애초에 생기지 않는다. `db.tx` 를 지워도 결과가 같다. 계정은 들어갔는데 프로필에서 실패하는 상황을 **만들어야** 한다.
+- **`revoked_at` 갱신 금지**: 두 `now()` 를 비교하면 안 된다. `Date#getTime()` 은 밀리초로 자르므로 두 UPDATE 가 같은 밀리초에 들어가면 조건을 지워도 통과한다. 시계에 기대지 말고 알아볼 수 있는 값을 박아 둘 것.
+
+> 이 두 테스트는 **실제 PostgreSQL 16 에서 변이를 넣어 확인했다.** 트리거를 건 상태에서 `db.tx` 가 있으면 남은 계정 0개, 없으면 1개다. `revoked_at IS NULL` 이 있으면 `UPDATE 0` 으로 sentinel 이 그대로고, 지우면 `UPDATE 1` 로 `2026-...` 이 된다. `to_char` 포맷은 JS 의 ISO 문자열과 정확히 일치한다.
+
 **`repository.ts` 는 반드시 실제 Postgres 로 테스트한다.** 이 파일은 전부 SQL 문자열이라 타입 검사를 한 줄도 받지 않는다. 컬럼 오타, 빠뜨린 트랜잭션, `guest_session` 배선 오류는 실행해야만 드러난다. 세션 테스트가 아무리 많이 통과해도 이쪽은 한 줄도 돌지 않는다 — 그 결함들은 Task 7 에서 컨테이너를 띄울 때에야 나온다.
 
 **"Redis 를 때리기 전에 걸러야 한다" 같은 계약은 결과가 아니라 호출을 단언해야 한다.** 빈 토큰 조회는 가드가 있든 없든 `null` 을 준다. 결과만 보는 테스트는 가드를 지워도 통과하므로 아무것도 지키지 못한다.
@@ -1248,19 +1255,47 @@ suite('identity 저장소', () => {
   });
 
   it('프로필 생성이 실패하면 계정도 남지 않는다 — 한 트랜잭션이어야 한다', async () => {
-    const dup = email();
-    await createAccount(db, {
-      email: dup, passwordHash: 'h', nickname: 'a', characterId: 0,
-    });
+    // 중복 이메일로는 이걸 검사할 수 없다. UNIQUE 제약은 **첫 INSERT 에서**
+    // 터지므로 롤백할 계정 행이 애초에 생기지 않고, db.tx 를 지워도 결과가
+    // 똑같다. 잡아야 하는 것은 "계정은 들어갔는데 프로필에서 실패한" 경우다.
+    //
+    // 그래서 프로필 INSERT 만 실패시키는 트리거를 잠깐 건다. 특정 닉네임에만
+    // 반응하므로 같은 DB 를 쓰는 다른 테스트에는 영향이 없다.
+    const PROBE = '__tx_rollback_probe__';
+    await db.query(`
+      CREATE OR REPLACE FUNCTION test_block_profile() RETURNS trigger AS $fn$
+      BEGIN
+        IF EXISTS (
+          SELECT 1 FROM account WHERE id = NEW.account_id AND nickname = '${PROBE}'
+        ) THEN
+          RAISE EXCEPTION 'test: player_profile 삽입을 일부러 막는다';
+        END IF;
+        RETURN NEW;
+      END;
+      $fn$ LANGUAGE plpgsql;
 
-    // 같은 이메일로 한 번 더. UNIQUE 제약에 걸려 던져야 한다.
-    await expect(createAccount(db, {
-      email: dup, passwordHash: 'h', nickname: 'b', characterId: 0,
-    })).rejects.toThrow();
+      DROP TRIGGER IF EXISTS test_block_profile_trg ON player_profile;
+      CREATE TRIGGER test_block_profile_trg
+        BEFORE INSERT ON player_profile
+        FOR EACH ROW EXECUTE FUNCTION test_block_profile();
+    `);
 
-    // 계정이 하나뿐이어야 한다. tx 를 빼면 첫 INSERT 가 살아남아 2개가 된다.
-    const rows = await db.query(`SELECT id FROM account WHERE email = $1`, [dup]);
-    expect(rows).toHaveLength(1);
+    const addr = email();
+    try {
+      await expect(createAccount(db, {
+        email: addr, passwordHash: 'h', nickname: PROBE, characterId: 0,
+      })).rejects.toThrow();
+
+      // db.tx 를 빼면 계정 INSERT 가 커밋된 뒤 프로필에서 터지므로
+      // 여기 행이 하나 남는다. 그게 이 테스트가 잡으려는 것이다.
+      const rows = await db.query(`SELECT id FROM account WHERE email = $1`, [addr]);
+      expect(rows).toHaveLength(0);
+    } finally {
+      await db.query(`
+        DROP TRIGGER IF EXISTS test_block_profile_trg ON player_profile;
+        DROP FUNCTION IF EXISTS test_block_profile();
+      `);
+    }
   });
 
   it('이메일로 계정을 찾고 password_hash 를 함께 준다', async () => {
@@ -1331,15 +1366,23 @@ suite('identity 저장소', () => {
     await audit.recordIssued(accountId, th);
     await audit.recordRevoked(th);
 
-    const [first] = await db.query<{ revoked_at: Date }>(
-      `SELECT revoked_at FROM session_log WHERE token_hash = $1`, [th],
+    // 두 번의 now() 를 비교하지 않는다. Date#getTime() 은 밀리초로 자르므로,
+    // 두 UPDATE 가 같은 밀리초 안에 들어가면 조건을 지워도 값이 같아 통과한다.
+    // 대신 알아볼 수 있는 과거 시각을 박아 두고 그것이 그대로인지 본다.
+    // 시계 해상도에 전혀 기대지 않는다.
+    const SENTINEL = '2000-01-01T00:00:00.000Z';
+    await db.query(
+      `UPDATE session_log SET revoked_at = $1 WHERE token_hash = $2`, [SENTINEL, th],
     );
+
     await audit.recordRevoked(th);
-    const [second] = await db.query<{ revoked_at: Date }>(
-      `SELECT revoked_at FROM session_log WHERE token_hash = $1`, [th],
+
+    const [row] = await db.query<{ ts: string }>(
+      `SELECT to_char(revoked_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS ts
+         FROM session_log WHERE token_hash = $1`, [th],
     );
-    // WHERE 의 revoked_at IS NULL 을 지우면 두 번째 호출이 시각을 갱신한다.
-    expect(second!.revoked_at.getTime()).toBe(first!.revoked_at.getTime());
+    // WHERE 의 revoked_at IS NULL 을 지우면 이 값이 now() 로 덮여 2026년이 된다.
+    expect(row!.ts).toBe(SENTINEL);
   });
 });
 ```
@@ -2646,7 +2689,7 @@ EOF
 12. 뒤늦게 도착한 logout 이 새 로그인 세션을 무효화하지 않는다
 13. 라우트 의존성이 throw 해도 500 으로 응답이 끝난다 — 매달리지 않는다
 13-1. `repository.ts` 의 모든 SQL 이 실제 Postgres 에서 한 번 이상 실행된다 — 계정·프로필 생성, 이메일 조회, 게스트 등록, 감사 발급·폐기
-13-2. 계정 생성이 한 트랜잭션이다 — 프로필 생성이 실패하면 계정도 남지 않는다
+13-2. 계정 생성이 한 트랜잭션이다 — **프로필 삽입만 실패시켰을 때** 계정도 남지 않는다
 14. Plan 1·2 의 기존 259 테스트가 전부 그대로 통과한다
 15. `DATABASE_URL`·`REDIS_URL` 없이 돌렸을 때 통합 테스트가 **외부 연결을 시도하지 않는다** — `[ioredis]` 경고가 없어야 한다
 16. **Redis 에 닿지 못하면 부팅이 실패한다** — Postgres 가 살아 있어도 exit 1 이고 `서버 기동` 이 찍히지 않는다

@@ -707,11 +707,15 @@ EOF
 **Interfaces:**
 - Consumes: 없음
 - Produces:
-  - `interface Cache { get(key: string): Promise<string|null>; setEx(key: string, value: string, ttlMs: number): Promise<void>; del(key: string): Promise<void>; close(): Promise<void> }`
-  - `function createCache(redisUrl: string): Cache`
+  - `interface Cache { get(key: string): Promise<string|null>; setEx(key: string, value: string, ttlMs: number): Promise<void>; del(key: string): Promise<void>; ping(timeoutMs?: number): Promise<void>; close(): Promise<void> }`
+  - `function createCache(redisUrl: string, onError?: (err: Error) => void): Cache`
   - `const KEY: { session(token: string): string; guest(token: string): string }`
 
 **키 네임스페이스를 함수로 두는 이유:** 문자열을 호출부마다 조립하면 오타가 조용한 캐시 미스가 된다. 한 곳에 모아 테스트로 고정한다.
+
+**`ping` 이 포트에 있어야 하는 이유:** `createCache` 는 동기로 반환한다. ioredis 는 연결을 백그라운드로 맺고, 실패는 `'error'` **이벤트**로만 알린다 — 던지지 않는다. 그래서 Redis 가 죽어 있어도 `createCache` 는 멀쩡히 객체를 돌려주고, 아무도 명령을 보내지 않으면 부팅은 성공한다. Task 7 의 "Redis 에 연결하지 못하면 부팅에 실패한다" 는 계약은 **await 할 수 있는 무언가**가 없으면 지킬 수 없다. Postgres 는 부팅 중에 스키마를 적용하느라 실제로 질의하므로 저절로 드러나지만, Redis 는 Plan 3 의 부팅 경로에서 한 번도 쓰이지 않는다.
+
+**`onError` 를 받는 이유:** ioredis 는 재연결을 시도할 때마다 `'error'` 를 낸다. 리스너가 없으면 `[ioredis] Unhandled error event` 한 줄이 찍힐 뿐 프로세스는 계속 돈다. 즉 **이 이벤트만으로는 아무도 죽지 않고, 아무도 알지 못한다.** 리스너를 붙여 운영자가 보는 로그로 보낸다.
 
 - [ ] **Step 1: 실패하는 테스트 작성**
 
@@ -733,6 +737,20 @@ describe('KEY 네임스페이스', () => {
   it('같은 토큰이라도 두 키가 충돌하지 않는다', () => {
     expect(KEY.session('x')).not.toBe(KEY.guest('x'));
   });
+});
+
+// 이 suite 는 REDIS_URL 없이도 돈다. 닿을 수 없는 주소를 일부러 쓰기 때문이다.
+describe('연결 확인', () => {
+  it('닿을 수 없으면 ping 이 거부된다 — 부팅을 실패시키기 위한 계약', async () => {
+    const seen: Error[] = [];
+    // 127.0.0.1:1 은 특권 포트라 아무것도 듣지 않는다. ECONNREFUSED 가 바로 온다.
+    const dead = createCache('redis://127.0.0.1:1', (e) => seen.push(e));
+    await expect(dead.ping(3_000)).rejects.toThrow();
+    // 에러 리스너가 실제로 붙어 있어야 한다. 안 붙어 있으면 ioredis 가
+    // 경고만 찍고 지나가므로, 여기서 잡지 않으면 아무 데서도 안 잡힌다.
+    expect(seen.length).toBeGreaterThan(0);
+    await dead.close();
+  }, 10_000);
 });
 
 const url = process.env['REDIS_URL'];
@@ -775,6 +793,10 @@ suite('Redis 어댑터', () => {
   it('TTL 이 0 이하면 던진다 — 즉시 사라지는 세션은 버그다', async () => {
     await expect(cache.setEx('findit:test:bad', 'v', 0)).rejects.toThrow(/ttl/i);
   });
+
+  it('살아 있는 서버에는 ping 이 통과한다', async () => {
+    await expect(cache.ping(3_000)).resolves.toBeUndefined();
+  });
 });
 ```
 
@@ -809,11 +831,21 @@ export interface Cache {
   get(key: string): Promise<string | null>;
   setEx(key: string, value: string, ttlMs: number): Promise<void>;
   del(key: string): Promise<void>;
+  /**
+   * 연결이 실제로 가능한지 확인한다. **부팅 경로에서 반드시 await 할 것.**
+   * 이게 없으면 Redis 가 죽어 있어도 서버가 정상 기동한다 — createCache 는
+   * 동기로 반환하고, ioredis 는 연결 실패를 던지지 않고 이벤트로만 알린다.
+   */
+  ping(timeoutMs?: number): Promise<void>;
   close(): Promise<void>;
 }
 
-export function createCache(redisUrl: string): Cache {
+export function createCache(redisUrl: string, onError?: (err: Error) => void): Cache {
   const client = new Redis(redisUrl, { lazyConnect: false, maxRetriesPerRequest: 3 });
+
+  // 리스너가 없으면 ioredis 는 "[ioredis] Unhandled error event" 만 찍고 넘어간다.
+  // 프로세스는 죽지 않고 운영자는 모른다. 붙여서 호출부로 넘긴다.
+  client.on('error', (err: Error) => { onError?.(err); });
 
   return {
     async get(key: string): Promise<string | null> {
@@ -831,8 +863,42 @@ export function createCache(redisUrl: string): Cache {
       await client.del(key);
     },
 
+    async ping(timeoutMs = 5_000): Promise<void> {
+      if (client.status === 'ready') {
+        await client.ping();
+        return;
+      }
+      // 아직 연결 중이면 'ready' 와 'error' 중 먼저 오는 쪽을 기다린다.
+      // client.ping() 을 그냥 부르지 않는 이유: 연결이 끊긴 동안 명령은
+      // 오프라인 큐에 쌓이고, 거부되기까지 재시도 정책에 좌우된다.
+      // 이벤트를 직접 기다리면 ECONNREFUSED 가 즉시 거부로 이어진다.
+      await new Promise<void>((resolve, reject) => {
+        const cleanup = (): void => {
+          clearTimeout(timer);
+          client.off('ready', onReady);
+          client.off('error', onFail);
+        };
+        const onReady = (): void => { cleanup(); resolve(); };
+        const onFail = (err: Error): void => { cleanup(); reject(err); };
+        const timer = setTimeout(() => {
+          cleanup();
+          // 주소는 넣지 않는다 — redis:// URL 에 비밀번호가 들어갈 수 있다.
+          reject(new Error(`Redis 연결 시간 초과 (${timeoutMs}ms)`));
+        }, timeoutMs);
+        client.once('ready', onReady);
+        client.once('error', onFail);
+      });
+    },
+
     async close(): Promise<void> {
-      await client.quit();
+      try {
+        await client.quit();
+      } catch {
+        // 이미 끊긴 상태면 quit 이 거부된다. 종료 경로가 그것 때문에 죽을
+        // 이유는 없다. disconnect 는 재연결 타이머까지 끊어 프로세스가
+        // 매달리지 않게 한다.
+        client.disconnect();
+      }
     },
   };
 }
@@ -845,7 +911,7 @@ docker run -d --name findit-redis-test -p 6379:6379 redis:7-alpine
 ```
 
 Run: `REDIS_URL=redis://localhost:6379 npx vitest run server/src/platform/redis.test.ts`
-Expected: PASS — 7 tests.
+Expected: PASS — 9 tests.
 
 **`REDIS_URL` 없이도 반드시 확인할 것:**
 
@@ -854,7 +920,8 @@ npx vitest run server/src/platform/redis.test.ts 2>&1 | grep -i ioredis
 ```
 Expected: **아무 출력도 없어야 한다.** `[ioredis] Unhandled error event` 가 뜨면 skip 이
 외부 연결을 막지 못한 것이다. 통과/스킵 숫자만 보면 이 누수가 보이지 않는다 —
-`2 passed / 5 skipped` 로 정상처럼 나온다.
+`3 passed / 6 skipped` 로 정상처럼 나온다. (`연결 확인` suite 는 닿을 수 없는
+주소를 일부러 쓰고 에러 리스너를 붙이므로 경고를 내지 않는다.)
 
 - [ ] **Step 5: 커밋**
 
@@ -868,6 +935,19 @@ feat(server): Redis 어댑터 + 키 네임스페이스
 찾기 어렵다.
 
 setEx 는 ttlMs <= 0 을 거부한다. 즉시 사라지는 세션은 버그이지 설정이 아니다.
+
+ping 을 포트에 둔다. createCache 는 동기로 반환하고 ioredis 는 연결 실패를
+던지지 않고 'error' 이벤트로만 알리기 때문에, await 할 수 있는 것이 없으면
+"Redis 에 연결하지 못하면 부팅 실패" 라는 계약을 지킬 수 없다. Postgres 는
+부팅 중 스키마를 적용하며 실제로 질의하니 저절로 드러나지만, Redis 는
+Plan 3 부팅 경로에서 한 번도 쓰이지 않는다.
+
+createCache 가 onError 를 받아 'error' 리스너를 붙인다. 리스너가 없으면
+ioredis 는 경고 한 줄만 찍고 프로세스는 계속 돈다 — 아무도 죽지 않고
+아무도 알지 못한다.
+
+close 는 quit 실패를 삼키고 disconnect 로 떨어진다. 이미 끊긴 연결에서
+quit 은 거부되는데, 종료 경로가 그것 때문에 죽을 이유는 없다.
 
 통합 테스트의 클라이언트를 beforeAll 안에서 만든다. describe.skip 도 콜백
 본문은 평가하므로, suite 최상위에서 createCache(url!) 를 부르면 url 이
@@ -951,36 +1031,53 @@ describe('비밀번호', () => {
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { TestClock } from '../platform/clock.js';
 import { createCache, KEY, type Cache } from '../platform/redis.js';
-import { createGuestSession, createSession, revokeSession, verifySession } from './session.js';
+import {
+  createGuestSession, createSession, revokeSession, verifySession, type SessionDeps,
+} from './session.js';
 
 const url = process.env['REDIS_URL'];
 const suite = url ? describe : describe.skip;
 
 suite('세션', () => {
-  // Task 3 과 같은 이유로 suite 본문에서 만들지 않는다 — describe.skip 도
-  // 본문은 평가되고, ioredis 가 localhost 로 붙으려 한다.
-  let cache: Cache;
-  beforeAll(() => { cache = createCache(url!); });
-
   const clock = new TestClock(1_000_000);
   // Postgres 감사 기록은 여기서 검증하지 않는다 — 스텁을 넣는다.
   const audit = { issued: [] as string[], revoked: [] as string[] };
   const guests = { ids: [] as string[] };
-  const deps = {
-    cache,
-    clock,
-    guests: {
-      register: async (tokenHash: string) => {
-        const id = `guest-${tokenHash.slice(0, 8)}`;
-        guests.ids.push(id);
-        return id;
+
+  // **cache 와 deps 를 함께 beforeAll 에서 만든다.** 둘을 떼어 놓으면 안 된다.
+  //
+  // cache 만 beforeAll 로 옮기는 것은 Task 3 과 같은 이유로 필요하다 —
+  // describe.skip 도 콜백 본문은 평가하므로, suite 최상위에서
+  // createCache(url!) 를 부르면 url 이 undefined 여도 ioredis 가 localhost 로
+  // 붙는다.
+  //
+  // 그런데 deps 를 최상위에 남겨 두면 `{ cache, ... }` 가 suite 평가 시점의
+  // cache **값**(= undefined)을 복사한다. 나중에 beforeAll 이 변수에 대입해도
+  // 이미 복사된 객체는 바뀌지 않는다. 모든 테스트가
+  // "Cannot read properties of undefined (reading 'setEx')" 로 죽는다.
+  // 객체 리터럴은 참조를 만드는 게 아니라 값을 복사한다.
+  let cache: Cache;
+  let deps: SessionDeps;
+
+  beforeAll(() => {
+    cache = createCache(url!, () => {});
+    deps = {
+      cache,
+      clock,
+      guests: {
+        register: async (tokenHash: string) => {
+          const id = `guest-${tokenHash.slice(0, 8)}`;
+          guests.ids.push(id);
+          return id;
+        },
       },
-    },
-    audit: {
-      recordIssued: async (accountId: string, tokenHash: string) => { audit.issued.push(tokenHash); },
-      recordRevoked: async (tokenHash: string) => { audit.revoked.push(tokenHash); },
-    },
-  };
+      audit: {
+        recordIssued: async (accountId: string, tokenHash: string) => { audit.issued.push(tokenHash); },
+        recordRevoked: async (tokenHash: string) => { audit.revoked.push(tokenHash); },
+      },
+    };
+  });
+
   afterAll(async () => { await cache.close(); });
 
   it('계정 세션을 발급하고 검증한다', async () => {
@@ -2045,7 +2142,9 @@ EOF
 - Consumes: Task 1~6 전부
 - Produces: `docker compose up` 으로 뜨는 서버
 
-**부팅 순서.** 설정 → 로거 → DB/Redis 연결 → 스키마 적용 → 콘텐츠 로드 → 콘텐츠 버전 기록 → HTTP 리슨. **DB 나 Redis 에 연결하지 못하면 부팅에 실패한다** — 반쯤 뜬 서버가 트래픽을 받는 것보다 낫다.
+**부팅 순서.** 설정 → 로거 → DB/Redis 연결 → **Redis 연결 확인(`await cache.ping()`)** → 스키마 적용 → 콘텐츠 로드 → 콘텐츠 버전 기록 → HTTP 리슨. **DB 나 Redis 에 연결하지 못하면 부팅에 실패한다** — 반쯤 뜬 서버가 트래픽을 받는 것보다 낫다.
+
+> `ping` 을 빼먹으면 이 계약은 **Redis 쪽에서 그냥 거짓말이 된다.** DB 는 스키마를 적용하며 실제로 질의하니 연결 실패가 드러나지만, Redis 는 Plan 3 부팅 경로에서 한 번도 쓰이지 않는다. `createCache` 는 동기로 반환하고 ioredis 는 연결 오류를 던지지 않으므로, Redis 가 죽어 있어도 서버는 정상 기동해 로그인 요청을 받고 전부 500 을 낸다.
 
 - [ ] **Step 1: `.env.example` 과 Compose 작성**
 
@@ -2180,9 +2279,14 @@ async function main(): Promise<void> {
   const log = createLogger(config.nodeEnv);
   const clock = new SystemClock();
 
-  // 연결에 실패하면 여기서 죽는다. 반쯤 뜬 서버가 트래픽을 받는 것보다 낫다.
   const db = createDb(config.databaseUrl);
-  const cache = createCache(config.redisUrl);
+  const cache = createCache(config.redisUrl, (err) => log.error('Redis 오류', { err: err.message }));
+
+  // createCache 는 동기다 — 여기까지 왔다고 Redis 에 닿은 것이 아니다.
+  // 명시적으로 확인하지 않으면 Redis 없이도 서버가 떠서 로그인 요청을 받고
+  // 전부 500 을 낸다. DB 는 바로 아래 스키마 적용에서 저절로 드러난다.
+  await cache.ping();
+  log.info('Redis 연결 확인');
 
   const schema = readFileSync(resolve(import.meta.dirname, '../sql/001_init.sql'), 'utf8');
   await db.query(schema);
@@ -2279,6 +2383,20 @@ curl -s localhost:8080/content/manifest | head -c 200
 ```
 Expected: `{"version":"...","puzzles":[{"id":"a0001",...`
 
+**Redis 없이는 부팅에 실패해야 한다 — 반드시 확인할 것:**
+
+Postgres 는 살려 둔 채 Redis 만 닿을 수 없게 한다. 그래야 실패 원인이 Redis 임이 분명해진다.
+
+```bash
+DATABASE_URL=postgres://findit:findit@localhost:5432/findit \
+REDIS_URL=redis://127.0.0.1:1 \
+CONTENT_URL_SECRET=$(openssl rand -hex 32) \
+CONTENT_DIR=./content \
+npx tsx server/src/main.ts; echo "exit=$?"
+```
+Expected: `exit=1`, 그리고 `부팅 실패:` 가 로그에 찍힌다. `서버 기동` 은 **찍히면 안 된다**.
+프로세스가 매달리거나 exit 0 으로 끝나면 `ping` 을 await 하지 않은 것이다.
+
 ```bash
 curl -s -X POST localhost:8080/auth/guest -H 'content-type: application/json' -d '{}'
 ```
@@ -2344,7 +2462,8 @@ EOF
 13. 라우트 의존성이 throw 해도 500 으로 응답이 끝난다 — 매달리지 않는다
 14. Plan 1·2 의 기존 259 테스트가 전부 그대로 통과한다
 15. `DATABASE_URL`·`REDIS_URL` 없이 돌렸을 때 통합 테스트가 **외부 연결을 시도하지 않는다** — `[ioredis]` 경고가 없어야 한다
-16. `npm run typecheck` exit 0, CI 5개 체크 전부 통과
+16. **Redis 에 닿지 못하면 부팅이 실패한다** — Postgres 가 살아 있어도 exit 1 이고 `서버 기동` 이 찍히지 않는다
+17. `npm run typecheck` exit 0, CI 5개 체크 전부 통과
 
 ## 이 계획이 남기는 것 (Plan 4 의 입력)
 

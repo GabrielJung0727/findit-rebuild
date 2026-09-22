@@ -2308,11 +2308,14 @@ EOF
 - Test: `server/src/match/settlement.test.ts`
 
 **Interfaces:**
-- Consumes: Plan 3 `Db`; `levelForScore`; Plan 2 `BattleState`
+- Consumes: Plan 3 `Db`; `levelForScore`; Plan 2 `BattleState`·`opponentOf`·`PlayerSlot`; Task 1 `EndPayloads`
 - Produces:
   - `interface SettlementRow { accountId: string | null; matchId: string; puzzleId: string; result: 'win'|'lose'|'draw'; foundCount: number; opponentFound: number; scoreDelta: number; coinDelta: number; expDelta: number; vsAi: boolean }`
-  - `function settlementsFor(state: BattleState, keys: { p1: SettlementKey; p2: SettlementKey }): SettlementRow[]`
+  - `interface SettlementInputs { state: BattleState; ends: EndPayloads; accountIds: Partial<Record<PlayerSlot, string | null>> }`
+  - `function settlementRows(inputs: SettlementInputs): SettlementRow[]` — **순수 함수.** DB 를 모른다.
   - `async function persistSettlement(db: Db, row: SettlementRow): Promise<{ level: number; leveledUp: boolean } | null>`
+
+> **매핑을 따로 떼는 이유.** "AI 는 전적을 남기지 않는다", "값은 END 페이로드 그대로 옮긴다", "게스트는 `accountId` 가 null" 은 전부 규칙이지 DB 작업이 아니다. 순수 함수로 두면 Postgres 없이 검증되고, Task 7 이 같은 매핑을 다시 쓰지 않아도 된다.
 
 **원작에는 경험치가 없다.** 정산은 `score = mScore + calculateScore(...)`, `level = getLevel(score)`, `coin = coin + 1` 이고 **레벨이 오른 판에만 스킬 포인트가 1 오른다**(`GameView.java:3255-3271`). 레벨링 통화는 **점수**다. 그대로 따른다:
 
@@ -2336,7 +2339,63 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createDb, type Db } from '../platform/pg.js';
 import { createAccount } from '../identity/repository.js';
-import { persistSettlement, type SettlementRow } from './settlement.js';
+import { createBattle } from '../battle/state.js';
+import { assignPuzzle } from '../content/assigner.js';
+import { createRng } from '../platform/rng.js';
+import type { EndPayloads } from './runner.js';
+import { persistSettlement, settlementRows, type SettlementRow } from './settlement.js';
+
+// ── settlementRows — 순수 함수라 DB 없이 돈다 ────────────────────────
+describe('정산 행 만들기', () => {
+  const base = createBattle({
+    matchId: 'm1',
+    assignment: assignPuzzle([{
+      id: 'p1', width: 1024, height: 768,
+      rects: Array.from({ length: 7 }, (_, i) => ({
+        index: i, x: 111 + i * 97, y: 211, w: 33, h: 29, sourceDrawable: `p1_${i}`,
+      })),
+    }], createRng(7)),
+    p1: { name: 'A', level: 10, isAi: false },
+    p2: { name: 'B', level: 10, isAi: false },
+  });
+
+  const ends: EndPayloads = {
+    p1: { result: 'win', myFound: 3, opponentFound: 2, score: 700, coinDelta: 5, expDelta: 30 },
+    p2: { result: 'lose', myFound: 2, opponentFound: 3, score: 200, coinDelta: 0, expDelta: 20 },
+  };
+
+  it('사람 둘이면 두 행이 나오고 값은 END 페이로드 그대로다', () => {
+    const rows = settlementRows({ state: base, ends, accountIds: {} });
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({
+      result: 'win', scoreDelta: 700, coinDelta: 5, expDelta: 30, vsAi: false,
+    });
+    expect(rows[1]).toMatchObject({ result: 'lose', scoreDelta: 200, coinDelta: 0 });
+  });
+
+  it('AI 슬롯은 행을 만들지 않는다 — 전적은 사람의 것이다', () => {
+    const vsAi = { ...base, p2: { ...base.p2, isAi: true } };
+    const rows = settlementRows({ state: vsAi, ends, accountIds: {} });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.result).toBe('win');
+    // 상대가 AI 였다는 사실은 남은 한 행에 기록된다.
+    expect(rows[0]!.vsAi).toBe(true);
+  });
+
+  it('계정이면 accountId, 게스트면 null 이다', () => {
+    const rows = settlementRows({
+      state: base, ends, accountIds: { p1: 'acc-1', p2: null },
+    });
+    expect(rows[0]!.accountId).toBe('acc-1');
+    expect(rows[1]!.accountId).toBeNull();
+  });
+
+  it('END 페이로드가 없는 슬롯은 건너뛴다 — 값을 지어내지 않는다', () => {
+    const rows = settlementRows({ state: base, ends: { p1: ends.p1 }, accountIds: {} });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.result).toBe('win');
+  });
+});
 
 const url = process.env['DATABASE_URL'];
 const suite = url ? describe : describe.skip;
@@ -2446,6 +2505,33 @@ suite('정산 영속화', () => {
     expect(Number(p!.total_score)).toBe(0);
   });
 
+  it('프로필 갱신이 전적 INSERT 보다 먼저 일어난다 — tx 검사를 무력화하지 않기 위한 순서', async () => {
+    const accountId = await newAccount();
+    const seen: string[] = [];
+
+    // db 를 감싸 질의 순서만 기록한다. 실제 질의는 그대로 흘려보낸다.
+    const record = (sql: string): void => {
+      if (/UPDATE\s+player_profile/i.test(sql)) seen.push('profile');
+      if (/INSERT\s+INTO\s+match_history/i.test(sql)) seen.push('history');
+    };
+    const spy = (inner: Db): Db => ({
+      query<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<T[]> {
+        record(sql);
+        return inner.query<T>(sql, params);
+      },
+      tx<T>(fn: (d: Db) => Promise<T>): Promise<T> { return inner.tx((t) => fn(spy(t))); },
+      close(): Promise<void> { return inner.close(); },
+    });
+
+    await persistSettlement(spy(db), row({ accountId }));
+
+    // 순서를 뒤집으면 `전적과 프로필이 한 트랜잭션이다` 가 db.tx 를 지워도
+    // 통과하게 된다 — 검사가 조용히 무력화된다. 그래서 순서 자체를 못 박는다.
+    expect(seen[0]).toBe('profile');
+    expect(seen).toContain('history');
+    expect(seen.indexOf('profile')).toBeLessThan(seen.indexOf('history'));
+  });
+
   it('점수는 음수로 내려가지 않는다 — CHECK 제약을 어기면 정산이 죽는다', async () => {
     const accountId = await newAccount();
     const out = await persistSettlement(db, row({ accountId, scoreDelta: -500, coinDelta: 0 }));
@@ -2470,6 +2556,8 @@ Expected: FAIL — `Cannot find module './settlement.js'`
 ```typescript
 import type { Db } from '../platform/pg.js';
 import { levelForScore } from '../rules/levels.js';
+import { opponentOf, type BattleState, type PlayerSlot } from '../battle/state.js';
+import type { EndPayloads } from './runner.js';
 
 export interface SettlementRow {
   /** 게스트는 null. account 행이 없으므로 FK 에 넣을 수 없다. */
@@ -2483,6 +2571,53 @@ export interface SettlementRow {
   coinDelta: number;
   expDelta: number;
   vsAi: boolean;
+}
+
+export interface SettlementInputs {
+  state: BattleState;
+  /** 리듀서가 만든 슬롯별 END 페이로드. 점수·코인·경험치가 여기 있다. */
+  ends: EndPayloads;
+  /** 슬롯별 계정 id. 게스트는 null, AI 는 아예 없다. */
+  accountIds: Partial<Record<PlayerSlot, string | null>>;
+}
+
+/**
+ * 끝난 매치를 전적 행으로 옮긴다. **순수 함수다** — DB 를 모른다.
+ *
+ * 값을 다시 계산하지 않고 END 페이로드를 그대로 옮기는 것이 요점이다.
+ * 콤보 보너스는 정산 시점의 live 콤보 한 번 조회라서, 상태를 훑어
+ * 재계산하면 원작과 다른 값이 나온다 (Plan 2 에서 그 실수로 점수가 3 배가
+ * 됐다).
+ */
+export function settlementRows(inputs: SettlementInputs): SettlementRow[] {
+  const { state, ends, accountIds } = inputs;
+  const rows: SettlementRow[] = [];
+
+  for (const slot of ['p1', 'p2'] as const) {
+    const me = state[slot];
+    if (me.isAi) continue;                 // 전적은 사람의 것이다
+
+    // 러너는 종료 시 양쪽 END 를 모두 만든다. 없다면 내부 결함이므로
+    // 값을 지어내지 않고 건너뛴다.
+    const payload = ends[slot];
+    if (payload === undefined) continue;
+
+    const other = state[opponentOf(slot)];
+    rows.push({
+      accountId: accountIds[slot] ?? null,
+      matchId: state.matchId,
+      puzzleId: state.puzzleId,
+      result: payload['result'] as 'win' | 'lose' | 'draw',
+      foundCount: me.found.length,
+      opponentFound: other.found.length,
+      scoreDelta: Number(payload['score']),
+      coinDelta: Number(payload['coinDelta']),
+      expDelta: Number(payload['expDelta']),
+      vsAi: other.isAi,
+    });
+  }
+
+  return rows;
 }
 
 /**
@@ -2579,7 +2714,10 @@ async function updateProfile(
 - [ ] **Step 4: 통과 확인**
 
 Run: `DATABASE_URL=postgres://findit:findit@localhost:5432/findit npx vitest run server/src/match/settlement.test.ts && npm run typecheck`
-Expected: PASS — 7 tests.
+Expected: PASS — **12 tests** (순수 4 + DB 8).
+
+순수 4 개는 `DATABASE_URL` 없이도 돈다. Postgres 를 주지 않았을 때
+`4 passed / 8 skipped` 가 나오면 정상이고, CI 에서는 skip 이 0 이어야 한다.
 
 **변이로 확인할 것:**
 
@@ -2588,7 +2726,11 @@ Expected: PASS — 7 tests.
 | SQL 덧셈을 JS 덧셈으로 (`total_score: before + delta` 를 값으로 전달) | `프로필의 점수와 코인이 더해진다` |
 | `leveledUp` 분기 제거 (항상 `skill_points + 1`) | `레벨이 오른 판에만 스킬 포인트가 1 오른다` |
 | `db.tx` 를 벗기고 순차 실행 | `전적과 프로필이 한 트랜잭션이다` |
-| 전적 INSERT 를 프로필 UPDATE **앞으로** 옮김 | `전적과 프로필이 한 트랜잭션이다` — 순서가 바뀌면 `db.tx` 를 벗겨도 통과해 버린다 |
+| 전적 INSERT 를 프로필 UPDATE **앞으로** 옮김 | `프로필 갱신이 전적 INSERT 보다 먼저 일어난다` |
+| `settlementRows` 의 `me.isAi` 건너뛰기 제거 | `AI 슬롯은 행을 만들지 않는다` |
+| `accountIds[slot] ?? null` → 항상 `null` | `계정이면 accountId, 게스트면 null 이다` |
+
+> **순서 변경은 단독으로는 `전적과 프로필이 한 트랜잭션이다` 를 깨뜨리지 않는다.** 트랜잭션이 살아 있는 한 어느 순서든 롤백되기 때문이다. 순서가 중요한 이유는 그 검사를 **살려 두기 위해서**다 — 순서를 뒤집고 `db.tx` 까지 지우면 둘 다 통과해 버린다. 그래서 순서 자체를 별도 테스트로 못 박았다.
 | `accountId === null` 가드 제거 | `게스트는 전적만 남기고…` (FK 위반으로 던진다) |
 | `GREATEST(0, ...)` 제거 | `점수는 음수로 내려가지 않는다` (CHECK 위반) |
 
@@ -2644,13 +2786,13 @@ EOF
 1. `GameInput` + `conn.session.slot` → `BattleEvent` — **슬롯을 채우는 유일한 곳**이다.
 2. `Outbound.to` → 그 슬롯의 연결 → `conn.send`.
 3. 매치 생성: `assignPuzzle` → `createBattle` → `MatchRunner` → `registry.add` → `index.put` → 양쪽에 `MATCH_FOUND`.
-4. 매치 종료: `settlementsFor` → `persistSettlement` → `registry.remove` → `index.drop`.
+4. 매치 종료: `settlementRows`(순수 매핑) → `persistSettlement` → `registry.remove` → `index.drop`.
 
 **Review Focus 5 — 양쪽이 다 끊긴 매치.** 두 연결이 모두 닫히면 리듀서는 `LEAVE` 로 매치를 끝내지만, 러너의 타이머·레지스트리 항목·Redis `match:{id}` 키가 남으면 누수다. 서버가 오래 돌수록 쌓인다. **끝난 매치는 반드시 셋 다 회수한다.**
 
 **AI 상대에게는 연결이 없다.** `send` 가 AI 슬롯으로 향하면 조용히 버린다. 이것이 없으면 AI 매치의 모든 `REVEAL` 이 `undefined.send` 로 터진다.
 
-**정산 대상은 사람뿐이다.** AI 슬롯은 `match_history` 에 넣지 않는다.
+**정산 대상은 사람뿐이다.** AI 슬롯은 `match_history` 에 넣지 않는다 — 그 규칙은 Task 6 의 `settlementRows` 안에 있고 거기서 단위 테스트된다. 배선은 자리에서 계정 id 만 채워 넘긴다.
 
 - [ ] **Step 1: 실패하는 테스트 작성**
 
@@ -2982,7 +3124,7 @@ import { MatchRunner, type EndPayloads, type Scheduler, type TimerHandle } from 
 import { MatchRegistry } from './registry.js';
 import { createMatchIndex } from './index.js';
 import { Matchmaker, type Waiting } from './queue.js';
-import { persistSettlement, type SettlementRow } from './settlement.js';
+import { persistSettlement, settlementRows } from './settlement.js';
 
 export interface RealtimeDeps {
   db: Db;
@@ -3158,40 +3300,28 @@ export function createRealtime(deps: RealtimeDeps): {
   }
 
   async function settle(state: BattleState, ends: EndPayloads): Promise<void> {
-    for (const slot of ['p1', 'p2'] as const) {
-      const me = state[slot];
-      const other = state[opponentOf(slot)];
-      if (me.isAi) continue;   // AI 는 전적을 남기지 않는다
+    const row = seats.get(state.matchId);
 
-      // **리듀서가 낸 값을 그대로 쓴다.** 여기서 다시 계산하면 콤보 보너스가
-      // 어긋난다 — 원작은 정산 시점의 live 콤보를 한 번 조회할 뿐이라,
-      // 상태를 훑어 누적하면 값이 부풀어 오른다 (Plan 2 에서 3 배가 됐다).
-      const payload = ends[slot];
-      if (payload === undefined) {
-        deps.log.error('END 페이로드 없음 — 정산을 건너뛴다', { matchId: state.matchId, slot });
-        continue;
-      }
+    // 매핑은 Task 6 의 순수 함수가 한다. 여기서 다시 쓰면 두 벌이 생기고,
+    // 그중 하나만 고쳐지는 날이 온다.
+    //
+    // 계정 id 는 연결이 아니라 **자리**에서 읽는다 — 끊고 나간 사람도
+    // 전적이 자기 계정에 남아야 하는데, 연결은 그때 이미 null 이다.
+    const rows = settlementRows({
+      state, ends,
+      accountIds: {
+        p1: row?.p1?.accountId ?? null,
+        p2: row?.p2?.accountId ?? null,
+      },
+    });
 
-      const row: SettlementRow = {
-        // 계정으로 로그인했으면 accountId, 게스트면 null. 연결이 아니라
-        // 자리에서 읽는다 — 끊고 나간 사람도 전적이 자기 계정에 남아야 한다.
-        accountId: seats.get(state.matchId)?.[slot]?.accountId ?? null,
-        matchId: state.matchId,
-        puzzleId: state.puzzleId,
-        result: payload['result'] as 'win' | 'lose' | 'draw',
-        foundCount: me.found.length,
-        opponentFound: other.found.length,
-        scoreDelta: Number(payload['score']),
-        coinDelta: Number(payload['coinDelta']),
-        expDelta: Number(payload['expDelta']),
-        vsAi: other.isAi,
-      };
+    for (const item of rows) {
       try {
-        await persistSettlement(deps.db, row);
+        await persistSettlement(deps.db, item);
       } catch (err: unknown) {
         // 한 사람의 정산 실패가 다른 사람의 정산과 자원 회수를 막으면 안 된다.
         deps.log.error('정산 실패', {
-          matchId: state.matchId, slot,
+          matchId: state.matchId,
           err: err instanceof Error ? err.message : String(err),
         });
       }

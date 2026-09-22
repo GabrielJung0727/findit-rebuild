@@ -1698,9 +1698,18 @@ suite('매칭 큐', () => {
     const h = harness();
     const a = player('A');
     await h.maker.join(a);
-    await h.maker.leave(a.key);
-    await h.scheduler.runUntil(h.clock, h.clock.now() + AI_TRANSITION_MS + 1);
+    expect(h.scheduler.pending).toBe(1);
 
+    await h.maker.leave(a.key);
+
+    // **이 단언이 취소 계약을 잡는다.** 아래 started·waitingCount 만 보면
+    // 타이머를 취소하지 않아도 통과한다 — 남은 타이머가 나중에 발화해도
+    // waiting 에 그 사람이 없어 toAi 가 아무 일도 하지 않기 때문이다.
+    // "결과가 같다" 와 "예약을 거뒀다" 는 다른 계약이고, 거두지 않은 예약은
+    // 서버가 오래 돌수록 쌓인다.
+    expect(h.scheduler.pending).toBe(0);
+
+    await h.scheduler.runUntil(h.clock, h.clock.now() + AI_TRANSITION_MS + 1);
     expect(h.started).toEqual([]);
     expect(await h.maker.waitingCount()).toBe(0);
   });

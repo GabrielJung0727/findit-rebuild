@@ -1562,6 +1562,8 @@ EOF
 
 **타이머 콜백은 `Promise` 를 돌려줘야 한다.** AI 전환이 Redis 를 때리기 때문이다. 스케줄러가 그것을 기다리지 않으면, 테스트가 아직 일어나지 않은 일을 보고 "안 일어났다" 로 읽는다. 마이크로태스크를 몇 번 비우는 것으로는 실제 왕복이 끝나지 않는다.
 
+**큐에는 고아 키가 남는다.** 프로세스가 재시작하면 `waiting` 은 비지만 Redis 리스트는 살아 있다. `LPOP` 을 한 번만 하면 고아 하나를 버리고 끝나므로, 그 뒤에 실제 대기자가 있어도 만나지 못한다 — **사람이 둘인데 아무도 못 만나고 각자 AI 로 빠진다.** 큐가 비거나 살아 있는 대기자를 만날 때까지 꺼내야 하고, 그 과정이 곧 고아 청소가 된다.
+
 **Review Focus 4 — 동시 진입.** 두 사람이 같은 순간에 `QUEUE_JOIN` 하면 이런 순서가 가능하다.
 
 ```
@@ -1638,18 +1640,18 @@ suite('매칭 큐', () => {
     const clock = new TestClock(1_000_000);
     const scheduler = new TestScheduler();
     const started: { a: string; b: string | null }[] = [];
+    const queueKey = `findit:test:queue:${process.pid}:${n}`;
     const maker = new Matchmaker({
-      clock, scheduler, cache,
-      queueKey: `findit:test:queue:${process.pid}:${n}`,
+      clock, scheduler, cache, queueKey,
       aiTransitionMs: opts.aiMs ?? AI_TRANSITION_MS,
       startMatch: async (a, b) => {
         started.push({ a: a.name, b: b?.name ?? null });
         return `match-${started.length}`;
       },
     });
-    return { clock, scheduler, started, maker };
     // queueKey 는 테스트마다 다르다. 같은 Redis 를 쓰는 병렬 실행에서
     // 큐가 섞이면 "혼자 들어갔는데 누군가와 붙는" 유령 실패가 난다.
+    return { clock, scheduler, started, maker, queueKey };
   }
 
   it('혼자 들어가면 대기한다 — 즉시 AI 가 되지 않는다', async () => {
@@ -1732,6 +1734,27 @@ it('join 이 Redis 를 기다리는 동안 들어온 leave 가 무시되지 않�
 
     await h.scheduler.runUntil(h.clock, h.clock.now() + AI_TRANSITION_MS + 1);
     expect(h.started).toEqual([]);
+  });
+
+it('고아 키 뒤에 기다리는 사람이 있으면 그 사람과 붙는다', async () => {
+    const h = harness();
+    const a = player('A');
+    await h.maker.join(a);
+
+    // **재시작 뒤 상태를 재현한다.** 프로세스가 죽으면 waiting 은 비지만
+    // Redis 리스트는 살아남아, 본문 없는 고아 키가 큐 앞에 남는다.
+    // A 를 그 뒤로 옮겨 놓는다.
+    await cache.listRemove(h.queueKey, a.key);
+    await cache.listPushRight(h.queueKey, 'k-ghost');
+    await cache.listPushRight(h.queueKey, a.key);
+
+    await h.maker.join(player('B'));
+
+    // 고아를 하나만 버리고 말면 B 는 A 를 만나지 못하고 큐 뒤에 선다.
+    // 그러면 둘 다 5 초 뒤 각자 AI 와 붙는다 — 사람이 둘인데 아무도 못 만난다.
+    expect(h.started).toEqual([{ a: 'B', b: 'A' }]);
+    expect(await h.maker.waitingCount()).toBe(0);
+    expect(h.scheduler.pending).toBe(0);
   });
 
   it('같은 사람이 두 번 들어가도 자기 자신과 붙지 않는다', async () => {
@@ -1836,18 +1859,22 @@ export class Matchmaker {
     // 이미 대기 중이면 아무 일도 하지 않는다. 자기 자신과 붙는 것을 막는다.
     if (this.waiting.has(w.key)) return;
 
-    const opponentKey = await this.ports.cache.listPopLeft(this.ports.queueKey);
-    if (opponentKey !== null) {
-      // 위의 has 가드를 통과했으므로 opponentKey 가 w.key 와 같다면 그것은
-      // 본문 없이 키만 남은 유령이다 — 아래 undefined 분기가 그대로 처리한다.
-      // 따로 opponentKey !== w.key 를 검사할 필요가 없다.
+    // **큐가 비거나 살아 있는 대기자를 만날 때까지 꺼낸다.** 한 번만 꺼내면
+    // 고아 키 뒤의 실제 대기자를 놓친다 — 프로세스 재시작 뒤 Redis 리스트만
+    // 살아남았을 때 정확히 그렇게 된다.
+    //
+    // 위의 has 가드를 통과했으므로 opponentKey 가 w.key 와 같다면 그것도
+    // 본문 없는 유령이고, 아래 undefined 분기가 그대로 처리한다.
+    for (;;) {
+      const opponentKey = await this.ports.cache.listPopLeft(this.ports.queueKey);
+      if (opponentKey === null) break;            // 큐가 비었다
+
       const opponent = this.waiting.get(opponentKey);
-      if (opponent !== undefined) {
-        this.forget(opponentKey);
-        await this.ports.startMatch(w, opponent);
-        return;
-      }
-      // 큐에 키만 남고 본문이 사라졌다 (연결이 끊겼다). 버리고 계속한다.
+      if (opponent === undefined) continue;       // 고아 — 버리고 다음 키를 본다
+
+      this.forget(opponentKey);
+      await this.ports.startMatch(w, opponent);
+      return;
     }
 
     this.waiting.set(w.key, w);
@@ -1955,7 +1982,7 @@ export interface Cache {
 - [ ] **Step 4: 통과 확인**
 
 Run: `REDIS_URL=redis://localhost:6379 npx vitest run server/src/match/ && npm run typecheck`
-Expected: PASS — Task 1 의 11 + Task 2 의 6 + 이번 10 = 27 tests.
+Expected: PASS — Task 1 의 11 + Task 2 의 6 + 이번 11 = 28 tests.
 
 **변이로 확인할 것:**
 
@@ -1966,6 +1993,7 @@ Expected: PASS — Task 1 의 11 + Task 2 의 6 + 이번 10 = 27 tests.
 | `joinLocked` 첫 줄의 `waiting.has` 가드 제거 | `같은 사람이 두 번 들어가도 자기 자신과 붙지 않는다` |
 | `leave` 를 `serialize` 없이 `leaveLocked` 직접 호출 | `join 이 Redis 를 기다리는 동안 들어온 leave 가 무시되지 않는다` |
 | `TestScheduler.runUntil` 의 `await job.fn()` → `job.fn()` | `5초가 지나면 AI 와 붙는다` (Redis 왕복 전에 단언한다) |
+| `for(;;)` 을 `LPOP` 한 번으로 되돌림 | `고아 키 뒤에 기다리는 사람이 있으면 그 사람과 붙는다` |
 
 - [ ] **Step 5: 커밋**
 
@@ -2000,6 +2028,12 @@ Scheduler.at 의 콜백이 Promise 를 돌려줄 수 있게 넓힌다. AI 전환
 때리므로 스케줄러가 그것을 기다려야 한다. 마이크로태스크를 비우는 것으로는
 실제 왕복이 끝나지 않아, 테스트가 아직 일어나지 않은 일을 "안 일어났다" 로
 읽는다.
+
+큐에서 상대를 꺼낼 때 한 번만 LPOP 하지 않는다. 프로세스가 재시작하면
+waiting 은 비지만 Redis 리스트는 살아 있어 본문 없는 고아 키가 남는다.
+하나만 버리고 말면 그 뒤의 실제 대기자를 놓치고 둘 다 각자 AI 로 빠진다.
+큐가 비거나 살아 있는 대기자를 만날 때까지 꺼내며, 그 과정이 고아 청소가
+된다. 꺼내기만 하고 다시 넣지 않으므로 반복은 리스트 길이 안에서 끝난다.
 
 Cache 포트에 리스트 연산 넷을 더한다. 큐는 FIFO 여야 하므로 오른쪽에 넣고
 왼쪽에서 뺀다. listRemove 는 count 0 으로 일치하는 값을 전부 지운다.
@@ -2048,9 +2082,9 @@ EOF
     const scheduler = new TestScheduler();
     const started: { a: string; b: string | null }[] = [];
     const intruded: string[] = [];
+    const queueKey = `findit:test:queue:${process.pid}:${n}`;
     const maker = new Matchmaker({
-      clock, scheduler, cache,
-      queueKey: `findit:test:queue:${process.pid}:${n}`,
+      clock, scheduler, cache, queueKey,
       aiTransitionMs: opts.aiMs ?? AI_TRANSITION_MS,
       findIntrudable: opts.intrudable ?? (() => null),
       startMatch: async (a, b) => {
@@ -2059,7 +2093,7 @@ EOF
       },
       abortMatch: (victimKey: string) => { intruded.push(victimKey); },
     });
-    return { clock, scheduler, started, intruded, maker };
+    return { clock, scheduler, started, intruded, maker, queueKey };
   }
 ```
 
@@ -2134,14 +2168,25 @@ export interface MatchmakerPorts {
     if (this.waiting.has(w.key)) return;
 
     // 1순위: 큐에서 기다리는 사람.
-    const opponentKey = await this.ports.cache.listPopLeft(this.ports.queueKey);
-    if (opponentKey !== null) {
+    //
+    // **한 번만 꺼내면 안 된다.** 큐에는 본문 없는 고아 키가 남을 수 있다 —
+    // 프로세스가 재시작하면 waiting 은 비지만 Redis 리스트는 살아 있다.
+    // 고아를 하나 버리고 마는 구조에서는, 그 뒤에 실제 대기자가 있어도
+    // 만나지 못하고 둘 다 각자 AI 로 빠진다.
+    //
+    // 큐가 비거나 살아 있는 대기자를 만날 때까지 꺼낸다. 꺼내기만 하고 다시
+    // 넣지 않으므로 반복은 리스트 길이 안에서 끝나고, 그 과정이 곧 고아
+    // 청소가 된다.
+    for (;;) {
+      const opponentKey = await this.ports.cache.listPopLeft(this.ports.queueKey);
+      if (opponentKey === null) break;            // 큐가 비었다
+
       const opponent = this.waiting.get(opponentKey);
-      if (opponent !== undefined) {
-        this.forget(opponentKey);
-        await this.ports.startMatch(w, opponent);
-        return;
-      }
+      if (opponent === undefined) continue;       // 고아 — 버리고 다음 키를 본다
+
+      this.forget(opponentKey);
+      await this.ports.startMatch(w, opponent);
+      return;
     }
 
     // 2순위: AI 와 붙고 있는 사람에게 난입.

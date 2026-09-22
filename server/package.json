@@ -5,10 +5,12 @@
   "version": "0.0.0",
   "dependencies": {
     "@findit/protocol": "*",
+    "bcryptjs": "^3.0.3",
     "ioredis": "^6.0.0",
     "pg": "^8.23.0"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
     "@types/pg": "^8.23.1"
   }
 }

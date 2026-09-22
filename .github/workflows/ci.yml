@@ -31,6 +31,13 @@ jobs:
       - name: install
         run: npm ci
 
+      # content/images/ 는 gitignore 대상이다 (legacy/ 에서 생성하는 산출물).
+      # 체크아웃만으로는 없으므로, 이미지를 서빙하는 라우트 테스트가 404 로
+      # 깨진다. 약 4초 걸리고 바이트 재현 가능하므로 매 실행에 넣는다 —
+      # 덤으로 Plan 1 의 추출 파이프라인이 매번 재검증된다.
+      - name: content 생성
+        run: npm run content:all
+
       - name: typecheck
         run: npm run typecheck
 

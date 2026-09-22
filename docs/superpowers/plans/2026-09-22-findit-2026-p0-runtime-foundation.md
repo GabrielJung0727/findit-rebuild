@@ -2557,6 +2557,10 @@ export function createApp(deps: AppDeps): express.Express {
 
 - [ ] **Step 4: 통과 확인**
 
+**먼저 `npm run content:all` 을 돌려 둘 것.** `유효한 서명이면 이미지를 준다` 는 실제 파일을
+서빙하는데 `content/images/` 는 gitignore 대상이라 체크아웃만으로는 없다. 없으면 그 테스트
+하나가 404 로 깨지고, 원인이 라우트처럼 보여 한참 헤맨다. (약 4초, 바이트 재현 가능.)
+
 Run: `npx vitest run server/src/http/ && npm run typecheck`
 Expected: PASS — **25 tests**, 그리고 `npm run typecheck` exit 0.
 
@@ -2942,6 +2946,7 @@ EOF
 13-3. 서명 검증이 퍼즐 조회와 파일 확인 **양쪽보다 먼저** 일어난다 — 호출 기록과 위조 서명, 두 검사로 나눠 확인한다
 13-4. `contentDir` 밖에 실제 파일이 있어도 서명된 탈출 URL 이 200 을 내지 않는다
 13-5. `/auth/register` 와 `/auth/logout` 에 계약 테스트가 있다 — 201·400·409·204
+13-6. CI 가 테스트 전에 `npm run content:all` 을 돌린다 — `content/images/` 는 생성 산출물이라 체크아웃에 없다
 13-1. `repository.ts` 의 모든 SQL 이 실제 Postgres 에서 한 번 이상 실행된다 — 계정·프로필 생성, 이메일 조회, 게스트 등록, 감사 발급·폐기
 13-2. 계정 생성이 한 트랜잭션이다 — **프로필 삽입만 실패시켰을 때** 계정도 남지 않는다
 14. Plan 1·2 의 기존 259 테스트가 전부 그대로 통과한다

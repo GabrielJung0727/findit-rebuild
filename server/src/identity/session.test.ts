@@ -5,6 +5,35 @@ import {
   createGuestSession, createSession, revokeSession, verifySession, type SessionDeps,
 } from './session.js';
 
+describe('빈 토큰 가드', () => {
+  it('빈 토큰은 Redis 를 때리지 않고 null 이다', async () => {
+    let calls = 0;
+    const counting: Cache = {
+      get: async () => {
+        calls += 1;
+        return null;
+      },
+      setEx: async () => {
+        calls += 1;
+      },
+      del: async () => {
+        calls += 1;
+      },
+      ping: async () => {},
+      close: async () => {},
+    };
+    const spyDeps: SessionDeps = {
+      cache: counting,
+      clock: new TestClock(1_000_000),
+      guests: { register: async () => 'guest-x' },
+      audit: { recordIssued: async () => {}, recordRevoked: async () => {} },
+    };
+
+    expect(await verifySession(spyDeps, '')).toBeNull();
+    expect(calls).toBe(0);
+  });
+});
+
 const url = process.env['REDIS_URL'];
 const suite = url ? describe : describe.skip;
 
@@ -76,10 +105,6 @@ suite('세션', () => {
 
   it('없는 토큰은 null 이다', async () => {
     expect(await verifySession(deps, 'nope')).toBeNull();
-  });
-
-  it('빈 토큰은 null 이다 — Redis 를 때리기 전에 걸러야 한다', async () => {
-    expect(await verifySession(deps, '')).toBeNull();
   });
 
   it('폐기한 세션은 검증되지 않는다', async () => {

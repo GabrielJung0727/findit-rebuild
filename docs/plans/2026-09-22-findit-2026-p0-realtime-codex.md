@@ -22,7 +22,8 @@
 
 ## Global Constraints
 
-- **Node 24 LTS**, TypeScript 5.7 strict + `noUncheckedIndexedAccess`. `engines` 로 강제돼 있다.
+- **Node 24 LTS**, TypeScript 5.7 strict + `noUncheckedIndexedAccess` + **`verbatimModuleSyntax`**. `engines` 로 강제돼 있다.
+  > `verbatimModuleSyntax` 때문에 **타입 전용 심볼은 반드시 `import type`** 이어야 한다. `import { AddressInfo } from 'node:net'` 처럼 쓰면 `TS1484` 로 typecheck 가 깨진다. `esModuleInterop` 은 켜져 있지 않지만 `moduleResolution: "bundler"` 가 `allowSyntheticDefaultImports` 를 함께 켜므로 `import WebSocket from 'ws'` 는 통과한다.
 - **모든 판정은 서버가 한다** (스펙 §10-3). 클라이언트가 보낸 시각은 판정에 쓰지 않는다.
 - **좌표는 절대 클라로 나가지 않는다** (스펙 §6.3). `START` 는 `targetCount` 만, `REVEAL` 은 **이미 찾은** rect 의 좌표만 싣는다.
   > 이것을 "직렬화한 JSON 에 좌표 값이 없다" 로 검사할 때는 **테스트 픽스처의 좌표가 메타데이터와 겹치지 않아야 한다.** 겹치면 정상 구현이 누출로 오진된다 — 예전 Task 1 픽스처는 `height: 300` 에 rect `x: 300` 을 두어 실제로 그랬다. 검사 목록도 손으로 쓰지 말고 픽스처를 순회할 것.
@@ -1005,7 +1006,7 @@ EOF
 ```typescript
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createServer, type Server } from 'node:http';
-import { AddressInfo } from 'node:net';
+import type { AddressInfo } from 'node:net';
 import WebSocket from 'ws';
 import { TestClock } from '../platform/clock.js';
 import { attachGateway, type Conn, type GameInput, type GatewayDeps } from './gateway.js';
@@ -1212,6 +1213,12 @@ npm install --workspace server -D @types/ws
 
 Run: `npx vitest run server/src/ws/gateway.test.ts`
 Expected: FAIL — `Cannot find module './gateway.js'`
+
+> **`ws` 의 런타임 동작은 실제로 확인해 뒀다** (ws 8.21.3 / @types/ws 8.18.1):
+> - `socket.on('message', raw)` 의 `raw` 는 **`Buffer`** 다 (`Buffer.isBuffer === true`). `String(raw)` 로 프레임을 얻는다.
+> - `import { WebSocketServer, type WebSocket } from 'ws'` 와 `import WebSocket from 'ws'` 는 **타입·런타임 모두 통과**한다.
+> - 클라가 `terminate()` 하면 클라 쪽 `close` 가 코드 **1006** 으로 오고, **서버 쪽 `close` 도 발화한다** — Task 7 의 "양쪽이 다 끊겨도 매치가 회수된다" 가 이 사실에 기대고 있다.
+> - `socket.close(4400, ...)` 처럼 4000~4999 의 애플리케이션 코드를 쓰면 그 코드가 그대로 클라에 전달된다.
 
 - [ ] **Step 3: 구현**
 
@@ -3164,7 +3171,7 @@ EOF
 
 **3. 계정 경로의 통합 테스트가 얇다.** 배선은 `accountIdOf` 로 계정과 게스트를 가르고, 자리(`Seat`)에 `accountId` 를 따로 들고 있어 끊고 나간 사람의 전적도 자기 계정에 남는다. Task 6 이 계정 정산(점수 누적·레벨업·스킬 포인트)을 실제 Postgres 로 검증하고, Task 7 의 통합 테스트는 **게스트 경로만** 끝에서 끝까지 돈다. 계정 토큰으로 매치를 치는 통합 테스트는 세션 발급까지 엮어야 해서 넣지 않았다 — 두 계층이 각각 검증됐지만 **그 둘이 만나는 지점은 실제로 돌려본 적이 없다.**
 
-**4. `ws` 의 런타임 동작.** Plan 3 에서 node-postgres 가 다중 문장 질의에 배열을 돌려준다는 것에 한 번 당했다 — 타입 정의에 없는 동작이었다. `ws` 의 `message` 이벤트가 `Buffer` 를 주는지 `ArrayBuffer` 를 주는지, `terminate()` 뒤 `close` 이벤트가 오는지는 문서로만 확인했다. 통합 테스트가 실제로 잡을 것이다.
+**4. `ws` 의 런타임 동작 — 확인함.** Plan 3 에서 node-postgres 가 다중 문장 질의에 배열을 돌려준다는 것에 한 번 당했으므로, 이번에는 실제로 돌려 봤다 (ws 8.21.3). `message` 인자는 `Buffer` 이고, `terminate()` 뒤 클라 `close` 는 1006 으로 오며 **서버 쪽 `close` 도 발화한다.** 두 import 형태도 타입·런타임 모두 통과한다. 남은 불확실은 부하 상황의 동작(백프레셔, `send` 가 큐에 쌓일 때)이고 P0 범위에서는 검증하지 않는다.
 
 **5. 큐 직렬화가 다중 인스턴스에서 무의미하다.** 프로세스 안 직렬화는 P0(단일 프로세스)에서만 맞다. 인스턴스를 늘리는 순간 Review Focus 4 의 경쟁이 그대로 돌아온다. Lua 나 `BLMOVE` 가 필요하고 P1 의 문제다.
 

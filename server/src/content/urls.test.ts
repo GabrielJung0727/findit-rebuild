@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { TestClock } from '../platform/clock.js';
+import { SystemClock, TestClock } from '../platform/clock.js';
 import { createContentUrls, parseContentUrl, verifyContentUrl } from './urls.js';
 
 const secret = 's'.repeat(32);
@@ -94,6 +94,21 @@ describe('서명 검증', () => {
     const { clock, urls } = make();
     const params = parseContentUrl(urls.patch('m1', 2))!;
     expect(verifyContentUrl({ secret, clock }, { ...params, sig: 'a'.repeat(64) })).toBe(false);
+  });
+});
+
+describe('실제 시계에서의 왕복 — 운영 경로', () => {
+  it('SystemClock 으로 발급한 URL 이 파싱되고 검증된다', () => {
+    const clock = new SystemClock();
+    expect(Number.isInteger(clock.now())).toBe(true);
+
+    const urls = createContentUrls({ secret, ttlMs, clock });
+
+    for (let i = 0; i < 50; i += 1) {
+      const parsed = parseContentUrl(urls.patch('m1', i));
+      expect(parsed).not.toBeNull();
+      expect(verifyContentUrl({ secret, clock }, parsed!)).toBe(true);
+    }
   });
 });
 

@@ -1,16 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createServer, type Server } from 'node:http';
+import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import WebSocket from 'ws';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { createApp } from '../http/app.js';
 import { createDb, type Db } from '../platform/pg.js';
 import { createCache, type Cache } from '../platform/redis.js';
 import { SystemClock } from '../platform/clock.js';
 import { createRng } from '../platform/rng.js';
 import { loadPuzzles } from '../content/loader.js';
 import { createContentUrls } from '../content/urls.js';
+import { createMatchIndex } from './index.js';
 import { createRealtime } from './wiring.js';
+
+const contentSecret = 's'.repeat(32);
 
 const dbUrl = process.env['DATABASE_URL'];
 const redisUrl = process.env['REDIS_URL'];
@@ -22,6 +26,7 @@ suite('2-클라이언트 통합', () => {
   let server: Server;
   let realtime: ReturnType<typeof createRealtime>;
   let url = '';
+  let httpUrl = '';
   let run = 0;
 
   beforeEach(async () => {
@@ -33,23 +38,47 @@ suite('2-클라이언트 통합', () => {
     const clock = new SystemClock();
     const contentDir = resolve(import.meta.dirname, '../../../content');
     const puzzles = loadPuzzles(resolve(contentDir, 'puzzles'));
+    const contentVersion = (JSON.parse(
+      readFileSync(resolve(contentDir, 'puzzles/manifest.json'), 'utf8'),
+    ) as { version: string }).version;
+    const log = { error: () => {} };
 
     realtime = createRealtime({
       db, cache, clock,
       rng: createRng(1234),
       puzzles,
-      urls: createContentUrls({ secret: 's'.repeat(32), ttlMs: 300_000, clock }),
-      log: { error: () => {} },
+      urls: createContentUrls({ secret: contentSecret, ttlMs: 300_000, clock }),
+      log,
       queueKey: `findit:test:wire:${process.pid}:${run}`,
       aiTransitionMs: 150,
       verify: async (token: string) =>
         token.startsWith('g-') ? { kind: 'guest', guestId: token } : null,
     });
 
-    server = createServer();
+    const app = createApp({
+      clock,
+      log,
+      config: { contentUrlSecret: contentSecret, contentUrlTtlMs: 300_000, contentDir },
+      puzzles,
+      contentVersion,
+      resolvePuzzleId: (matchId) => createMatchIndex(cache).puzzleIdOf(matchId),
+      identity: {
+        register: async () => { throw new Error('unused'); },
+        login: async () => null,
+        guest: async () => { throw new Error('unused'); },
+        logout: async () => {},
+        verify: async () => null,
+      },
+    });
+    server = app.listen(0);
     realtime.attach(server);
-    await new Promise<void>((resolveListen) => server.listen(0, resolveListen));
-    url = `ws://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    await new Promise<void>((resolveListen, rejectListen) => {
+      server.once('listening', () => resolveListen());
+      server.once('error', rejectListen);
+    });
+    const port = (server.address() as AddressInfo).port;
+    url = `ws://127.0.0.1:${port}`;
+    httpUrl = `http://127.0.0.1:${port}`;
   });
 
   afterEach(async () => {
@@ -127,7 +156,7 @@ suite('2-클라이언트 통합', () => {
     b.close();
   });
 
-  it('START 의 imageUrl 이 이 매치의 서명 URL 이고, 매치 인덱스가 Redis 에 있다', async () => {
+  it('START 의 imageUrl 로 이미지를 실제로 받을 수 있다', async () => {
     const a = await connect('g-a');
     const b = await connect('g-b');
     a.send('QUEUE_JOIN', { mode: 'casual' });
@@ -140,6 +169,14 @@ suite('2-클라이언트 통합', () => {
     expect(String(start['imageUrl'])).toContain(String(found['matchId']));
     expect(await cache.get(`findit:match:${String(found['matchId'])}`))
       .toBe(String(start['puzzleId']));
+
+    const res = await fetch(`${httpUrl}${String(start['imageUrl'])}`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toMatch(/image\/webp/);
+
+    const forged = String(start['imageUrl']).replace('/base/0', '/patch/3');
+    expect((await fetch(`${httpUrl}${forged}`)).status).toBe(403);
+
     a.close();
     b.close();
   });

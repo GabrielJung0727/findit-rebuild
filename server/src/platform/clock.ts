@@ -7,10 +7,18 @@ export interface Clock {
   now(): number;
 }
 
-/** 운영용. performance.now() 는 프로세스 시작 기준 단조 증가를 보장한다. */
+/**
+ * 운영용. performance.now() 는 프로세스 시작 기준 단조 증가를 보장한다.
+ *
+ * 정수로 내린다. performance.now() 는 소수(354.624333)를 주는데, 포트의
+ * 계약은 "밀리초 시계" 이고 TestClock 도 정수다. 소수가 새어 나가면 그 값을
+ * 문자열로 싣는 곳에서 터진다 — 서명 콘텐츠 URL 의 exp 가 소수가 되어
+ * parseContentUrl 의 Number.isInteger 검사에 걸리고, base·patch 이미지가
+ * 전부 403 이 된다. Math.floor 는 단조성을 깨지 않는다.
+ */
 export class SystemClock implements Clock {
   now(): number {
-    return performance.now();
+    return Math.floor(performance.now());
   }
 }
 

@@ -2129,10 +2129,12 @@ EOF
 ```typescript
 import { describe, expect, it } from 'vitest';
 import request from 'supertest';
-import { resolve } from 'node:path';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { relative, resolve } from 'node:path';
 import { TestClock } from '../platform/clock.js';
 import { createApp } from './app.js';
-import { createContentUrls } from '../content/urls.js';
+import { createContentUrls, parseContentUrl } from '../content/urls.js';
 import { loadPuzzles } from '../content/loader.js';
 
 const secret = 's'.repeat(32);
@@ -2144,17 +2146,30 @@ const puzzles = loadPuzzles(resolve(contentDir, 'puzzles'));
 function stubDeps() {
   const sessions = new Map<string, { kind: 'account' | 'guest'; id: string }>();
   const logged: string[] = [];
+  // **호출 기록을 남긴다.** 상태 코드만 보는 테스트는 "순서" 계약을 지키지
+  // 못한다 — 조회를 먼저 하고 나중에 거부해도 코드는 같다.
+  const registered: string[] = [];
+  const revoked: string[] = [];
+  const resolved: string[] = [];
   return {
     clock,
     log: { error: (m: string) => { logged.push(m); } },
     logged,
+    registered,
+    revoked,
+    resolved,
     config: { contentUrlSecret: secret, contentUrlTtlMs: 300_000, contentDir },
     puzzles,
     contentVersion: 'v-test',
     // Plan 3 에는 매치가 없으므로 항등. Plan 4 가 Redis 조회로 바꾼다.
-    resolvePuzzleId: async (matchId: string) => matchId,
+    resolvePuzzleId: async (matchId: string) => { resolved.push(matchId); return matchId; },
     identity: {
-      register: async (email: string) => ({ accountId: `acc-${email}` }),
+      register: async (email: string) => {
+        // 중복 이메일을 흉내 낸다. 409 경로를 돌려면 던지는 입력이 있어야 한다.
+        if (email === 'taken@b.c') throw new Error('duplicate');
+        registered.push(email);
+        return { accountId: `acc-${email}` };
+      },
       login: async (email: string, password: string) => {
         if (password !== 'good') return null;
         const token = `t-${email}`;
@@ -2166,7 +2181,7 @@ function stubDeps() {
         sessions.set(token, { kind: 'guest', id: token });
         return { token };
       },
-      logout: async (token: string) => { sessions.delete(token); },
+      logout: async (token: string) => { revoked.push(token); sessions.delete(token); },
       verify: async (token: string) => sessions.get(token) ?? null,
     },
   };
@@ -2236,6 +2251,59 @@ describe('비동기 핸들러 예외', () => {
   });
 });
 
+describe('POST /auth/register', () => {
+  it('가입이 201 과 accountId 를 준다', async () => {
+    const res = await request(createApp(stubDeps())).post('/auth/register')
+      .send({ email: 'a@b.c', password: 'good1234', nickname: '테스터', characterId: 3 });
+    expect(res.status).toBe(201);
+    expect(res.body.accountId).toBe('acc-a@b.c');
+  });
+
+  it('nickname 이 빠지면 400 이고 저장소를 때리지 않는다', async () => {
+    const deps = stubDeps();
+    const res = await request(createApp(deps)).post('/auth/register')
+      .send({ email: 'a@b.c', password: 'good1234' });
+    expect(res.status).toBe(400);
+    // 코드만 보면 저장소를 부른 뒤 400 을 내도 통과한다.
+    expect(deps.registered).toEqual([]);
+  });
+
+  it('중복은 409 이고 이유를 구분해 주지 않는다 — 사용자 열거', async () => {
+    const res = await request(createApp(stubDeps())).post('/auth/register')
+      .send({ email: 'taken@b.c', password: 'good1234', nickname: 'n' });
+    expect(res.status).toBe(409);
+    expect(JSON.stringify(res.body)).not.toMatch(/email|duplicate|password|exists/i);
+  });
+
+  it('응답에 비밀번호가 되돌아오지 않는다', async () => {
+    const res = await request(createApp(stubDeps())).post('/auth/register')
+      .send({ email: 'a@b.c', password: 'secret12', nickname: 'n' });
+    expect(JSON.stringify(res.body)).not.toContain('secret12');
+  });
+});
+
+describe('POST /auth/logout', () => {
+  it('204 를 주고 그 세션이 실제로 폐기된다', async () => {
+    const deps = stubDeps();
+    const app = createApp(deps);
+    const { body } = await request(app).post('/auth/login')
+      .send({ email: 'a@b.c', password: 'good' });
+
+    const res = await request(app).post('/auth/logout')
+      .set('authorization', `Bearer ${body.token}`);
+    expect(res.status).toBe(204);
+    // 204 만 보면 logout 을 아예 부르지 않아도 통과한다.
+    expect(deps.revoked).toEqual([body.token]);
+    expect(await deps.identity.verify(body.token)).toBeNull();
+  });
+
+  it('헤더가 없어도 204 다 — 로그아웃은 멱등이다', async () => {
+    const deps = stubDeps();
+    expect((await request(createApp(deps)).post('/auth/logout')).status).toBe(204);
+    expect(deps.revoked).toEqual(['']);
+  });
+});
+
 describe('GET /content/manifest', () => {
   it('버전과 퍼즐 목록을 준다', async () => {
     const res = await request(createApp(stubDeps())).get('/content/manifest');
@@ -2286,9 +2354,42 @@ describe('GET /content/:matchId/:kind/:index', () => {
     expect((await request(createApp(stubDeps())).get(urls.base('nope'))).status).toBe(404);
   });
 
-  it('경로 탈출을 시도해도 404/403 이다', async () => {
-    const res = await request(createApp(stubDeps())).get(urls.base('../../etc/passwd'));
-    expect([403, 404]).toContain(res.status);
+  it('서명이 틀리면 없는 퍼즐이어도 403 이다 — 404 로 존재 여부가 새면 안 된다', async () => {
+    const good = parseContentUrl(urls.base('nope'))!;
+    const forged = `/content/nope/base/0?exp=${good.exp}&sig=${'a'.repeat(64)}`;
+    // 검증을 조회 뒤로 미루면 없는 퍼즐이라 404 가 나온다. 그 차이가
+    // 곧 "어떤 퍼즐이 존재하는가" 를 알려주는 오라클이다.
+    expect((await request(createApp(stubDeps())).get(forged)).status).toBe(403);
+  });
+
+  it('서명이 틀리면 퍼즐 조회를 아예 하지 않는다', async () => {
+    const deps = stubDeps();
+    const tampered = urls.base('a0001').replace('/base/0', '/base/1');
+    expect((await request(createApp(deps)).get(tampered)).status).toBe(403);
+    // 위 테스트는 결과를, 이 테스트는 순서를 본다. 둘 다 필요하다.
+    expect(deps.resolved).toEqual([]);
+  });
+
+  it('유효하게 서명된 경로 탈출도 파일에 닿지 못한다', async () => {
+    // **contentDir 밖에 진짜 파일을 둔다.** 이게 없으면 가드를 지워도
+    // "그 경로에 파일이 없어서" 404 가 나와 테스트가 그대로 통과한다.
+    // 탈출을 막았다는 증거가 되려면, 막지 않았을 때 200 이 나오는
+    // 상태여야 한다.
+    const probeRoot = mkdtempSync(resolve(tmpdir(), 'findit-traversal-'));
+    try {
+      writeFileSync(resolve(probeRoot, 'base.webp'), Buffer.from([0x52, 0x49, 0x46, 0x46]));
+      const escape = relative(resolve(contentDir, 'images'), probeRoot);
+
+      // 테스트가 스스로를 검증한다. 이 단언이 실패하면 아래 404 는
+      // 가드 덕분이 아니라 파일이 없어서다.
+      expect(existsSync(resolve(contentDir, 'images', escape, 'base.webp'))).toBe(true);
+
+      const res = await request(createApp(stubDeps())).get(urls.base(escape));
+      expect(res.status).not.toBe(200);
+      expect([403, 404]).toContain(res.status);
+    } finally {
+      rmSync(probeRoot, { recursive: true, force: true });
+    }
   });
 });
 ```
@@ -2297,6 +2398,8 @@ describe('GET /content/:matchId/:kind/:index', () => {
 
 Run: `npx vitest run server/src/http/app.test.ts`
 Expected: FAIL — 모듈 없음.
+
+> **`%2F` 가 그대로 도착하는지 확인할 것.** 탈출 테스트는 `encodeURIComponent` 로 `/` 를 `%2F` 로 만든 URL 을 보낸다. 어떤 계층이 이걸 미리 디코드하거나 정규화하면 `parseContentUrl` 의 `[^/]+` 가 매치되지 않아 403 이 나오고, 테스트는 **이유가 달라진 채로 통과한다.** 그런 일이 보이면 테스트를 약하게 고치지 말고 보고할 것 — 그건 라우트 설계가 바뀌어야 한다는 뜻이다.
 
 - [ ] **Step 3: 구현**
 
@@ -2309,6 +2412,10 @@ npm install --workspace server --save-dev @types/express supertest @types/supert
 
 1. **`/auth/login` 의 401 응답 본문이 계정 존재 여부에 따라 달라지면 안 된다.** 사용자 열거 취약점이다. 항상 같은 `{ error: 'invalid_credentials' }` 를 준다.
 2. **`/content/:matchId/:kind/:index` 는 서명 검증을 먼저 하고, 그다음에 파일을 찾는다.** 순서를 뒤집으면 404/403 차이로 어떤 퍼즐이 존재하는지 알려주게 된다.
+
+> **이 계약은 상태 코드만으로는 검증되지 않는다.** 순서를 뒤집어도 "서명 없는 실재 퍼즐 → 403", "유효 서명 + 없는 퍼즐 → 404" 가 그대로 나온다. 구분되는 입력은 **서명이 틀리면서 퍼즐도 없는** 경우뿐이고, 그보다 확실한 것은 `resolvePuzzleId` 가 불리지 않았음을 직접 보는 것이다. 둘 다 둔다.
+>
+> **경로 탈출도 마찬가지다.** `contentDir` 밖에 실제 파일이 없으면 가드를 지워도 404 가 나오므로, 테스트가 증명하는 것이 없다. 탈출 테스트는 밖에 진짜 파일을 만들고, **가드가 없었다면 200 이었을** 상태에서 돌아야 한다.
 3. **`matchId` 를 경로로 쓰기 전에 정규화한다.** `../` 가 섞이면 `contentDir` 밖을 읽는다. `resolve` 결과가 `contentDir` 로 시작하는지 확인한다.
 4. **응답에 `password_hash` 가 실리지 않는다.** 계정 행을 그대로 직렬화하지 말고 필요한 필드만 뽑는다.
 
@@ -2471,7 +2578,16 @@ export function createApp(deps: AppDeps): express.Express {
 - [ ] **Step 4: 통과 확인**
 
 Run: `npx vitest run server/src/http/ && npm run typecheck`
-Expected: PASS — 17 tests. 특히 `401 응답이 계정 존재 여부를 흘리지 않는다`, `인덱스를 바꾸면 403 이다`, `경로 탈출을 시도해도 404/403 이다` 가 통과해야 한다.
+Expected: PASS — **25 tests.**
+
+특히 다음이 통과해야 한다. 전부 결함을 실제로 잡는 검사다:
+- `401 응답이 계정 존재 여부를 흘리지 않는다`
+- `인덱스를 바꾸면 403 이다`
+- `서명이 틀리면 없는 퍼즐이어도 403 이다` — 검증·조회 순서를 뒤집으면 404 가 된다
+- `서명이 틀리면 퍼즐 조회를 아예 하지 않는다` — 위와 달리 순서를 직접 본다
+- `유효하게 서명된 경로 탈출도 파일에 닿지 못한다` — `safeContentPath` 를 지우면 200 이 된다
+- `nickname 이 빠지면 400 이고 저장소를 때리지 않는다`
+- `204 를 주고 그 세션이 실제로 폐기된다`
 
 - [ ] **Step 5: 커밋**
 
@@ -2883,6 +2999,9 @@ Task 2 에서 한 번, Task 3 에서 두 번 걸렸다.
 11. 동시 로그인에서도 활성 세션이 하나만 남는다
 12. 뒤늦게 도착한 logout 이 새 로그인 세션을 무효화하지 않는다
 13. 라우트 의존성이 throw 해도 500 으로 응답이 끝난다 — 매달리지 않는다
+13-3. 서명 검증이 퍼즐 조회보다 **먼저** 일어난다 — `resolvePuzzleId` 호출 기록으로 확인한다
+13-4. `contentDir` 밖에 실제 파일이 있어도 서명된 탈출 URL 이 200 을 내지 않는다
+13-5. `/auth/register` 와 `/auth/logout` 에 계약 테스트가 있다 — 201·400·409·204
 13-1. `repository.ts` 의 모든 SQL 이 실제 Postgres 에서 한 번 이상 실행된다 — 계정·프로필 생성, 이메일 조회, 게스트 등록, 감사 발급·폐기
 13-2. 계정 생성이 한 트랜잭션이다 — **프로필 삽입만 실패시켰을 때** 계정도 남지 않는다
 14. Plan 1·2 의 기존 259 테스트가 전부 그대로 통과한다

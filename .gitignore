@@ -1,5 +1,6 @@
 # macOS
 .DS_Store
+.env
 
 # IntelliJ / Android Studio
 .idea/

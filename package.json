@@ -18,7 +18,10 @@
     "content:images": "tsx tools/src/bin/extract-images.ts",
     "content:assets": "tsx tools/src/bin/extract-assets.ts",
     "content:all": "npm run content:puzzles && npm run content:images && npm run content:assets",
-    "protocol:dart": "tsx packages/protocol/tools/gen-dart.ts"
+    "protocol:dart": "tsx packages/protocol/tools/gen-dart.ts",
+    "server:dev": "tsx watch server/src/main.ts",
+    "compose:up": "npm run content:all && docker compose up --build -d",
+    "compose:down": "docker compose down"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

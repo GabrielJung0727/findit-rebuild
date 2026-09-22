@@ -9,6 +9,7 @@ const PREFIX = 'findit';
 export const KEY = {
   session: (token: string): string => `${PREFIX}:session:${token}`,
   guest: (token: string): string => `${PREFIX}:guest:${token}`,
+  match: (matchId: string): string => `${PREFIX}:match:${matchId}`,
 } as const;
 
 export interface Cache {

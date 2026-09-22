@@ -18,6 +18,8 @@ export interface MatchmakerPorts {
   queueKey: string;
   aiTransitionMs?: number;
   startMatch(a: Waiting, b: Waiting | null): Promise<string>;
+  findIntrudable(): Waiting | null;
+  abortMatch(victimKey: string): void;
 }
 
 export class Matchmaker {
@@ -58,6 +60,13 @@ export class Matchmaker {
 
       this.forget(opponentKey);
       await this.ports.startMatch(waiting, opponent);
+      return;
+    }
+
+    const victim = this.ports.findIntrudable();
+    if (victim !== null) {
+      this.ports.abortMatch(victim.key);
+      await this.ports.startMatch(waiting, victim);
       return;
     }
 

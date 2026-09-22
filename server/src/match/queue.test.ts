@@ -57,11 +57,13 @@ suite('매칭 큐', () => {
     await cache.close();
   });
 
-  function harness(opts: { aiMs?: number } = {}) {
+  function harness(opts: { aiMs?: number; intrudable?: () => Waiting | null } = {}) {
     n += 1;
     const clock = new TestClock(1_000_000);
     const scheduler = new TestScheduler();
     const started: { a: string; b: string | null }[] = [];
+    const intruded: string[] = [];
+    const events: string[] = [];
     const queueKey = `findit:test:queue:${process.pid}:${n}`;
     const maker = new Matchmaker({
       clock,
@@ -69,12 +71,18 @@ suite('매칭 큐', () => {
       cache,
       queueKey,
       aiTransitionMs: opts.aiMs ?? AI_TRANSITION_MS,
+      findIntrudable: opts.intrudable ?? (() => null),
       startMatch: async (a, b) => {
         started.push({ a: a.name, b: b?.name ?? null });
+        events.push(`start:${a.name}:${b?.name ?? 'ai'}`);
         return `match-${started.length}`;
       },
+      abortMatch: (victimKey: string) => {
+        intruded.push(victimKey);
+        events.push(`abort:${victimKey}`);
+      },
     });
-    return { clock, scheduler, started, maker, queueKey };
+    return { clock, scheduler, started, intruded, events, maker, queueKey };
   }
 
   it('혼자 들어가면 대기한다 — 즉시 AI 가 되지 않는다', async () => {
@@ -174,5 +182,46 @@ suite('매칭 큐', () => {
 
     expect(h.started).toEqual([]);
     expect(await h.maker.waitingCount()).toBe(1);
+  });
+
+  describe('난입 — 원작 GameActivity.java:611-616', () => {
+    const victim: Waiting = { key: 'k-V', name: 'V', level: 10, conn: null };
+
+    it('난입은 이전 판을 먼저 버리고 그다음에 새 매치를 연다', async () => {
+      const h = harness({ intrudable: () => victim });
+      await h.maker.join(player('I'));
+
+      expect(h.started).toEqual([{ a: 'I', b: 'V' }]);
+      expect(h.intruded).toEqual(['k-V']);
+      expect(h.events).toEqual(['abort:k-V', 'start:I:V']);
+    });
+
+    it('난입자는 큐에서 기다리지 않는다', async () => {
+      const h = harness({ intrudable: () => victim });
+      await h.maker.join(player('I'));
+      expect(await h.maker.waitingCount()).toBe(0);
+      expect(h.scheduler.pending).toBe(0);
+    });
+
+    it('큐에 기다리는 사람이 있으면 난입보다 그쪽이 먼저다', async () => {
+      let aiMatchExists = false;
+      const h = harness({ intrudable: () => (aiMatchExists ? victim : null) });
+      await h.maker.join(player('A'));
+      expect(await h.maker.waitingCount()).toBe(1);
+
+      aiMatchExists = true;
+      await h.maker.join(player('B'));
+
+      expect(h.started).toEqual([{ a: 'B', b: 'A' }]);
+      expect(h.intruded).toEqual([]);
+      expect(h.events).toEqual(['start:B:A']);
+    });
+
+    it('난입 대상이 없으면 평소대로 큐에 들어간다', async () => {
+      const h = harness({ intrudable: () => null });
+      await h.maker.join(player('A'));
+      expect(h.started).toEqual([]);
+      expect(await h.maker.waitingCount()).toBe(1);
+    });
   });
 });

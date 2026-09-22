@@ -16,6 +16,10 @@ export interface Cache {
   get(key: string): Promise<string | null>;
   setEx(key: string, value: string, ttlMs: number): Promise<void>;
   del(key: string): Promise<void>;
+  listPushRight(key: string, value: string): Promise<void>;
+  listPopLeft(key: string): Promise<string | null>;
+  listRemove(key: string, value: string): Promise<void>;
+  listLength(key: string): Promise<number>;
   /**
    * 연결이 실제로 가능한지 확인한다. 부팅 경로에서 반드시 await 해야 한다.
    * createCache 는 동기로 반환하고 ioredis 는 연결 실패를 이벤트로만 알린다.
@@ -46,6 +50,22 @@ export function createCache(redisUrl: string, onError?: (error: Error) => void):
 
     async del(key: string): Promise<void> {
       await client.del(key);
+    },
+
+    async listPushRight(key: string, value: string): Promise<void> {
+      await client.rpush(key, value);
+    },
+
+    async listPopLeft(key: string): Promise<string | null> {
+      return client.lpop(key);
+    },
+
+    async listRemove(key: string, value: string): Promise<void> {
+      await client.lrem(key, 0, value);
+    },
+
+    async listLength(key: string): Promise<number> {
+      return client.llen(key);
     },
 
     async ping(timeoutMs = 5_000): Promise<void> {

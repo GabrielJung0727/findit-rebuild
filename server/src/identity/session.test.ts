@@ -19,6 +19,10 @@ describe('빈 토큰 가드', () => {
       del: async () => {
         calls += 1;
       },
+      listPushRight: async () => { calls += 1; },
+      listPopLeft: async () => { calls += 1; return null; },
+      listRemove: async () => { calls += 1; },
+      listLength: async () => { calls += 1; return 0; },
       ping: async () => {},
       close: async () => {},
     };

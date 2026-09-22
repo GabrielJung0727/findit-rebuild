@@ -9,7 +9,7 @@ import type { BattleState, Outbound, PlayerSlot } from '../battle/state.js';
 export type TimerHandle = number;
 
 export interface Scheduler {
-  at(time: number, fn: () => void): TimerHandle;
+  at(time: number, fn: () => void | Promise<void>): TimerHandle;
   cancel(handle: TimerHandle): void;
 }
 

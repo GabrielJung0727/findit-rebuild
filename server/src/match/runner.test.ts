@@ -10,9 +10,9 @@ import type { Puzzle } from '../content/types.js';
 
 class TestScheduler implements Scheduler {
   private seq = 0;
-  private readonly jobs = new Map<number, { at: number; fn: () => void }>();
+  private readonly jobs = new Map<number, { at: number; fn: () => void | Promise<void> }>();
 
-  at(time: number, fn: () => void): number {
+  at(time: number, fn: () => void | Promise<void>): number {
     const id = ++this.seq;
     this.jobs.set(id, { at: time, fn });
     return id;

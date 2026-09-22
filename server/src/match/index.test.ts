@@ -53,6 +53,10 @@ suite('매치 인덱스', () => {
       get: async () => { calls += 1; return null; },
       setEx: async () => { calls += 1; },
       del: async () => { calls += 1; },
+      listPushRight: async () => { calls += 1; },
+      listPopLeft: async () => { calls += 1; return null; },
+      listRemove: async () => { calls += 1; },
+      listLength: async () => { calls += 1; return 0; },
       ping: async () => {},
       close: async () => {},
     };

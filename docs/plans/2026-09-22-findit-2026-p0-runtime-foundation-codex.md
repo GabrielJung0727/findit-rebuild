@@ -676,12 +676,17 @@ git add server/sql/001_init.sql server/src/platform/pg.ts server/src/platform/pg
 git commit -m "$(cat <<'EOF'
 feat(server): P0 스키마 + PostgreSQL 어댑터
 
-v1 은 18테이블이지만 P0 가 쓰는 5개만 옮긴다 — account, player_profile,
-session_log, match_history, content_version. 나머지는 필요해질 때
-마이그레이션으로 추가한다.
+v1 은 18테이블이지만 스펙 §6.5 가 명시한 7개만 옮긴다 — account,
+guest_session, player_profile, inventory_item, match_history,
+session_log, content_version. 나머지는 필요해질 때 마이그레이션으로 추가한다.
 
-게스트 테이블은 만들지 않는다. 스펙상 게스트는 승패·경험치·아이템이
-저장되지 않으므로 영속화할 것이 없다. Redis 에만 산다.
+guest_session 은 게임 상태를 담지 않는다. 승패·경험치·아이템은 저장하지
+않되, PDF 가 요구하는 "광고 노출만 카운팅" 을 게스트별로 세려면 Redis
+세션보다 오래 사는 식별자가 있어야 한다.
+
+inventory_item 은 P0 완료 정의 4번(아이템 3종 동작)에 걸린다. Plan 2 의
+PlayerState.itemAttackBonusMs 가 0 으로 비어 있고 "Plan 3 의 인벤토리가
+채운다" 라고 적혀 있다.
 
 session_log 는 토큰 해시만 저장한다. v1 은 원문을 저장했는데(login_logs
 .session_token), DB 가 유출되면 그대로 세션 탈취가 된다.
@@ -1019,6 +1024,15 @@ suite('세션', () => {
     expect(valid).toHaveLength(1);
   });
 
+  it('이전 토큰의 logout 이 새 로그인 세션을 무효화하지 않는다', async () => {
+    // ACTIVE 를 지우는 구현이면 여기서 깨진다 — 방금 로그인한 사용자가
+    // 즉시 로그아웃된다.
+    const first = await createSession(deps, 'acc-logout-race');
+    const second = await createSession(deps, 'acc-logout-race');
+    await revokeSession(deps, first.token);       // 뒤늦게 도착한 logout
+    expect(await verifySession(deps, second.token)).not.toBeNull();
+  });
+
   it('감사 기록에 원문 토큰이 들어가지 않는다', async () => {
     const { token } = await createSession(deps, 'acc-4');
     expect(audit.issued).not.toContain(token);
@@ -1179,10 +1193,22 @@ export async function verifySession(deps: SessionDeps, token: string): Promise<P
   return principal;
 }
 
+/**
+ * 세션 폐기.
+ *
+ * **ACTIVE 를 지우지 않는다.** 지우면 다음 순서로 방금 로그인한 사용자가 즉시
+ * 로그아웃된다.
+ *
+ *   1. oldToken 의 logout 이 verifySession 을 통과한다
+ *   2. 새 로그인이 ACTIVE = newToken 을 쓴다
+ *   3. 1번의 logout 이 뒤늦게 del(ACTIVE) 를 실행한다 → newToken 이 무효가 된다
+ *
+ * verifySession 이 세션 키와 ACTIVE 일치를 함께 보므로, **세션 키만 지워도**
+ * 그 토큰은 즉시 무효가 된다. 남은 ACTIVE 는 다음 로그인이 덮어쓰거나 TTL 로
+ * 사라진다. 이렇게 하면 Lua 없이도 순서에 무관해진다.
+ */
 export async function revokeSession(deps: SessionDeps, token: string): Promise<void> {
-  const principal = await verifySession(deps, token);
   await deps.cache.del(KEY.session(token));
-  if (principal?.kind === 'account') await deps.cache.del(ACTIVE(principal.accountId));
   await deps.audit.recordRevoked(hashToken(token));
 }
 ```
@@ -1257,7 +1283,7 @@ export function createSessionAudit(db: Db): SessionAudit {
 - [ ] **Step 4: 통과 확인**
 
 Run: `REDIS_URL=redis://localhost:6379 npx vitest run server/src/identity/ && npm run typecheck`
-Expected: PASS — password 8 + session 12 = 20 tests.
+Expected: PASS — password 8 + session 13 = 21 tests.
 
 - [ ] **Step 5: 커밋**
 
@@ -1278,8 +1304,14 @@ v1 대비 둘을 바꾼다.
 단일 활성 세션은 유지한다 — v1 과 원작의 동작이고 중복 로그인 감지가
 P1 요구사항이다.
 
-게스트는 Postgres 에 아무것도 만들지 않는다. 스펙상 승패·경험치·아이템이
-저장되지 않으므로 영속화할 것이 없다.
+게스트는 guest_session 행을 만든다. 게임 상태는 저장하지 않지만, PDF 의
+"광고 노출만 카운팅" 을 게스트별로 세려면 Redis 세션보다 오래 사는
+식별자가 필요하다 (스펙 §6.5).
+
+단일 활성 세션은 Lua 없이 검증 구조로 보장한다. createSession 은 읽지 않고
+쓰기만 하고, verifySession 이 토큰과 ACTIVE 의 일치를 본다. revokeSession 은
+ACTIVE 를 지우지 않는다 — 지우면 뒤늦게 도착한 logout 이 방금 로그인한
+사용자를 즉시 로그아웃시킨다.
 EOF
 )"
 ```
@@ -2290,6 +2322,10 @@ EOF
 그리고 `createSession` 은 여전히 Redis 쓰기 2회 + Postgres 쓰기 1회라, 중간에 실패하면
 상태가 어긋난다. 그 시나리오는 테스트하지 않았다.
 
+`revokeSession` 이 ACTIVE 를 지우지 않는 설계는 뒤늦은 logout 경쟁을 없애지만, 폐기된
+토큰의 ACTIVE 가 TTL 까지 남는다. 그 상태에서 `verifySession` 은 세션 키가 없어 null 을
+주므로 안전하다고 봤으나, 다른 경로에서 ACTIVE 를 신뢰하면 문제가 될 수 있다.
+
 **4. `resolvePuzzleId` 주입점**
 
 Plan 2 리듀서는 `ctx.urls.base(matchId)` 로 URL 을 만드는데 파일은 퍼즐 id 로 저장돼 있다.
@@ -2319,9 +2355,10 @@ TTL + 매치·인덱스 바인딩까지만 한다고 정했다. 스펙 §6.3 의
 9. 알려지지 않은 `matchId` 로 서명된 URL 은 서명이 유효해도 404 다
 10. 스키마가 스펙 §6.5 의 테이블 7개를 전부 만든다
 11. 동시 로그인에서도 활성 세션이 하나만 남는다
-12. 라우트 의존성이 throw 해도 500 으로 응답이 끝난다 — 매달리지 않는다
-13. Plan 1·2 의 기존 259 테스트가 전부 그대로 통과한다
-14. `npm run typecheck` exit 0, CI 5개 체크 전부 통과
+12. 뒤늦게 도착한 logout 이 새 로그인 세션을 무효화하지 않는다
+13. 라우트 의존성이 throw 해도 500 으로 응답이 끝난다 — 매달리지 않는다
+14. Plan 1·2 의 기존 259 테스트가 전부 그대로 통과한다
+15. `npm run typecheck` exit 0, CI 5개 체크 전부 통과
 
 ## 이 계획이 남기는 것 (Plan 4 의 입력)
 

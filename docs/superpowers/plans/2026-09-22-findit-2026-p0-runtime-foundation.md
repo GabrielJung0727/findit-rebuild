@@ -19,7 +19,7 @@
 - **Node 런타임**: 24 LTS. Docker `node:24-alpine`, CI `node-version: '24'`.
 - **언어**: TypeScript. `any` 금지, `strict: true`, `noUncheckedIndexedAccess: true`.
 - **게임 규칙 금지**: 이 계획은 규칙을 구현하지 않는다. 수치·판정이 필요하면 Plan 2 의 `rules/` · `battle/` 를 호출한다. `server/src/rules` 나 `server/src/battle` 을 **수정하지 않는다**.
-- **시계·난수**: Plan 2 의 `Clock` · `Rng` 포트를 그대로 쓴다. `Date.now()` · `Math.random()` 직접 호출 금지 — 기존 테스트가 이를 강제한다.
+- **시계·난수**: Plan 2 의 `Clock` · `Rng` 포트를 그대로 쓴다. **비테스트 코드**에서 `Date.now()` · `Math.random()` 직접 호출 금지 — 판정과 만료가 주입된 시계를 따라야 결정론적으로 검증된다. 테스트 픽스처가 고유 키를 만드는 용도는 이 제약의 대상이 아니지만, 같은 밀리초에 두 테스트가 돌면 충돌하므로 **단조 카운터를 쓴다**.
 - **비밀값**: 커넥션 문자열·서명 키는 환경변수로만. 소스·테스트·Compose 파일에 실값을 쓰지 않는다. Gitleaks 가 CI 에서 돈다.
 - **커밋**: Task당 1커밋. 한국어 본문 + Conventional Commits 접두어. 끝에 `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`.
 - **`legacy/`는 읽기 전용**: v1 스키마를 참조하되 수정하지 않는다.
@@ -267,7 +267,7 @@ export function createLogger(nodeEnv: string): Logger {
 - [ ] **Step 4: 통과 확인**
 
 Run: `npx vitest run server/src/platform/config.test.ts && npm run typecheck`
-Expected: PASS — 11 tests (it.each 3행 포함). typecheck exit 0.
+Expected: PASS — 10 tests (`it.each` 3행 포함해 7 + 3). typecheck exit 0.
 
 - [ ] **Step 5: 커밋**
 
@@ -313,9 +313,20 @@ EOF
 | `player_profile` | 레벨·누적점수·코인·스킬포인트 |
 | `session_log` | 세션 발급 감사 기록 (v1 `login_logs` 대응) |
 | `match_history` | 매치 결과 |
+| `guest_session` | 게스트 식별자 — 게임 상태가 아니라 광고 노출 카운팅용 |
+| `inventory_item` | 보유 아이템 (P0 완료 정의 4번) |
 | `content_version` | 배포된 콘텐츠 버전 |
 
-**게스트는 테이블을 만들지 않는다.** 스펙 §6 "게스트 접속 시 승패·경험치·아이템이 저장되지 않는다"이므로 영속화할 것이 없다. 게스트 세션은 Redis 에만 산다 (Task 4).
+> **정정 (스펙 우선)**: 이 계획의 초안은 `guest_session` 과 `inventory_item` 을 뺐다.
+> **스펙 §6.5 가 둘 다 명시한다.** 스펙이 구속력 있는 문서이므로 넣는다.
+>
+> `guest_session` 의 근거는 PDF 의 게스트 규정이다 — "승패·경험치·아이템은 저장되지 않으며
+> **광고 노출만 카운팅**". 광고 노출을 게스트별로 세려면 Redis 세션보다 오래 사는 식별자가
+> 있어야 한다. 게임 상태는 여전히 저장하지 않는다.
+>
+> `inventory_item` 은 P0 완료 정의 4번("아이템 3종 동작")에 직접 걸린다. Plan 2 의
+> `PlayerState.itemAttackBonusMs` · `itemDefenseReductionMs` 가 0 으로 비어 있고 주석이
+> "Plan 3 의 인벤토리가 채운다" 라고 적혀 있다. 이 테이블 없이는 그 자리를 채울 수 없다.
 
 - [ ] **Step 1: 실패하는 테스트 작성**
 
@@ -326,6 +337,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createDb, type Db } from './pg.js';
+
+// Date.now() 대신 단조 카운터. 같은 밀리초에 두 테스트가 돌면 충돌한다.
+let seq = 0;
+const uniq = (): string => `${process.pid}-${++seq}`;
 
 const url = process.env['DATABASE_URL'];
 const suite = url ? describe : describe.skip;
@@ -344,8 +359,10 @@ suite('pg 어댑터', () => {
       `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`,
     );
     const names = rows.map((r) => r.table_name).sort();
+    // 스펙 §6.5 가 명시한 테이블이 전부 있어야 한다.
     expect(names).toEqual(
-      ['account', 'content_version', 'match_history', 'player_profile', 'session_log'].sort(),
+      ['account', 'content_version', 'guest_session', 'inventory_item',
+       'match_history', 'player_profile', 'session_log'].sort(),
     );
   });
 
@@ -360,7 +377,7 @@ suite('pg 어댑터', () => {
   });
 
   it('이메일이 중복되면 거부한다', async () => {
-    const email = `dup-${Date.now()}@example.com`;
+    const email = `dup-${uniq()}@example.com`;
     await db.query('INSERT INTO account(email, password_hash, nickname) VALUES($1,$2,$3)',
       [email, 'x', 'a']);
     await expect(
@@ -370,7 +387,7 @@ suite('pg 어댑터', () => {
   });
 
   it('tx 는 예외 시 롤백한다', async () => {
-    const email = `rb-${Date.now()}@example.com`;
+    const email = `rb-${uniq()}@example.com`;
     await expect(
       db.tx(async (t) => {
         await t.query('INSERT INTO account(email, password_hash, nickname) VALUES($1,$2,$3)',
@@ -384,7 +401,7 @@ suite('pg 어댑터', () => {
   });
 
   it('tx 는 성공 시 커밋한다', async () => {
-    const email = `ok-${Date.now()}@example.com`;
+    const email = `ok-${uniq()}@example.com`;
     await db.tx(async (t) => {
       await t.query('INSERT INTO account(email, password_hash, nickname) VALUES($1,$2,$3)',
         [email, 'x', 'a']);
@@ -392,8 +409,42 @@ suite('pg 어댑터', () => {
     expect(await db.query('SELECT 1 FROM account WHERE email = $1', [email])).toHaveLength(1);
   });
 
+  it('inventory_item 은 account 삭제 시 함께 지워진다', async () => {
+    const email = `inv-${uniq()}@example.com`;
+    const [acc] = await db.query<{ id: string }>(
+      'INSERT INTO account(email, password_hash, nickname) VALUES($1,$2,$3) RETURNING id',
+      [email, 'x', 'a'],
+    );
+    await db.query('INSERT INTO inventory_item(account_id, item_code, quantity) VALUES($1,$2,$3)',
+      [acc!.id, 'slot_item_pen_01', 1]);
+    await db.query('DELETE FROM account WHERE id = $1', [acc!.id]);
+    expect(await db.query('SELECT 1 FROM inventory_item WHERE account_id = $1', [acc!.id]))
+      .toHaveLength(0);
+  });
+
+  it('같은 계정이 같은 아이템 행을 두 번 가질 수 없다', async () => {
+    const email = `dupinv-${uniq()}@example.com`;
+    const [acc] = await db.query<{ id: string }>(
+      'INSERT INTO account(email, password_hash, nickname) VALUES($1,$2,$3) RETURNING id',
+      [email, 'x', 'a'],
+    );
+    await db.query('INSERT INTO inventory_item(account_id, item_code) VALUES($1,$2)',
+      [acc!.id, 'slot_item_ring_01']);
+    await expect(
+      db.query('INSERT INTO inventory_item(account_id, item_code) VALUES($1,$2)',
+        [acc!.id, 'slot_item_ring_01']),
+    ).rejects.toThrow();
+  });
+
+  it('게스트 토큰 해시는 중복될 수 없다', async () => {
+    const h = `hash-${uniq()}`;
+    await db.query('INSERT INTO guest_session(token_hash) VALUES($1)', [h]);
+    await expect(db.query('INSERT INTO guest_session(token_hash) VALUES($1)', [h]))
+      .rejects.toThrow();
+  });
+
   it('player_profile 은 account 삭제 시 함께 지워진다', async () => {
-    const email = `cas-${Date.now()}@example.com`;
+    const email = `cas-${uniq()}@example.com`;
     const [acc] = await db.query<{ id: string }>(
       'INSERT INTO account(email, password_hash, nickname) VALUES($1,$2,$3) RETURNING id',
       [email, 'x', 'a'],
@@ -467,6 +518,28 @@ CREATE TABLE IF NOT EXISTS match_history (
   CONSTRAINT match_history_result CHECK (result IN ('win', 'lose', 'draw'))
 );
 CREATE INDEX IF NOT EXISTS match_history_account_idx ON match_history(account_id, ended_at DESC);
+
+-- 게스트 식별자. 스펙 §6.5 가 요구한다.
+-- 게임 상태(승패·경험치·아이템)는 저장하지 않는다 — 광고 노출 카운팅에만 쓴다.
+CREATE TABLE IF NOT EXISTS guest_session (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  token_hash   text NOT NULL UNIQUE,
+  ad_views     int  NOT NULL DEFAULT 0,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  last_seen_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT guest_session_ad_views_nonneg CHECK (ad_views >= 0)
+);
+
+-- 보유 아이템. P0 는 pen_01 · ring_01 · posion_01 셋만 쓰지만 item_code 를
+-- 자유 문자열로 두어 P1 의 카탈로그 확장을 막지 않는다.
+CREATE TABLE IF NOT EXISTS inventory_item (
+  account_id uuid NOT NULL REFERENCES account(id) ON DELETE CASCADE,
+  item_code  text NOT NULL,
+  quantity   int  NOT NULL DEFAULT 0,
+  equipped   boolean NOT NULL DEFAULT false,
+  PRIMARY KEY (account_id, item_code),
+  CONSTRAINT inventory_item_quantity_nonneg CHECK (quantity >= 0)
+);
 
 CREATE TABLE IF NOT EXISTS content_version (
   version    text PRIMARY KEY,
@@ -551,7 +624,7 @@ docker run -d --name findit-pg-test -e POSTGRES_USER=findit -e POSTGRES_PASSWORD
 ```
 
 Run: `DATABASE_URL=postgres://findit:findit@localhost:5432/findit npx vitest run server/src/platform/pg.test.ts`
-Expected: PASS — 7 tests. `DATABASE_URL` 없이 돌리면 전부 skip 되고 실패하지 않아야 한다 (확인할 것).
+Expected: PASS — 10 tests. `DATABASE_URL` 없이 돌리면 전부 skip 되고 실패하지 않아야 한다 (확인할 것).
 
 - [ ] **Step 6: 커밋**
 
@@ -604,6 +677,9 @@ EOF
 import { afterAll, describe, expect, it } from 'vitest';
 import { KEY, createCache, type Cache } from './redis.js';
 
+let seq = 0;
+const uniq = (): string => `${process.pid}-${++seq}`;
+
 describe('KEY 네임스페이스', () => {
   it('세션과 게스트가 서로 다른 접두어를 쓴다', () => {
     expect(KEY.session('t')).toBe('findit:session:t');
@@ -623,24 +699,24 @@ suite('Redis 어댑터', () => {
   afterAll(async () => { await cache.close(); });
 
   it('넣은 값을 읽는다', async () => {
-    const k = `findit:test:${Date.now()}`;
+    const k = `findit:test:${uniq()}`;
     await cache.setEx(k, 'hello', 5_000);
     expect(await cache.get(k)).toBe('hello');
   });
 
   it('없는 키는 null 이다', async () => {
-    expect(await cache.get(`findit:test:missing:${Date.now()}`)).toBeNull();
+    expect(await cache.get(`findit:test:missing:${uniq()}`)).toBeNull();
   });
 
   it('지운 키는 null 이다', async () => {
-    const k = `findit:test:del:${Date.now()}`;
+    const k = `findit:test:del:${uniq()}`;
     await cache.setEx(k, 'v', 5_000);
     await cache.del(k);
     expect(await cache.get(k)).toBeNull();
   });
 
   it('TTL 이 지나면 사라진다', async () => {
-    const k = `findit:test:ttl:${Date.now()}`;
+    const k = `findit:test:ttl:${uniq()}`;
     await cache.setEx(k, 'v', 100);
     await new Promise((r) => setTimeout(r, 250));
     expect(await cache.get(k)).toBeNull();
@@ -821,9 +897,17 @@ suite('세션', () => {
   const clock = new TestClock(1_000_000);
   // Postgres 감사 기록은 여기서 검증하지 않는다 — 스텁을 넣는다.
   const audit = { issued: [] as string[], revoked: [] as string[] };
+  const guests = { ids: [] as string[] };
   const deps = {
     cache,
     clock,
+    guests: {
+      register: async (tokenHash: string) => {
+        const id = `guest-${tokenHash.slice(0, 8)}`;
+        guests.ids.push(id);
+        return id;
+      },
+    },
     audit: {
       recordIssued: async (accountId: string, tokenHash: string) => { audit.issued.push(tokenHash); },
       recordRevoked: async (tokenHash: string) => { audit.revoked.push(tokenHash); },
@@ -840,6 +924,19 @@ suite('세션', () => {
     const { token } = await createGuestSession(deps);
     const p = await verifySession(deps, token);
     expect(p?.kind).toBe('guest');
+  });
+
+  it('게스트 세션이 영속 식별자를 발급받는다 — 광고 카운팅용 (스펙 §6.5)', async () => {
+    const before = guests.ids.length;
+    await createGuestSession(deps);
+    expect(guests.ids.length).toBe(before + 1);
+  });
+
+  it('게스트는 단일 활성 제약을 받지 않는다 — 계정이 아니다', async () => {
+    const a = await createGuestSession(deps);
+    const b = await createGuestSession(deps);
+    expect(await verifySession(deps, a.token)).not.toBeNull();
+    expect(await verifySession(deps, b.token)).not.toBeNull();
   });
 
   it('토큰은 매번 다르고 충분히 길다', async () => {
@@ -868,6 +965,19 @@ suite('세션', () => {
     const second = await createSession(deps, 'acc-3');
     expect(await verifySession(deps, first.token)).toBeNull();
     expect(await verifySession(deps, second.token)).not.toBeNull();
+  });
+
+  it('동시 로그인에서도 활성 세션이 하나만 남는다', async () => {
+    // get → del → set 방식이면 둘 다 살아남는다. 이 테스트가 그것을 잡는다.
+    const [a, b] = await Promise.all([
+      createSession(deps, 'acc-race'),
+      createSession(deps, 'acc-race'),
+    ]);
+    const valid = (await Promise.all([
+      verifySession(deps, a.token),
+      verifySession(deps, b.token),
+    ])).filter((p) => p !== null);
+    expect(valid).toHaveLength(1);
   });
 
   it('감사 기록에 원문 토큰이 들어가지 않는다', async () => {
@@ -935,6 +1045,11 @@ export interface SessionAudit {
   recordIssued(accountId: string, tokenHash: string): Promise<void>;
   recordRevoked(tokenHash: string): Promise<void>;
 }
+
+/** 게스트 식별자 발급. 게임 상태가 아니라 광고 노출 카운팅용이다 (스펙 §6.5). */
+export interface GuestRegistry {
+  register(tokenHash: string): Promise<string>;
+}
 ```
 
 `server/src/identity/session.ts`:
@@ -943,7 +1058,7 @@ export interface SessionAudit {
 import { createHash, randomBytes } from 'node:crypto';
 import type { Clock } from '../platform/clock.js';
 import { KEY, type Cache } from '../platform/redis.js';
-import type { Principal, SessionAudit } from './types.js';
+import type { GuestRegistry, Principal, SessionAudit } from './types.js';
 
 const TOKEN_BYTES = 24;             // hex 48자
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -952,6 +1067,7 @@ export interface SessionDeps {
   cache: Cache;
   clock: Clock;
   audit: SessionAudit;
+  guests: GuestRegistry;
 }
 
 function newToken(): string {
@@ -966,14 +1082,19 @@ function hashToken(token: string): string {
 /** 계정당 현재 활성 토큰. 새 로그인이 이전 것을 밀어낸다. */
 const ACTIVE = (accountId: string): string => `findit:active:${accountId}`;
 
+/**
+ * 단일 활성 세션 — v1 과 원작의 동작이다.
+ *
+ * 이전 토큰을 읽어서 지우는 방식(get → del → set)은 동시 로그인에서 깨진다.
+ * 둘이 같은 이전 토큰을 읽고 둘 다 지운 뒤 각자 자기 것을 쓰면 **두 토큰이
+ * 모두 살아남는다**. Lua 를 쓰지 않고 검증 구조로 푼다 — 토큰은 그 계정의
+ * ACTIVE 와 일치할 때만 유효하다. 마지막에 ACTIVE 를 쓴 쪽이 이기고 진 쪽은
+ * 자동으로 무효가 된다.
+ */
 export async function createSession(
   deps: SessionDeps,
   accountId: string,
 ): Promise<{ token: string }> {
-  // 단일 활성 세션 — v1 과 원작의 동작이다. 이전 토큰을 먼저 무효화한다.
-  const previous = await deps.cache.get(ACTIVE(accountId));
-  if (previous) await deps.cache.del(KEY.session(previous));
-
   const token = newToken();
   const payload: Principal = { kind: 'account', accountId };
   await deps.cache.setEx(KEY.session(token), JSON.stringify(payload), SESSION_TTL_MS);
@@ -983,12 +1104,16 @@ export async function createSession(
 }
 
 /**
- * 게스트 세션. 스펙 §6: 게스트는 승패·경험치·아이템이 저장되지 않으므로
- * Postgres 에 아무것도 만들지 않는다. Redis 에만 산다.
+ * 게스트 세션.
+ *
+ * 게임 상태(승패·경험치·아이템)는 저장하지 않는다. 다만 guest_session 행은
+ * 만든다 — PDF 가 "광고 노출만 카운팅" 을 요구하고, 그러려면 Redis 세션보다
+ * 오래 사는 식별자가 있어야 한다 (스펙 §6.5).
  */
 export async function createGuestSession(deps: SessionDeps): Promise<{ token: string }> {
   const token = newToken();
-  const guestId = `guest-${hashToken(token).slice(0, 16)}`;
+  const tokenHash = hashToken(token);
+  const guestId = await deps.guests.register(tokenHash);
   const payload: Principal = { kind: 'guest', guestId };
   await deps.cache.setEx(KEY.session(token), JSON.stringify(payload), SESSION_TTL_MS);
   return { token };
@@ -998,11 +1123,21 @@ export async function verifySession(deps: SessionDeps, token: string): Promise<P
   if (!token) return null;               // Redis 를 때리기 전에 거른다
   const raw = await deps.cache.get(KEY.session(token));
   if (raw === null) return null;
+
+  let principal: Principal;
   try {
-    return JSON.parse(raw) as Principal;
+    principal = JSON.parse(raw) as Principal;
   } catch {
     return null;
   }
+
+  // 계정 세션은 ACTIVE 와 일치해야 유효하다. 이것이 단일 활성 세션을
+  // 경쟁 조건 없이 보장한다 — 밀려난 토큰은 session 키가 남아 있어도 여기서 걸린다.
+  if (principal.kind === 'account') {
+    const active = await deps.cache.get(ACTIVE(principal.accountId));
+    if (active !== token) return null;
+  }
+  return principal;
 }
 
 export async function revokeSession(deps: SessionDeps, token: string): Promise<void> {
@@ -1017,7 +1152,7 @@ export async function revokeSession(deps: SessionDeps, token: string): Promise<v
 
 ```typescript
 import type { Db } from '../platform/pg.js';
-import type { SessionAudit } from './types.js';
+import type { GuestRegistry, SessionAudit } from './types.js';
 
 export interface AccountRow {
   id: string;
@@ -1048,6 +1183,18 @@ export async function findAccountByEmail(db: Db, email: string): Promise<Account
   return rows[0] ?? null;
 }
 
+export function createGuestRegistry(db: Db): GuestRegistry {
+  return {
+    async register(tokenHash) {
+      const [row] = await db.query<{ id: string }>(
+        `INSERT INTO guest_session(token_hash) VALUES($1) RETURNING id`,
+        [tokenHash],
+      );
+      return `guest-${row!.id}`;
+    },
+  };
+}
+
 /** Postgres 를 감사 기록으로만 쓴다. 검증 경로에는 관여하지 않는다. */
 export function createSessionAudit(db: Db): SessionAudit {
   return {
@@ -1071,7 +1218,7 @@ export function createSessionAudit(db: Db): SessionAudit {
 - [ ] **Step 4: 통과 확인**
 
 Run: `REDIS_URL=redis://localhost:6379 npx vitest run server/src/identity/ && npm run typecheck`
-Expected: PASS — password 8 + session 9 = 17 tests.
+Expected: PASS — password 8 + session 12 = 20 tests.
 
 - [ ] **Step 5: 커밋**
 
@@ -1437,8 +1584,11 @@ const puzzles = loadPuzzles(resolve(contentDir, 'puzzles'));
 // identity 는 인메모리 스텁. 여기서 검증할 것은 HTTP 계약이지 DB 가 아니다.
 function stubDeps() {
   const sessions = new Map<string, { kind: 'account' | 'guest'; id: string }>();
+  const logged: string[] = [];
   return {
     clock,
+    log: { error: (m: string) => { logged.push(m); } },
+    logged,
     config: { contentUrlSecret: secret, contentUrlTtlMs: 300_000, contentDir },
     puzzles,
     contentVersion: 'v-test',
@@ -1507,6 +1657,23 @@ describe('인증', () => {
     const res = await request(createApp(stubDeps()))
       .post('/auth/login').send({ email: 'a@b.c', password: 'good' });
     expect(JSON.stringify(res.body)).not.toMatch(/hash|\$2[aby]\$/);
+  });
+});
+
+describe('비동기 핸들러 예외', () => {
+  it('의존성이 throw 해도 500 으로 응답이 끝난다 — 매달리면 안 된다', async () => {
+    const deps = stubDeps();
+    deps.identity.guest = async () => { throw new Error('redis down'); };
+    const res = await request(createApp(deps)).post('/auth/guest').send({});
+    expect(res.status).toBe(500);
+    expect(res.body).toEqual({ error: 'internal_error' });
+  });
+
+  it('예외를 로그에 남긴다', async () => {
+    const deps = stubDeps();
+    deps.identity.guest = async () => { throw new Error('redis down'); };
+    await request(createApp(deps)).post('/auth/guest').send({});
+    expect(deps.logged).toHaveLength(1);
   });
 });
 
@@ -1600,6 +1767,7 @@ import type { Principal } from '../identity/types.js';
 
 export interface AppDeps {
   clock: Clock;
+  log: { error(msg: string, fields?: Record<string, unknown>): void };
   config: { contentUrlSecret: string; contentUrlTtlMs: number; contentDir: string };
   puzzles: readonly Puzzle[];
   contentVersion: string;
@@ -1631,6 +1799,28 @@ function safeContentPath(contentDir: string, ...parts: string[]): string | null 
   return full;
 }
 
+/**
+ * 비동기 핸들러 래퍼.
+ *
+ * `void (async () => {...})()` 로 감싸면 의존성이 throw 했을 때 rejection 이
+ * 아무 데도 닿지 않아 **응답이 끝나지 않는다** — 클라는 타임아웃까지 매달린다.
+ * 여기서 잡아 500 을 돌려주고 로그를 남긴다.
+ */
+function asyncRoute(
+  log: AppDeps['log'],
+  fn: (req: express.Request, res: express.Response) => Promise<void>,
+): express.RequestHandler {
+  return (req, res) => {
+    fn(req, res).catch((err: unknown) => {
+      log.error('라우트 처리 실패', {
+        path: req.path,
+        message: err instanceof Error ? err.message : String(err),
+      });
+      if (!res.headersSent) res.status(500).json({ error: 'internal_error' });
+    });
+  };
+}
+
 export function createApp(deps: AppDeps): express.Express {
   const app = express();
   app.use(express.json({ limit: '16kb' }));
@@ -1638,8 +1828,7 @@ export function createApp(deps: AppDeps): express.Express {
   app.get('/health', (_req, res) => { res.json({ status: 'ok' }); });
 
   // ── 인증 ──────────────────────────────────────────────
-  app.post('/auth/register', (req, res) => {
-    void (async () => {
+  app.post('/auth/register', asyncRoute(deps.log, async (req, res) => {
       const { email, password, nickname, characterId } = req.body ?? {};
       if (typeof email !== 'string' || typeof password !== 'string' || typeof nickname !== 'string') {
         res.status(400).json({ error: 'invalid_request' });
@@ -1652,11 +1841,9 @@ export function createApp(deps: AppDeps): express.Express {
         // 이메일 중복인지 비밀번호 길이 위반인지 구분해 주지 않는다.
         res.status(409).json({ error: 'register_failed' });
       }
-    })();
-  });
+  }));
 
-  app.post('/auth/login', (req, res) => {
-    void (async () => {
+  app.post('/auth/login', asyncRoute(deps.log, async (req, res) => {
       const { email, password } = req.body ?? {};
       if (typeof email !== 'string' || typeof password !== 'string') {
         res.status(400).json({ error: 'invalid_request' });
@@ -1670,29 +1857,24 @@ export function createApp(deps: AppDeps): express.Express {
         return;
       }
       res.json({ token: out.token });
-    })();
-  });
+  }));
 
-  app.post('/auth/guest', (_req, res) => {
-    void (async () => {
-      res.json({ token: (await deps.identity.guest()).token });
-    })();
-  });
+  app.post('/auth/guest', asyncRoute(deps.log, async (_req, res) => {
+    res.json({ token: (await deps.identity.guest()).token });
+  }));
 
-  app.post('/auth/logout', (req, res) => {
-    void (async () => {
-      const token = req.header('authorization')?.replace(/^Bearer /, '') ?? '';
-      await deps.identity.logout(token);
-      res.status(204).end();
-    })();
-  });
+  app.post('/auth/logout', asyncRoute(deps.log, async (req, res) => {
+    const token = req.header('authorization')?.replace(/^Bearer /, '') ?? '';
+    await deps.identity.logout(token);
+    res.status(204).end();
+  }));
 
   // ── 콘텐츠 ────────────────────────────────────────────
   app.get('/content/manifest', (_req, res) => {
     res.json(buildManifest(deps.puzzles, deps.contentVersion));
   });
 
-  app.get('/content/:matchId/:kind/:index', (req, res) => {
+  app.get('/content/:matchId/:kind/:index', asyncRoute(deps.log, async (req, res) => {
     // 서명 검증을 먼저 한다. 파일 존재 확인을 먼저 하면 404/403 차이로
     // 어떤 퍼즐이 존재하는지 알려주게 된다.
     const parsed = parseContentUrl(req.originalUrl);
@@ -1705,25 +1887,23 @@ export function createApp(deps: AppDeps): express.Express {
       return;
     }
 
-    void (async () => {
-      const puzzleId = await deps.resolvePuzzleId(parsed.matchId);
-      if (puzzleId === null) {
-        res.status(404).json({ error: 'not_found' });
-        return;
-      }
+    const puzzleId = await deps.resolvePuzzleId(parsed.matchId);
+    if (puzzleId === null) {
+      res.status(404).json({ error: 'not_found' });
+      return;
+    }
 
-      const file = parsed.kind === 'base'
-        ? 'base.webp'
-        : `patch_${String(parsed.index + 1).padStart(2, '0')}.webp`;
+    const file = parsed.kind === 'base'
+      ? 'base.webp'
+      : `patch_${String(parsed.index + 1).padStart(2, '0')}.webp`;
 
-      const full = safeContentPath(deps.config.contentDir, 'images', puzzleId, file);
-      if (full === null || !existsSync(full)) {
-        res.status(404).json({ error: 'not_found' });
-        return;
-      }
-      res.type('image/webp').sendFile(full);
-    })();
-  });
+    const full = safeContentPath(deps.config.contentDir, 'images', puzzleId, file);
+    if (full === null || !existsSync(full)) {
+      res.status(404).json({ error: 'not_found' });
+      return;
+    }
+    res.type('image/webp').sendFile(full);
+  }));
 
   return app;
 }
@@ -1732,7 +1912,7 @@ export function createApp(deps: AppDeps): express.Express {
 - [ ] **Step 4: 통과 확인**
 
 Run: `npx vitest run server/src/http/ && npm run typecheck`
-Expected: PASS — 15 tests. 특히 `401 응답이 계정 존재 여부를 흘리지 않는다`, `인덱스를 바꾸면 403 이다`, `경로 탈출을 시도해도 404/403 이다` 가 통과해야 한다.
+Expected: PASS — 17 tests. 특히 `401 응답이 계정 존재 여부를 흘리지 않는다`, `인덱스를 바꾸면 403 이다`, `경로 탈출을 시도해도 404/403 이다` 가 통과해야 한다.
 
 - [ ] **Step 5: 커밋**
 
@@ -1763,7 +1943,7 @@ EOF
 ### Task 7: 부팅 · Docker Compose
 
 **Files:**
-- Create: `server/src/main.ts`, `server/Dockerfile`, `docker-compose.yml`, `.env.example`
+- Create: `server/src/main.ts`, `server/Dockerfile`, `docker-compose.yml`, `.env.example`, `.dockerignore`
 - Modify: `package.json` (스크립트), `.gitignore` (`.env`)
 
 **Interfaces:**
@@ -1833,6 +2013,25 @@ volumes:
 
 > `depends_on` 에 `condition: service_healthy` 를 쓰는 이유는, 컨테이너가 떴다는 것과 DB 가 접속을 받는다는 것이 다르기 때문이다. 이게 없으면 서버가 먼저 떠서 연결 실패로 죽는다.
 
+`.dockerignore` — **이게 없으면 `legacy/` 3,400여 파일과 `node_modules` 가 빌드 컨텍스트로 전송된다.** 빌드가 몇 분씩 걸리고 이미지에 원작 APK 까지 들어간다.
+
+```
+node_modules
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+legacy
+docs
+.git
+.github
+.superpowers
+landing
+*.md
+.env
+```
+
+> `content/` 는 **제외하지 않는다** — 이미지에 들어가야 한다. `legacy/` 를 빼는 것이 핵심이다.
+
 `server/Dockerfile` — 멀티스테이지. 워크스페이스 루트를 컨텍스트로 받는다.
 
 ```dockerfile
@@ -1873,7 +2072,9 @@ import { createDb } from './platform/pg.js';
 import { createCache } from './platform/redis.js';
 import { loadPuzzles } from './content/loader.js';
 import { createApp } from './http/app.js';
-import { createAccount, createSessionAudit, findAccountByEmail } from './identity/repository.js';
+import {
+  createAccount, createGuestRegistry, createSessionAudit, findAccountByEmail,
+} from './identity/repository.js';
 import { hashPassword, verifyPassword } from './identity/password.js';
 import {
   createGuestSession, createSession, revokeSession, verifySession,
@@ -1902,11 +2103,13 @@ async function main(): Promise<void> {
   log.info('콘텐츠 로드 완료', { puzzles: puzzles.length, version });
 
   const audit = createSessionAudit(db);
-  const sessionDeps = { cache, clock, audit };
+  const guests = createGuestRegistry(db);
+  const sessionDeps = { cache, clock, audit, guests };
 
   const knownPuzzleIds = new Set(puzzles.map((p) => p.id));
   const app = createApp({
     clock,
+    log,
     config,
     puzzles,
     contentVersion: version,
@@ -2004,7 +2207,7 @@ Expected: Plan 1·2 의 259개 + 이 계획의 신규 테스트 전부 통과. t
 - [ ] **Step 5: 커밋**
 
 ```bash
-git add server/src/main.ts server/Dockerfile docker-compose.yml .env.example .gitignore package.json
+git add server/src/main.ts server/Dockerfile .dockerignore docker-compose.yml .env.example .gitignore package.json
 git commit -m "$(cat <<'EOF'
 feat(server): 부팅 엔트리 + Docker Compose
 
@@ -2040,8 +2243,11 @@ EOF
 7. 스키마가 재실행 가능하다 — 두 번 적용해도 실패하지 않는다
 8. 세션 토큰 원문이 Postgres 에도 로그에도 남지 않는다
 9. 알려지지 않은 `matchId` 로 서명된 URL 은 서명이 유효해도 404 다
-10. Plan 1·2 의 기존 259 테스트가 전부 그대로 통과한다
-11. `npm run typecheck` exit 0, CI 5개 체크 전부 통과
+10. 스키마가 스펙 §6.5 의 테이블 7개를 전부 만든다
+11. 동시 로그인에서도 활성 세션이 하나만 남는다
+12. 라우트 의존성이 throw 해도 500 으로 응답이 끝난다 — 매달리지 않는다
+13. Plan 1·2 의 기존 259 테스트가 전부 그대로 통과한다
+14. `npm run typecheck` exit 0, CI 5개 체크 전부 통과
 
 ## 이 계획이 남기는 것 (Plan 4 의 입력)
 

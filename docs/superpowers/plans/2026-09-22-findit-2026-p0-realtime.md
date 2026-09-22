@@ -126,6 +126,12 @@ server/src/
 - `wakeAt` 타이머는 **매 `submit` 마다** 취소하고 다시 건다. 상태가 바뀌면 다음 깨어날 시각도 바뀐다.
 - AI 타이머는 **그러면 안 된다.** 매번 다시 계획하면 사람이 탭할 때마다 AI 의 지연이 새로 굴려져, 사람이 자주 움직이면 AI 는 영원히 발화하지 못한다. AI 는 **자기 행동이 끝난 뒤에만** 다음을 계획한다(발화 → 적용 → 재계획의 사슬).
 
+> **이 계약을 검사하려면 가상 시간을 전진시키며 탭해야 한다.** 같은 시각에 여러 번 두드린 뒤 넉넉한 창을 흘려보내는 테스트는 재계획 변이를 잡지 못한다 — 마지막 계획도 AI 지연 상한(7 초) 안에 발화하므로 창 안에서 그대로 통과한다. 탭 간격을 **지연 하한보다 짧게**, 전체 구간을 **지연 상한보다 길게** 두어야 한다.
+>
+> 수치는 실측했다. `aiFindDelayMs` 의 범위는 level 1 → `[5925, 7000]`, level 10 → `[5695, 7000]`, level 50 → `[4675, 6325]`, level 100 → `[3400, 4600]` ms 다. 테스트가 쓰는 level 10 에서 탭 간격 500ms · 30회(15000ms)를 **시드 5000개로 시뮬레이션해** 올바른 구현은 5000/5000 발화(가장 늦은 발화 7000ms), 재계획 변이는 0/5000 발화임을 확인했다. 시드와 무관하게 갈린다.
+>
+> **`harness` 의 레벨을 바꾸면 이 수치가 무너진다.** level 100 이면 지연 하한이 3400ms 로 내려가 탭 간격과의 여유가 줄고, 레벨을 더 올릴 수 없으므로 상한 쪽은 안전하지만 하한 쪽 여유를 다시 계산해야 한다.
+
 **Review Focus 3 — 계획이 선점당하는 경우.** `planAiAction` 은 계획 시점의 남은 대상 중 하나를 골라 그 중심 좌표를 `TAP` 으로 만든다. 발화 전에 사람이 그 rect 를 찾으면 그 탭은 MISS 가 되고 AI 는 2 초 잠긴다 — 사람이 빠를수록 AI 가 약해진다. **발화 시점에 `hitTest` 로 대상이 아직 살아 있는지 확인하고, 사라졌으면 누르지 말고 다시 계획한다.**
 
 - [ ] **Step 1: 실패하는 테스트 작성**
@@ -310,19 +316,43 @@ describe('매치 러너 — AI 구동', () => {
     expect(h.runner.state.p2.found.length).toBeGreaterThan(0);
   });
 
-  it('사람이 탭해도 AI 의 예정 시각이 미뤄지지 않는다', () => {
+  it('사람이 계속 탭해도 AI 의 예정 시각이 미뤄지지 않는다', () => {
+    // **가상 시간을 전진시키면서 탭해야 한다.** 같은 시각에 100 번 두드리고
+    // 나중에 20 초를 흘려보내면, 매 submit 마다 재계획하는 변이도 마지막
+    // 계획이 7 초 안에 발화해 20 초 창 안에서 그대로 통과한다. 그런 테스트는
+    // 아무것도 증명하지 않는다.
+    //
+    // 실측: level 10 의 aiFindDelayMs 는 [5695, 7000] ms 다
+    // (rules/ai.ts — (7 - level*0.03) * (1 ± 0.15), clamp [1, 7] 초).
+    // 탭 간격을 그 하한보다 훨씬 짧게 두고, 전체 구간을 상한보다 길게 둔다.
+    //   · 올바른 구현: AI 는 PLAYING 시작 기준 최대 7000ms 에 발화한다.
+    //   · 재계획 변이: 마지막 탭(14500ms) 뒤에야 계획되므로 빨라야
+    //     14500 + 5695 = 20195ms — 이 테스트가 보는 15000ms 창 밖이다.
+    const TAP_INTERVAL_MS = 500;   // AI 지연 하한 5695ms 보다 한참 짧다
+    const TAPS = 30;               // 전체 15000ms > 지연 상한 7000ms
+    const MAX_AI_DELAY_MS = 7_000;
+
     const h = harness({ p2Ai: true });
     h.runner.start();
     h.runner.submit({ kind: 'READY', slot: 'p1' });
     h.runner.submit({ kind: 'READY', slot: 'p2' });
     h.scheduler.runUntil(h.clock, h.clock.now() + COUNTDOWN_MS);
 
-    // 사람이 빈 곳을 100 번 두드린다. 매번 다시 계획한다면 AI 는 영원히
-    // 발화하지 못한다 — 실제로 겪으면 "AI 가 가끔 아무것도 안 한다" 로 보인다.
-    for (let i = 0; i < 100; i += 1) h.runner.submit({ kind: 'TAP', slot: 'p1', x: 399, y: 299 });
-    h.scheduler.runUntil(h.clock, h.clock.now() + 20_000);
+    const playStartedAt = h.clock.now();
+    let firstFindAt: number | null = null;
 
-    expect(h.runner.state.p2.found.length).toBeGreaterThan(0);
+    for (let i = 0; i < TAPS; i += 1) {
+      // 빈 곳을 두드린다. p1 은 미스로 잠기지만 p2 의 계획과는 무관하다.
+      h.runner.submit({ kind: 'TAP', slot: 'p1', x: 399, y: 299 });
+      h.scheduler.runUntil(h.clock, h.clock.now() + TAP_INTERVAL_MS);
+      if (firstFindAt === null && h.runner.state.p2.found.length > 0) {
+        firstFindAt = h.clock.now();
+      }
+    }
+
+    // 사람이 쉬지 않고 두드리는 동안에도 AI 는 제 시각에 움직여야 한다.
+    expect(firstFindAt).not.toBeNull();
+    expect(firstFindAt! - playStartedAt).toBeLessThanOrEqual(MAX_AI_DELAY_MS + TAP_INTERVAL_MS);
   });
 
   it('계획한 rect 를 사람이 먼저 찾으면 AI 는 그것을 누르지 않는다 — 부당한 잠금 금지', () => {
@@ -623,7 +653,7 @@ Expected: PASS — 11 tests.
 | 변이 | 깨지는 테스트 |
 |---|---|
 | `scheduleAi` 의 `hitTest` 재검증 블록 제거 | `계획한 rect 를 사람이 먼저 찾으면…` |
-| `submit` 끝에서 무조건 `scheduleAi` 재호출 | `사람이 탭해도 AI 의 예정 시각이 미뤄지지 않는다` |
+| `submit` 끝에서 무조건 `scheduleAi` 재호출 | `사람이 계속 탭해도 AI 의 예정 시각이 미뤄지지 않는다` |
 | `finish` 에서 `clearAll()` 제거 | `매치가 끝나면 예약이 하나도 남지 않는다` |
 | `abort` 가 `onEnd` 를 부르게 변경 | `abort 는 END 를 보내지도 onEnd 를 부르지도 않는다` |
 | `finish(ends)` 에 빈 객체를 넘김 | `40초가 지나면 아무도 손대지 않아도 끝난다` |

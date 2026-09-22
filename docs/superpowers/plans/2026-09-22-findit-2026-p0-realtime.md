@@ -2314,7 +2314,7 @@ EOF
   - `function settlementRows(inputs: SettlementInputs): SettlementRow[]` — **순수 함수.** DB 를 모른다.
   - `async function persistSettlement(db: Db, row: SettlementRow): Promise<{ level: number; leveledUp: boolean } | null>`
 
-> **매핑을 따로 떼는 이유.** "AI 는 전적을 남기지 않는다", "값은 END 페이로드 그대로 옮긴다", "게스트는 `accountId` 가 null" 은 전부 규칙이지 DB 작업이 아니다. 순수 함수로 두면 Postgres 없이 검증되고, Task 7 이 같은 매핑을 다시 쓰지 않아도 된다.
+> **매핑을 따로 떼는 이유.** "AI 는 전적을 남기지 않는다", "숫자는 END 페이로드에서 온다", "게스트는 `accountId` 가 null" 은 전부 규칙이지 DB 작업이 아니다. 순수 함수로 두면 Postgres 없이 검증되고, Task 7 이 같은 매핑을 다시 쓰지 않아도 된다.
 
 **원작에는 경험치가 없다.** 정산은 `score = mScore + calculateScore(...)`, `level = getLevel(score)`, `coin = coin + 1` 이고 **레벨이 오른 판에만 스킬 포인트가 1 오른다**(`GameView.java:3255-3271`). 레벨링 통화는 **점수**다. 그대로 따른다:
 
@@ -2363,13 +2363,22 @@ describe('정산 행 만들기', () => {
     p2: { result: 'lose', myFound: 2, opponentFound: 3, score: 200, coinDelta: 0, expDelta: 20 },
   };
 
-  it('사람 둘이면 두 행이 나오고 값은 END 페이로드 그대로다', () => {
+  it('사람 둘이면 두 행이 나오고 숫자는 END 페이로드에서 온다', () => {
+    // base 는 갓 만든 상태라 p1.found 도 p2.found 도 비어 있다. 반면 END
+    // 페이로드는 3 / 2 를 말한다. **상태에서 다시 세는 구현이면 0 이 나온다** —
+    // 그래서 이 두 단언이 값의 출처를 못 박는다.
+    expect(base.p1.found).toHaveLength(0);
+    expect(base.p2.found).toHaveLength(0);
+
     const rows = settlementRows({ state: base, ends, accountIds: {} });
     expect(rows).toHaveLength(2);
     expect(rows[0]).toMatchObject({
-      result: 'win', scoreDelta: 700, coinDelta: 5, expDelta: 30, vsAi: false,
+      result: 'win', foundCount: 3, opponentFound: 2,
+      scoreDelta: 700, coinDelta: 5, expDelta: 30, vsAi: false,
     });
-    expect(rows[1]).toMatchObject({ result: 'lose', scoreDelta: 200, coinDelta: 0 });
+    expect(rows[1]).toMatchObject({
+      result: 'lose', foundCount: 2, opponentFound: 3, scoreDelta: 200, coinDelta: 0,
+    });
   });
 
   it('AI 슬롯은 행을 만들지 않는다 — 전적은 사람의 것이다', () => {
@@ -2583,10 +2592,18 @@ export interface SettlementInputs {
 /**
  * 끝난 매치를 전적 행으로 옮긴다. **순수 함수다** — DB 를 모른다.
  *
- * 값을 다시 계산하지 않고 END 페이로드를 그대로 옮기는 것이 요점이다.
- * 콤보 보너스는 정산 시점의 live 콤보 한 번 조회라서, 상태를 훑어
- * 재계산하면 원작과 다른 값이 나온다 (Plan 2 에서 그 실수로 점수가 3 배가
- * 됐다).
+ * **숫자는 전부 END 페이로드에서 온다.** 상태에서 다시 세거나 계산하지
+ * 않는다. 두 가지 이유가 있다.
+ *
+ * 첫째, 클라가 결과 화면에서 본 숫자와 전적에 남는 숫자가 갈라지면 안 된다.
+ * 지금은 리듀서가 같은 상태로 END 를 만들므로 두 값이 같지만, 한쪽만 바뀌는
+ * 날이 오면 그때부터 조용히 어긋난다.
+ *
+ * 둘째, 점수는 애초에 상태에서 복원할 수 없다. 콤보 보너스가 정산 시점의
+ * live 콤보 한 번 조회라서, 상태를 훑어 재계산하면 원작과 다른 값이 나온다
+ * (Plan 2 에서 그 실수로 점수가 3 배가 됐다).
+ *
+ * 예외는 vsAi 하나다 — END 가 싣지 않는 정보라 상태에서 읽는다.
  */
 export function settlementRows(inputs: SettlementInputs): SettlementRow[] {
   const { state, ends, accountIds } = inputs;
@@ -2606,12 +2623,17 @@ export function settlementRows(inputs: SettlementInputs): SettlementRow[] {
       accountId: accountIds[slot] ?? null,
       matchId: state.matchId,
       puzzleId: state.puzzleId,
+      // **숫자는 전부 END 페이로드에서 온다.** 상태에서 다시 세지 않는다 —
+      // 클라가 결과 화면에서 본 숫자와 전적에 남는 숫자가 갈라지면 안 된다.
+      // 지금은 두 값이 같지만(리듀서가 같은 상태로 END 를 만든다), 한쪽만
+      // 바뀌는 날이 오면 그때부터 조용히 어긋난다.
       result: payload['result'] as 'win' | 'lose' | 'draw',
-      foundCount: me.found.length,
-      opponentFound: other.found.length,
+      foundCount: Number(payload['myFound']),
+      opponentFound: Number(payload['opponentFound']),
       scoreDelta: Number(payload['score']),
       coinDelta: Number(payload['coinDelta']),
       expDelta: Number(payload['expDelta']),
+      // vsAi 만 상태에서 온다. END 가 싣지 않는 정보다.
       vsAi: other.isAi,
     });
   }
@@ -2728,6 +2750,7 @@ Expected: PASS — **12 tests** (순수 4 + DB 8).
 | 전적 INSERT 를 프로필 UPDATE **앞으로** 옮김 | `프로필 갱신이 전적 INSERT 보다 먼저 일어난다` |
 | `settlementRows` 의 `me.isAi` 건너뛰기 제거 | `AI 슬롯은 행을 만들지 않는다` |
 | `accountIds[slot] ?? null` → 항상 `null` | `계정이면 accountId, 게스트면 null 이다` |
+| `foundCount` 를 `me.found.length` 로 되돌림 | `사람 둘이면 두 행이 나오고 숫자는 END 페이로드에서 온다` |
 
 > **순서 변경은 단독으로는 `전적과 프로필이 한 트랜잭션이다` 를 깨뜨리지 않는다.** 트랜잭션이 살아 있는 한 어느 순서든 롤백되기 때문이다. 순서가 중요한 이유는 그 검사를 **살려 두기 위해서**다 — 순서를 뒤집고 `db.tx` 까지 지우면 둘 다 통과해 버린다. 그래서 순서 자체를 별도 테스트로 못 박았다.
 | `accountId === null` 가드 제거 | `게스트는 전적만 남기고…` (FK 위반으로 던진다) |

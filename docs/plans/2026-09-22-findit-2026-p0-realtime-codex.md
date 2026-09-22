@@ -3633,6 +3633,166 @@ EOF
 
 ---
 
+### Task 8: 서명 콘텐츠 URL 이 실제 시계에서 동작하게
+
+**Files:**
+- Modify: `server/src/platform/clock.ts` (`SystemClock.now()` 가 정수 밀리초를 준다)
+- Test: `server/src/content/urls.test.ts` (실제 시계 왕복), `server/src/match/wiring.test.ts` (이미지를 실제로 가져온다)
+
+**Interfaces:**
+- Consumes: Plan 3 `SystemClock`·`createContentUrls`·`parseContentUrl`
+- Produces: 없음 — 동작을 고친다
+
+**운영에서 서명 URL 이 하나도 동작하지 않는다.** 확인한 사실이다.
+
+`SystemClock.now()` 는 `performance.now()` 라 **소수**를 준다 (`354.624333`). `createContentUrls` 가 `exp = clock.now() + ttlMs` 로 만들므로 URL 에 `exp=300355.109291` 이 실린다. 그런데 `parseContentUrl` 에는 이런 줄이 있다:
+
+```typescript
+  if (!Number.isInteger(exp) || !sig) return null;
+```
+
+파싱이 `null` 을 주고 라우트는 **403** 을 낸다. base 도 patch 도 전부 403 이라 **게임 화면에 이미지가 하나도 나오지 않는다.**
+
+**왜 아무 테스트도 잡지 못했나.** 단위 테스트는 전부 `TestClock` 을 쓴다 — 정수다. 실제 시계를 쓰는 곳은 Task 7 의 통합 테스트뿐인데, 그것은 `imageUrl` **문자열**이 matchId 를 담고 있는지만 보고 URL 을 가져오지 않는다. 문자열은 멀쩡했다.
+
+**어디를 고치는가.** `Clock` 포트의 주석은 "단조 증가하는 **밀리초** 시계" 다. `TestClock` 은 정수이고, 모든 소비자가 정수 밀리초를 가정한다. 어긋나 있던 것은 `SystemClock` 하나다. 거기를 고치면 같은 계열의 사고가 한 번에 닫힌다 — `exp` 뿐 아니라 로그 타임스탬프, 타이머 계산 전부.
+
+`Math.floor` 는 단조성을 깨지 않는다. 타이머의 `at - clock.now()` 도 그대로 성립한다.
+
+- [ ] **Step 1: 실패하는 테스트 작성**
+
+`server/src/content/urls.test.ts` 에 추가한다. **`TestClock` 이 아니라 `SystemClock` 을 쓰는 것이 요점이다:**
+
+```typescript
+import { SystemClock } from '../platform/clock.js';
+
+describe('실제 시계에서의 왕복 — 운영 경로', () => {
+  it('SystemClock 으로 발급한 URL 이 파싱되고 검증된다', () => {
+    // 단위 테스트가 전부 TestClock(정수)을 쓰는 바람에, 실제 시계의
+    // performance.now() 가 소수를 준다는 사실이 여기까지 숨어 있었다.
+    // exp 가 소수면 parseContentUrl 이 null 을 주고 라우트가 403 을 낸다.
+    const clock = new SystemClock();
+    expect(Number.isInteger(clock.now())).toBe(true);
+
+    const urls = createContentUrls({ secret, ttlMs, clock });
+
+    // 한 번은 우연히 정수일 수 있다. 여러 번 본다.
+    for (let i = 0; i < 50; i += 1) {
+      const parsed = parseContentUrl(urls.patch('m1', i));
+      expect(parsed).not.toBeNull();
+      expect(verifyContentUrl({ secret, clock }, parsed!)).toBe(true);
+    }
+  });
+});
+```
+
+`server/src/match/wiring.test.ts` 의 `START 의 imageUrl 이 …` 테스트를 **실제로 가져오도록** 고친다:
+
+```typescript
+  it('START 의 imageUrl 로 이미지를 실제로 받을 수 있다', async () => {
+    const a = await connect('g-a');
+    const b = await connect('g-b');
+    a.send('QUEUE_JOIN', { mode: 'casual' });
+    b.send('QUEUE_JOIN', { mode: 'casual' });
+    const found = await a.waitFor('MATCH_FOUND');
+    a.send('READY'); b.send('READY');
+    const start = await a.waitFor('START', 6_000);
+
+    expect(String(start['imageUrl'])).toContain(String(found['matchId']));
+    expect(await cache.get(`findit:match:${String(found['matchId'])}`))
+      .toBe(String(start['puzzleId']));
+
+    // **문자열만 보면 안 된다.** URL 이 matchId 를 담고 있어도 exp 가 소수면
+    // 라우트가 403 을 낸다 — 실제로 그랬다. 가져와야 안다.
+    const res = await fetch(`${httpUrl}${String(start['imageUrl'])}`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toMatch(/image\/webp/);
+
+    // 인덱스를 바꿔치기하면 서명이 맞지 않아 거부돼야 한다 (스펙 §6.3).
+    const forged = String(start['imageUrl']).replace('/base/0', '/patch/3');
+    expect((await fetch(`${httpUrl}${forged}`)).status).toBe(403);
+
+    a.close(); b.close();
+  });
+```
+
+> `httpUrl` 이 필요하다. `beforeEach` 에서 `url` 을 만들 때 함께 둔다: `httpUrl = \`http://127.0.0.1:${port}\``. 그리고 이 테스트가 콘텐츠 라우트를 타므로, `realtime.attach(server)` 만으로는 부족하고 **`createApp` 이 붙은 서버**여야 한다. `beforeEach` 가 `createServer()` 대신 `createApp({...}).listen(0)` 으로 서버를 만들고 거기에 `realtime.attach` 하도록 바꾼다 — `main.ts` 의 배선과 같은 모양이다.
+
+- [ ] **Step 2: 실패 확인**
+
+Run: `npx vitest run server/src/content/urls.test.ts`
+Expected: FAIL — `expected false to be true` (`Number.isInteger(clock.now())`).
+
+- [ ] **Step 3: 구현**
+
+`server/src/platform/clock.ts`:
+
+```typescript
+/**
+ * 운영용. performance.now() 는 프로세스 시작 기준 단조 증가를 보장한다.
+ *
+ * **정수로 내린다.** performance.now() 는 소수(354.624333)를 주는데, 포트의
+ * 계약은 "밀리초 시계" 이고 TestClock 도 정수다. 소수가 새어 나가면 그 값을
+ * 문자열로 싣는 곳에서 터진다 — 서명 콘텐츠 URL 의 exp 가 소수가 되어
+ * parseContentUrl 의 Number.isInteger 검사에 걸리고, base·patch 이미지가
+ * 전부 403 이 된다. Math.floor 는 단조성을 깨지 않는다.
+ */
+export class SystemClock implements Clock {
+  now(): number {
+    return Math.floor(performance.now());
+  }
+}
+```
+
+- [ ] **Step 4: 통과 확인**
+
+```bash
+DATABASE_URL=postgres://findit:findit@localhost:5432/findit \
+REDIS_URL=redis://localhost:6379 \
+npm test && npm run typecheck
+```
+Expected: PASS, skip 0.
+
+**손으로도 한 번 확인한다.** 이 결함은 단위 테스트가 아니라 실제 왕복에서만 드러났다:
+
+```bash
+npm run compose:up
+TOKEN=$(curl -s -XPOST localhost:8080/auth/guest | node -pe 'JSON.parse(require("fs").readFileSync(0)).token')
+# WS 로 AUTH → QUEUE_JOIN ×2 → READY ×2 → START 의 imageUrl 을 curl
+```
+Expected: `200 image/webp`.
+
+- [ ] **Step 5: 커밋**
+
+```bash
+git add server/src/platform/clock.ts server/src/content/urls.test.ts server/src/match/wiring.test.ts
+git commit -m "$(cat <<'EOF'
+fix(server): SystemClock 이 소수를 흘려 서명 URL 이 전부 403 이던 것
+
+performance.now() 는 소수를 준다 (354.624333). createContentUrls 가
+exp = clock.now() + ttlMs 로 만들어 URL 에 exp=300355.109291 이 실리는데,
+parseContentUrl 의 Number.isInteger(exp) 검사가 그것을 거부한다. 라우트는
+403 을 내고, base 도 patch 도 전부 403 이라 게임 화면에 이미지가 하나도
+나오지 않는다.
+
+단위 테스트가 전부 TestClock(정수)을 써서 여기까지 숨어 있었다. 실제 시계를
+쓰는 곳은 통합 테스트뿐인데 imageUrl 문자열이 matchId 를 담고 있는지만 보고
+가져오지 않았다. 문자열은 멀쩡했다.
+
+Clock 포트의 계약은 "밀리초 시계" 이고 TestClock 도 정수다. 어긋나 있던 것은
+SystemClock 하나이므로 거기를 고친다. Math.floor 는 단조성을 깨지 않고,
+타이머의 at - clock.now() 도 그대로 성립한다.
+
+회귀를 둘 막는다. urls.test.ts 가 SystemClock 으로 50 회 왕복하고,
+통합 테스트가 START 의 imageUrl 을 실제로 가져와 200 image/webp 를 받는다.
+인덱스를 바꿔치기한 URL 이 403 인지도 함께 본다.
+
+EOF
+)"
+```
+
+---
+
 ## 완료 기준
 
 1. 두 사람이 큐에서 만나 한 판을 끝까지 치고 양쪽이 `END` 를 받는다
@@ -3652,7 +3812,8 @@ EOF
 15. 인증 없는 연결이 `QUEUE_JOIN`·`TAP` 을 보내도 아래로 내려가지 않는다
 16. 클라가 `END` 같은 s2c 메시지를 자칭해 보내면 연결이 끊긴다
 17. Plan 1~3 의 기존 362 테스트가 전부 그대로 통과한다
-18. `npm run typecheck` exit 0, CI 5개 체크 전부 통과, **skip 0**
+18. **`START` 의 `imageUrl` 로 이미지를 실제로 받을 수 있다** — 문자열이 아니라 응답이 `200 image/webp` 다
+19. `npm run typecheck` exit 0, CI 5개 체크 전부 통과, **skip 0**
 
 ---
 

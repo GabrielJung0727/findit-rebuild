@@ -1,0 +1,3839 @@
+# FindIt 2026 P0 — 실시간 계층 구현 계획 (Plan 4)
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Plan 2 의 순수 리듀서와 Plan 3 의 런타임을 WebSocket 으로 연결해, 두 사람이(또는 사람과 AI가) 매칭부터 정산까지 한 판을 끝까지 치를 수 있게 한다.
+
+**Architecture:** 리듀서는 그대로 둔다. 그 바깥에 **매치 러너**를 두어 시간(타이머)과 AI 행동을 이벤트로 주입하고, **게이트웨이**가 WS 프레임을 이벤트로 번역해 넘긴다. 매칭 큐와 매치 인덱스는 Redis, 정산은 PostgreSQL 이다. 러너는 WS 를 모르고, 게이트웨이는 게임 규칙을 모른다.
+
+**Tech Stack:** Node 24 LTS · TypeScript 5.7 strict (`noUncheckedIndexedAccess`) · `ws` 8 · ioredis 7 · pg 8 · vitest 3
+
+**Spec:** [`docs/superpowers/specs/2026-09-18-findit-2026-p0-design.md`](../specs/2026-09-18-findit-2026-p0-design.md)
+
+**Codex/타 에이전트용 사본:** [`docs/plans/2026-09-22-findit-2026-p0-realtime-codex.md`](../../plans/2026-09-22-findit-2026-p0-realtime-codex.md) — 내용은 같고 실행 지침만 다르다. **한쪽을 고치면 다른 쪽도 고칠 것.**
+
+---
+
+## Global Constraints
+
+- **Node 24 LTS**, TypeScript 5.7 strict + `noUncheckedIndexedAccess` + **`verbatimModuleSyntax`**. `engines` 로 강제돼 있다.
+  > `verbatimModuleSyntax` 때문에 **타입 전용 심볼은 반드시 `import type`** 이어야 한다. `import { AddressInfo } from 'node:net'` 처럼 쓰면 `TS1484` 로 typecheck 가 깨진다. `esModuleInterop` 은 켜져 있지 않지만 `moduleResolution: "bundler"` 가 `allowSyntheticDefaultImports` 를 함께 켜므로 `import WebSocket from 'ws'` 는 통과한다.
+- **모든 판정은 서버가 한다** (스펙 §10-3). 클라이언트가 보낸 시각은 판정에 쓰지 않는다.
+- **시간은 `Clock` 포트로만 읽는다.** `Date.now()` 를 직접 부르지 않는다. 다만 **난수 시드는 시계에서 뽑지 않는다** — `SystemClock` 은 `performance.now()` 라 부팅 직후 값이 뭉쳐 있어, 재시작할 때마다 거의 같은 수열이 나온다. 시드는 `node:crypto` 의 `randomInt` 로 뽑는다.
+- **좌표는 절대 클라로 나가지 않는다** (스펙 §6.3). `START` 는 `targetCount` 만, `REVEAL` 은 **이미 찾은** rect 의 좌표만 싣는다.
+  > 이것을 "직렬화한 JSON 에 좌표 값이 없다" 로 검사할 때는 **테스트 픽스처의 좌표가 메타데이터와 겹치지 않아야 한다.** 겹치면 정상 구현이 누출로 오진된다 — 예전 Task 1 픽스처는 `height: 300` 에 rect `x: 300` 을 두어 실제로 그랬다. 검사 목록도 손으로 쓰지 말고 픽스처를 순회할 것.
+- **패치 URL 은 매치별 서명 URL** 이다 (스펙 §6.3). 리듀서가 `ctx.urls` 로 받아 쓴다 — Plan 4 는 그 구현을 바꾸지 않는다.
+- **동기화는 대칭** (스펙 §3.8). 두 플레이어가 같은 퍼즐, 같은 5 개를 받는다. `assignPuzzle` 은 매치당 **한 번만** 부른다.
+- **비밀값을 소스·테스트·Compose 에 넣지 않는다.** `.env` 는 gitignore, Gitleaks 가 CI 에서 돈다.
+- **커밋**: Task당 1커밋. 한국어 본문 + Conventional Commits 접두어. 끝에 `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`.
+- **TDD**: 실패하는 테스트 → 실패 확인 → 최소 구현 → 통과 확인 → 커밋.
+- **CI 는 Postgres·Redis 서비스 컨테이너로 돈다.** skip 은 실패로 취급된다 (`numPendingTests > 0` 이면 CI 가 죽는다). 통합 테스트를 환경 변수 뒤에 숨겨도 CI 에서 반드시 실행된다.
+
+---
+
+## Review Focus
+
+스펙이 함축하지만 어느 Task 의 테스트도 저절로 건드리지 않는, 사람을 물 가능성이 높은 다섯 가지. 각 줄의 테스트는 해당 코드를 가진 Task 안에 넣어 뒀다.
+
+1. **게스트의 정산** — 게스트는 `account` 행이 없다. `match_history.account_id` 는 FK 이고 `player_profile` 행도 없다. 정산이 그대로 INSERT 하면 FK 위반으로 터지고, **매치 종료 경로 전체가 죽는다.** → Task 6.
+2. **`bigint` 컬럼이 문자열로 돌아온다** — `player_profile.total_score` 와 `coins` 는 `bigint` 다. node-postgres 는 `int8` 을 **문자열로** 준다. JS 에서 `+` 를 쓰면 `"100" + 5 === "1005"` 가 된다. Plan 3 에서 같은 계열(다중 문장 질의가 배열을 돌려주는 것)에 한 번 당했다. → Task 6.
+3. **AI 계획이 사람에게 선점당하는 경우** — `planAiAction` 은 계획 시점의 남은 대상에서 고른다. 발화 전에 사람이 그 rect 를 찾으면 AI 의 TAP 은 MISS 가 되어 2 초 잠긴다. 즉 **사람이 빠를수록 AI 가 부당하게 약해진다.** → Task 1.
+4. **큐 동시 진입** — 두 사람이 같은 순간에 `QUEUE_JOIN` 하면, 둘 다 "큐가 비었다" 를 보고 각자 큐에 들어가 **둘 다 5 초 뒤 AI 와 붙는다.** 사람이 둘 있는데 아무도 못 만난다. → Task 4.
+5. **양쪽이 다 끊긴 매치** — 두 연결이 모두 닫히면 리듀서는 `LEAVE` 로 매치를 끝내지만, 러너의 타이머·레지스트리 항목·Redis `match:{id}` 키가 남으면 **누수**다. 서버가 오래 돌수록 쌓인다. → Task 7.
+
+---
+
+## 실행 방식
+
+- **각 Task 를 끝낼 때마다 그 Task 의 diff 를 독립적으로 검토하는 단계를 넣어라.** Plan 3 에서 독립 검토가 13 건의 결함을 잡았고 13 건 모두 유효했다. 그중 다수는 계획서를 따라가는 것만으로는 드러나지 않았다 — 테스트가 통과하는데 **그 테스트가 아무것도 증명하지 않는** 종류였다.
+- **계약을 문장으로 선언했으면, 그 계약을 실패시킬 수 있는 검사를 함께 두어라.** Plan 3 의 결함 대부분이 이 규칙을 어긴 데서 나왔다. "X 를 먼저 한다", "Y 에 닿지 않는다" 같은 순서·부재 계약은 결과 값이 아니라 **호출 기록**으로 확인해야 한다.
+- **변이를 넣어 확인하는 것이 가장 확실하다.** 이 계획서의 여러 스텝이 "이 줄을 지우면 이 테스트가 실패해야 한다" 를 명시한다. 실패하지 않으면 테스트가 잘못된 것이다.
+
+---
+
+## 조사 기록 — 원작과 v1 에서 확인한 것
+
+계획을 쓰기 전에 원작 코드를 읽었다. 추측으로 적은 것이 아니다.
+
+**AI 전환 5 초는 원작 수치의 정확한 번역이다.** `GameView.java:1240` 의 `SINGLETIME = 100` 은 프레임 카운터다. 같은 루프에서 `mGameTimeCount > 19` 일 때 `mGameTime++` 하므로(`GameView.java:3553-3558`) **20 프레임 = 1 초**다. 따라서 100 프레임 = **정확히 5 초**. 스펙 §3.6 의 "5 초" 는 재해석이 아니라 원작 그대로다. (Plan 3 의 Codex 사본 머리말에 "2026 재해석" 이라고 적었던 것은 틀렸다.)
+
+**전환 조건은 "큐" 가 아니라 "방 안에 상대가 없음"이다.** `GameView.java:3542-3550`:
+
+```java
+if (i2 > 100 && GameView.this.mScreenGameRoom.mRightCharacterIndex < 0) {
+    GameView.this.mScreenGameRoom.mRightCharacterIndex = 2;   // AI 는 인덱스 2
+    GameView.this.mScreenBattleRoom.mTime = 4;
+    GameView.this.mScreenBattleRoom.mSingleTimeCount = -1;    // 카운터 정지
+}
+```
+
+v1 서버(`legacy/server/src/socket/handlers.js`, 248 줄)에는 **큐가 없다.** `CREATEBATTLEROOM`/`ENTERBATTLEROOM`/`READY` 의 방 기반 모델이고 AI 전환도 난입도 서버에 없다 — 둘 다 클라이언트가 혼자 했다. 2026 은 서버 권위이므로 큐로 옮긴다(스펙 §3.6 "실행 위치: 서버").
+
+**난입은 `GameActivity.java:611-616`.** 세 가지가 일어난다: 진행 중인 AI 판을 즉시 끝내고(`mGameTime = 40`), 난입자가 그대로 상대가 되고(`setRightCharacter`), **정산이 일어나지 않는다**(`mResultPass = true` 로 결과 화면을 건너뛰는데, 코인·경험치 전송이 결과 화면 애니메이션 안에서만 실행된다 — `GameView.java:3257-3271`).
+
+**원작에는 경험치가 없다.** 정산은 `score = mScore + calculateScore(...)`, `level = getLevel(score)`, `coin = coin + 1` 이고, **레벨이 오른 판에만 스킬 포인트가 1 오른다**(`if (prelevel < level) point++`). 즉 레벨링 통화는 **점수**다. Plan 2 의 `END.expDelta` 는 2026 에 내가 추가한 것이라 프로필에 들어갈 자리가 없다 — `match_history.exp_delta` 에 기록만 하고, 별도 축으로 만들지는 P1 이 정한다.
+
+---
+
+## 파일 구조
+
+```
+server/src/
+  match/
+    runner.ts        ← 매치 하나의 수명: 리듀서 호출 · 타이머 · AI 구동
+    runner.test.ts
+    registry.ts      ← 살아 있는 매치 목록 (프로세스 메모리)
+    index.ts         ← Redis match:{id} 인덱스 — 콘텐츠 URL 검증용
+    index.test.ts
+    queue.ts         ← Redis 매칭 큐 + 5초 AI 전환 + 난입
+    queue.test.ts
+    settlement.ts    ← match_history · player_profile 갱신
+    settlement.test.ts
+  ws/
+    gateway.ts       ← WS 연결 수명 · AUTH · 프레임 검증 · 송신
+    gateway.test.ts
+    session.ts       ← 연결 하나의 상태 (principal, 소속 매치, seq)
+  main.ts            ← 배선 (수정)
+  http/app.ts        ← resolvePuzzleId 주입만 (수정 없음, main.ts 가 바꿈)
+```
+
+**경계 규칙 셋.**
+
+1. `match/runner.ts` 는 `ws` 를 import 하지 않는다. 송신은 주입받은 `send` 포트로만 한다. 그래야 러너를 타이머 없이, 소켓 없이 테스트할 수 있다.
+2. `ws/gateway.ts` 는 `battle/` 을 import 하지 않는다. 프레임을 `BattleEvent` 로 번역하는 일은 게이트웨이가 하지만, 규칙은 러너 뒤에 있다.
+3. **타이머는 포트다.** `setTimeout` 을 직접 부르지 않는다. 40 초 매치를 실시간으로 기다리는 테스트는 쓸 수 없다.
+
+---
+
+### Task 1: 매치 러너 — 리듀서에 시간과 AI 를 주입한다
+
+**Files:**
+- Create: `server/src/match/runner.ts`, `server/src/match/registry.ts`
+- Test: `server/src/match/runner.test.ts`
+
+**Interfaces:**
+- Consumes: Plan 2 `reduce`·`createBattle`·`planAiAction`·`hitTest`·`nextWakeAt`, `BattleState`, `Outbound`, `PlayerSlot`, `BattleEvent`, `ContentUrls`; Plan 3 `Clock`, `Rng`
+- Produces:
+  - `interface Scheduler { at(time: number, fn: () => void): TimerHandle; cancel(h: TimerHandle): void }`
+  - `type EndPayloads = Partial<Record<PlayerSlot, Record<string, unknown>>>`
+  - `interface RunnerPorts { clock: Clock; rng: Rng; urls: ContentUrls; scheduler: Scheduler; send(slot: PlayerSlot, type: MessageType, payload: Record<string, unknown>): void; onEnd(state: BattleState, ends: EndPayloads): void }`
+
+> **`onEnd` 가 `END` 페이로드를 함께 넘기는 이유.** 점수·코인·경험치는 리듀서가 `END` 를 만들 때 이미 계산해 뒀다(`score`·`coinDelta`·`expDelta`). `BattleState` 만으로는 그것을 되살릴 수 없다 — 콤보 보너스는 정산 시점의 live 콤보 한 번 조회라서, 상태를 다시 훑어 재계산하면 **원작과 다른 값이 나온다**(Plan 2 에서 정확히 이 실수를 해서 점수가 3 배가 됐다). 그래서 리듀서가 낸 값을 그대로 들고 간다.
+  - `class MatchRunner { readonly matchId: string; get state(): BattleState; start(): void; submit(event: BattleEvent): void; abort(): void }`
+  - `class MatchRegistry { add(r: MatchRunner): void; get(matchId: string): MatchRunner | undefined; remove(matchId: string): void; findAiMatchWith(accountKey: string): MatchRunner | undefined; get size(): number }`
+
+**왜 러너가 따로 있어야 하는가.** 리듀서는 `reduce(state, event, ctx) → { state, outbound, wakeAt }` 로 끝난다. 시간이 흐르게 하는 것도, AI 가 움직이게 하는 것도 리듀서의 일이 아니다(스펙 §6.2 — 주기 틱을 쏘지 않는다). 러너가 `wakeAt` 에 `TIMER` 를 한 번 넣고, AI 슬롯에 대해 `planAiAction` 이 준 시각에 `TAP` 을 넣는다. 그래서 **AI 의 판정 경로는 사람과 완전히 같다.**
+
+**AI 슬롯은 `start()` 가 ready 로 만든다.** AI 에는 `READY` 를 보낼 클라이언트가 없다. 이것을 빠뜨리면 AI 매치가 WAITING 에 머물러 **START 가 영원히 오지 않는다** — 사람 쪽에서는 "매칭은 됐는데 게임이 시작 안 된다" 로 보인다.
+
+**타이머가 둘이라는 점이 함정이다.** `wakeAt` 타이머와 AI 타이머는 서로 다른 생명주기를 갖는다.
+
+- `wakeAt` 타이머는 **매 `submit` 마다** 취소하고 다시 건다. 상태가 바뀌면 다음 깨어날 시각도 바뀐다.
+- AI 타이머는 **그러면 안 된다.** 매번 다시 계획하면 사람이 탭할 때마다 AI 의 지연이 새로 굴려져, 사람이 자주 움직이면 AI 는 영원히 발화하지 못한다. AI 는 **자기 행동이 끝난 뒤에만** 다음을 계획한다(발화 → 적용 → 재계획의 사슬).
+
+> **정리(`clearAll`)를 검사할 때도 이 비대칭이 발목을 잡는다.** `reschedule()` 은 매 `submit` 마다 `wakeTimer` 를 **무조건 먼저 취소**하고, AI 사슬은 `ENDED` 를 보면 스스로 재예약을 멈춘다. 그래서 **AI 가 스스로 매치를 끝내는 경로에서는 `clearAll()` 을 통째로 지워도 남는 예약이 없다.** 누수를 실제로 만들려면 AI 예약이 살아 있는 동안 매치를 **밖에서** 끝내야 한다 — `LEAVE` 가 그 자리다.
+
+> **이 계약을 검사하려면 가상 시간을 전진시키며 탭해야 한다.** 같은 시각에 여러 번 두드린 뒤 넉넉한 창을 흘려보내는 테스트는 재계획 변이를 잡지 못한다 — 마지막 계획도 AI 지연 상한(7 초) 안에 발화하므로 창 안에서 그대로 통과한다. 탭 간격을 **지연 하한보다 짧게**, 전체 구간을 **지연 상한보다 길게** 두어야 한다.
+>
+> 수치는 실측했다. `aiFindDelayMs` 의 범위는 level 1 → `[5925, 7000]`, level 10 → `[5695, 7000]`, level 50 → `[4675, 6325]`, level 100 → `[3400, 4600]` ms 다. 테스트가 쓰는 level 10 에서 탭 간격 500ms · 30회(15000ms)를 **시드 5000개로 시뮬레이션해** 올바른 구현은 5000/5000 발화(가장 늦은 발화 7000ms), 재계획 변이는 0/5000 발화임을 확인했다. 시드와 무관하게 갈린다.
+>
+> **`harness` 의 레벨을 바꾸면 이 수치가 무너진다.** level 100 이면 지연 하한이 3400ms 로 내려가 탭 간격과의 여유가 줄고, 레벨을 더 올릴 수 없으므로 상한 쪽은 안전하지만 하한 쪽 여유를 다시 계산해야 한다.
+
+**Review Focus 3 — 계획이 선점당하는 경우.** `planAiAction` 은 계획 시점의 남은 대상 중 하나를 골라 그 중심 좌표를 `TAP` 으로 만든다. 발화 전에 사람이 그 rect 를 찾으면 그 탭은 MISS 가 되고 AI 는 2 초 잠긴다 — 사람이 빠를수록 AI 가 약해진다. **발화 시점에 `hitTest` 로 대상이 아직 살아 있는지 확인하고, 사라졌으면 누르지 말고 다시 계획한다.**
+
+> **이 계약도 검사가 까다롭다.** 사람이 노출 대상 5 개를 **전부** 찾게 하면 리듀서가 즉시 `ENDED` 로 넘기고(`reducer.ts` 의 `found.length >= targetIndices.length`) `finish()` 가 AI 예약을 취소한다. 그러면 재검증이 있든 없든 AI 콜백이 발화하지 않아 테스트가 통과한다. **AI 가 노리는 대상 하나만 빼앗고 나머지는 남겨 매치를 `PLAYING` 으로 유지해야 한다.** 그러려면 AI 가 무엇을 언제 노리는지 테스트가 알아야 하므로 결정적 `Rng` 를 주입한다.
+>
+> 설계를 **실제 리듀서로 돌려 확인했다.** `aiFindDelayMs(10, fixedRng)` 은 정확히 `6700`ms 다. 사람이 `targetIndices[0]` 하나만 찾으면 `phase=PLAYING`, 남은 대상 4 개로 매치가 살아 있다. 그 시점의 `hitTest` 는 `null` 을 주므로 올바른 구현은 건너뛰고 `lockedUntil` 이 `0` 으로 남고, 변이가 그대로 누르면 `lockedUntil` 이 `+2000`ms 로 올라간다 — 단언이 그 차이를 잡는다.
+
+- [ ] **Step 1: 실패하는 테스트 작성**
+
+`server/src/match/runner.test.ts`:
+
+```typescript
+import { describe, expect, it } from 'vitest';
+import { TestClock } from '../platform/clock.js';
+import { createRng, type Rng } from '../platform/rng.js';
+import { assignPuzzle } from '../content/assigner.js';
+import { createBattle, MATCH_DURATION_MS, COUNTDOWN_MS, type BattleState } from '../battle/state.js';
+import type { MessageType } from '@findit/protocol';
+import { MatchRunner, type EndPayloads, type RunnerPorts, type Scheduler } from './runner.js';
+import { MatchRegistry as Registry } from './registry.js';
+import type { Puzzle } from '../content/types.js';
+
+/**
+ * 가짜 스케줄러. 절대 시각으로 예약을 받아 두고, 시계를 옮길 때
+ * 만기가 된 것만 시각 순으로 발화한다. 실시간을 기다리지 않는다.
+ */
+class TestScheduler implements Scheduler {
+  private seq = 0;
+  private readonly jobs = new Map<number, { at: number; fn: () => void }>();
+
+  at(time: number, fn: () => void): number {
+    const id = ++this.seq;
+    this.jobs.set(id, { at: time, fn });
+    return id;
+  }
+
+  cancel(h: number): void {
+    this.jobs.delete(h);
+  }
+
+  /** 현재 예약 수 — 누수 검사에 쓴다. */
+  get pending(): number {
+    return this.jobs.size;
+  }
+
+  /** clock 을 to 까지 옮기며 만기 예약을 발화한다. */
+  runUntil(clock: TestClock, to: number): void {
+    for (let guard = 0; guard < 10_000; guard += 1) {
+      const due = [...this.jobs.entries()]
+        .filter(([, j]) => j.at <= to)
+        .sort((a, b) => a[1].at - b[1].at)[0];
+      if (!due) break;
+      const [id, job] = due;
+      this.jobs.delete(id);
+      clock.set(Math.max(clock.now(), job.at));
+      job.fn();
+    }
+    clock.set(to);
+  }
+}
+
+/**
+ * 좌표 누출 검사를 위해 **메타데이터와 겹치지 않는 값**을 고른 픽스처다.
+ *
+ * 정상 START 는 이렇게 생겼다:
+ *   {"puzzleId":"p1","imageUrl":"/c/m1/base","width":1024,"height":768,
+ *    "targetCount":5,"durationMs":40000}
+ *
+ * 여기 쓰인 숫자(1024·768·5·40000)의 어느 부분 문자열도 아래 좌표와 겹치지
+ * 않는다. 겹치면 **정상 구현이 좌표 누출로 오진된다** — 예전 픽스처는
+ * width 400 / height 300 에 x 를 0,50,…,300 으로 두어 0·40·300 이 충돌했다.
+ * 픽스처를 손대면 그 성질을 다시 확인할 것.
+ */
+const puzzle: Puzzle = {
+  id: 'p1', width: 1024, height: 768,
+  rects: Array.from({ length: 7 }, (_, i) => ({
+    index: i, x: 111 + i * 97, y: 211, w: 33, h: 29, sourceDrawable: `p1_${i}`,
+  })),
+};
+
+/** 어느 rect 에도 들어가지 않는 점. 미스를 만들 때 쓴다. */
+const EMPTY_SPOT = { x: 1, y: 1 };
+
+interface Sent { slot: string; type: MessageType; payload: Record<string, unknown> }
+
+/**
+ * 결정적 Rng. AI 의 대상과 발화 시각을 테스트가 알 수 있게 한다.
+ *   · float = 0.5 → 지터 0 → level 10 의 지연이 정확히 6700ms
+ *   · pick = 첫 원소 → AI 의 대상이 targetIndices[0]
+ * 상태가 없으므로 reduce 와 공유해도 값이 흔들리지 않는다.
+ */
+const fixedRng: Rng = {
+  float: () => 0.5,
+  int: () => 0,
+  pick: <T,>(items: readonly T[]): T => items[0]!,
+};
+
+function harness(opts: { p2Ai: boolean; seed?: number; rng?: Rng }) {
+  const clock = new TestClock(1_000_000);
+  const scheduler = new TestScheduler();
+  const rng = opts.rng ?? createRng(opts.seed ?? 42);
+  const sent: Sent[] = [];
+  const ended: { state: BattleState; ends: EndPayloads }[] = [];
+
+  const state = createBattle({
+    matchId: 'm1',
+    assignment: assignPuzzle([puzzle], createRng(7)),
+    p1: { name: '사람', level: 10, isAi: false },
+    p2: { name: opts.p2Ai ? 'AI' : '상대', level: 10, isAi: opts.p2Ai },
+  });
+
+  const ports: RunnerPorts = {
+    clock, rng, scheduler,
+    urls: { base: (m) => `/c/${m}/base`, patch: (m, i) => `/c/${m}/patch/${i}` },
+    send: (slot, type, payload) => { sent.push({ slot, type, payload }); },
+    onEnd: (state, ends) => { ended.push({ state, ends }); },
+  };
+
+  return { clock, scheduler, sent, ended, runner: new MatchRunner(state, ports) };
+}
+
+const typesOf = (sent: Sent[]): string[] => sent.map((s) => s.type);
+const rectCenter = (i: number): { x: number; y: number } => ({ x: 127 + i * 97, y: 225 });
+
+describe('매치 러너 — 진행', () => {
+  it('양쪽 READY 로 카운트다운이 시작되고 3초 뒤 START 가 나간다', () => {
+    const h = harness({ p2Ai: false });
+    h.runner.start();
+    h.runner.submit({ kind: 'READY', slot: 'p1' });
+    h.runner.submit({ kind: 'READY', slot: 'p2' });
+    expect(typesOf(h.sent)).toContain('COUNTDOWN');
+
+    h.scheduler.runUntil(h.clock, h.clock.now() + COUNTDOWN_MS);
+    expect(typesOf(h.sent)).toContain('START');
+    expect(h.runner.state.phase).toBe('PLAYING');
+  });
+
+  it('40초가 지나면 아무도 손대지 않아도 끝난다 — TIMER 가 실제로 걸려 있다', () => {
+    const h = harness({ p2Ai: false });
+    h.runner.start();
+    h.runner.submit({ kind: 'READY', slot: 'p1' });
+    h.runner.submit({ kind: 'READY', slot: 'p2' });
+    h.scheduler.runUntil(h.clock, h.clock.now() + COUNTDOWN_MS + MATCH_DURATION_MS + 10);
+
+    expect(h.runner.state.phase).toBe('ENDED');
+    expect(typesOf(h.sent)).toContain('END');
+    expect(h.ended).toHaveLength(1);
+    // 정산이 쓸 값이 함께 넘어와야 한다. 없으면 모든 전적의 점수·코인이 0 이 된다.
+    expect(h.ended[0]!.ends.p1).toMatchObject({ result: expect.any(String) });
+    expect(h.ended[0]!.ends.p1).toHaveProperty('score');
+    expect(h.ended[0]!.ends.p1).toHaveProperty('coinDelta');
+    expect(h.ended[0]!.ends.p2).toHaveProperty('score');
+  });
+
+  it('START 페이로드에 좌표가 하나도 없다 — 스펙 §6.3', () => {
+    const h = harness({ p2Ai: false });
+    h.runner.start();
+    h.runner.submit({ kind: 'READY', slot: 'p1' });
+    h.runner.submit({ kind: 'READY', slot: 'p2' });
+    h.scheduler.runUntil(h.clock, h.clock.now() + COUNTDOWN_MS);
+
+    const start = h.sent.find((s) => s.type === 'START')!;
+    const json = JSON.stringify(start.payload);
+
+    // **손으로 고른 목록을 쓰지 않는다.** 픽스처의 모든 좌표를 훑는다.
+    // 목록을 손으로 쓰면 빠뜨리기도 하고(예전 목록은 x=0 과 w=40 을 놓쳤다),
+    // 메타데이터와 겹치는 값을 넣어 정상 구현을 오진하기도 한다.
+    for (const rect of puzzle.rects) {
+      for (const value of [rect.x, rect.y, rect.w, rect.h]) {
+        expect(json).not.toContain(String(value));
+      }
+    }
+    expect(json).not.toContain('rects');
+    expect(start.payload).not.toHaveProperty('targetIndices');
+  });
+
+  it('밖에서 끝난 매치도 예약을 하나도 남기지 않는다 — 타이머 누수', () => {
+    // **어떻게 끝내느냐가 이 검사의 전부다.**
+    //
+    // AI 가 5 개를 채워 끝나는 경로로는 clearAll() 제거가 드러나지 않는다.
+    // 그 마지막 submit 에서 reschedule() 이 wakeTimer 를 **먼저 무조건**
+    // 취소하고, AI 사슬도 ENDED 를 보고 스스로 재예약을 멈추기 때문에 거둘
+    // 것이 남지 않는다. 마감(40000ms)까지 돌려도 마찬가지다 — fixedRng 기준
+    // AI 는 33500ms 에 완주하므로 마감 타이머는 그 전에 이미 취소된다.
+    //
+    // 매치를 **밖에서** 끝내야 한다. LEAVE 가 그것이다. 그 순간 AI 예약이
+    // 살아 있고, 그것을 거둘 수 있는 것은 clearAll() 뿐이다.
+    const h = harness({ p2Ai: true, rng: fixedRng });
+    h.runner.start();
+    h.runner.submit({ kind: 'READY', slot: 'p1' });
+    h.runner.submit({ kind: 'READY', slot: 'p2' });
+    h.scheduler.runUntil(h.clock, h.clock.now() + COUNTDOWN_MS);
+
+    // 거둘 것이 실제로 있는 상태인지 먼저 확인한다. 이 단언이 없으면 애초에
+    // 아무것도 예약되지 않았어도 아래가 통과한다.
+    //   · 40 초 마감 wakeTimer 1 개 (nextWakeAt 이 PLAYING 에서 마감을 준다)
+    //   · p2 의 AI 예약 1 개
+    expect(h.scheduler.pending).toBe(2);
+
+    h.runner.submit({ kind: 'LEAVE', slot: 'p1' });
+
+    expect(h.runner.state.phase).toBe('ENDED');
+    expect(h.scheduler.pending).toBe(0);
+  });
+
+  it('끝난 매치에 이벤트를 넣어도 아무 일도 없다', () => {
+    const h = harness({ p2Ai: false });
+    h.runner.start();
+    h.runner.submit({ kind: 'LEAVE', slot: 'p1' });
+    const after = h.sent.length;
+    h.runner.submit({ kind: 'TAP', slot: 'p2', ...rectCenter(0) });
+    expect(h.sent).toHaveLength(after);
+  });
+
+  it('abort 는 END 를 보내지도 onEnd 를 부르지도 않는다 — 난입이 쓴다', () => {
+    const h = harness({ p2Ai: true });
+    h.runner.start();
+    h.runner.submit({ kind: 'READY', slot: 'p1' });
+    h.runner.submit({ kind: 'READY', slot: 'p2' });
+    h.scheduler.runUntil(h.clock, h.clock.now() + COUNTDOWN_MS);
+
+    h.runner.abort();
+    expect(typesOf(h.sent)).not.toContain('END');
+    expect(h.ended).toHaveLength(0);
+    // 정산이 없어야 하는 것과 별개로, 자원은 반드시 회수돼야 한다.
+    expect(h.scheduler.pending).toBe(0);
+  });
+});
+
+describe('매치 러너 — 준비', () => {
+  it('AI 슬롯은 start 만으로 ready 가 된다 — READY 를 보낼 클라이언트가 없다', () => {
+    const h = harness({ p2Ai: true });
+    h.runner.start();
+
+    expect(h.runner.state.p2.ready).toBe(true);
+    expect(h.runner.state.p1.ready).toBe(false);
+
+    // 사람 쪽 READY 하나로 카운트다운이 시작돼야 한다. 이게 없으면 AI 매치는
+    // 영원히 WAITING 에 머물고 START 가 오지 않는다.
+    h.runner.submit({ kind: 'READY', slot: 'p1' });
+    expect(typesOf(h.sent)).toContain('COUNTDOWN');
+  });
+
+  it('사람끼리면 start 가 아무도 ready 로 만들지 않는다', () => {
+    const h = harness({ p2Ai: false });
+    h.runner.start();
+    expect(h.runner.state.p1.ready).toBe(false);
+    expect(h.runner.state.p2.ready).toBe(false);
+  });
+});
+
+describe('매치 러너 — AI 구동', () => {
+  it('AI 는 PLAYING 이 된 뒤에 스스로 rect 를 찾는다', () => {
+    const h = harness({ p2Ai: true });
+    h.runner.start();
+    h.runner.submit({ kind: 'READY', slot: 'p1' });
+    h.runner.submit({ kind: 'READY', slot: 'p2' });
+    h.scheduler.runUntil(h.clock, h.clock.now() + COUNTDOWN_MS + 20_000);
+
+    expect(h.runner.state.p2.found.length).toBeGreaterThan(0);
+  });
+
+  it('사람이 계속 탭해도 AI 의 예정 시각이 미뤄지지 않는다', () => {
+    // **가상 시간을 전진시키면서 탭해야 한다.** 같은 시각에 100 번 두드리고
+    // 나중에 20 초를 흘려보내면, 매 submit 마다 재계획하는 변이도 마지막
+    // 계획이 7 초 안에 발화해 20 초 창 안에서 그대로 통과한다. 그런 테스트는
+    // 아무것도 증명하지 않는다.
+    //
+    // 실측: level 10 의 aiFindDelayMs 는 [5695, 7000] ms 다
+    // (rules/ai.ts — (7 - level*0.03) * (1 ± 0.15), clamp [1, 7] 초).
+    // 탭 간격을 그 하한보다 훨씬 짧게 두고, 전체 구간을 상한보다 길게 둔다.
+    //   · 올바른 구현: AI 는 PLAYING 시작 기준 최대 7000ms 에 발화한다.
+    //   · 재계획 변이: 마지막 탭(14500ms) 뒤에야 계획되므로 빨라야
+    //     14500 + 5695 = 20195ms — 이 테스트가 보는 15000ms 창 밖이다.
+    const TAP_INTERVAL_MS = 500;   // AI 지연 하한 5695ms 보다 한참 짧다
+    const TAPS = 30;               // 전체 15000ms > 지연 상한 7000ms
+    const MAX_AI_DELAY_MS = 7_000;
+
+    const h = harness({ p2Ai: true });
+    h.runner.start();
+    h.runner.submit({ kind: 'READY', slot: 'p1' });
+    h.runner.submit({ kind: 'READY', slot: 'p2' });
+    h.scheduler.runUntil(h.clock, h.clock.now() + COUNTDOWN_MS);
+
+    const playStartedAt = h.clock.now();
+    let firstFindAt: number | null = null;
+
+    for (let i = 0; i < TAPS; i += 1) {
+      // 빈 곳을 두드린다. p1 은 미스로 잠기지만 p2 의 계획과는 무관하다.
+      h.runner.submit({ kind: 'TAP', slot: 'p1', ...EMPTY_SPOT });
+      h.scheduler.runUntil(h.clock, h.clock.now() + TAP_INTERVAL_MS);
+      if (firstFindAt === null && h.runner.state.p2.found.length > 0) {
+        firstFindAt = h.clock.now();
+      }
+    }
+
+    // 사람이 쉬지 않고 두드리는 동안에도 AI 는 제 시각에 움직여야 한다.
+    expect(firstFindAt).not.toBeNull();
+    expect(firstFindAt! - playStartedAt).toBeLessThanOrEqual(MAX_AI_DELAY_MS + TAP_INTERVAL_MS);
+  });
+
+  it('계획한 대상 하나만 사람이 먼저 찾아도 AI 는 그것을 누르지 않는다 — 부당한 잠금 금지', () => {
+    // **대상 5 개를 전부 찾게 하면 안 된다.** 한 사람이 5 개를 채우는 순간
+    // 리듀서가 ENDED 로 넘기고(reducer.ts 의 found.length >= targetIndices.length),
+    // finish() 가 AI 예약을 취소해 버린다. 그러면 재검증이 있든 없든 콜백이
+    // 발화하지 않아 lockedUntil 이 0 인 채로 통과한다 — 아무것도 증명하지 못한다.
+    //
+    // AI 가 노리는 **그 하나만** 빼앗고 나머지는 남겨 매치를 PLAYING 으로 둔다.
+    //
+    // fixedRng 가 둘을 결정적으로 만든다:
+    //   · pick → items[0] 이므로 AI 의 대상은 targetIndices[0] 이다.
+    //   · float → 0.5 이므로 지터가 0, level 10 의 지연은 정확히 6700ms 다
+    //     ((7 - 10*0.03) * 1.0 초 — rules/ai.ts).
+    const AI_DELAY_MS = 6_700;
+
+    const h = harness({ p2Ai: true, rng: fixedRng });
+    h.runner.start();
+    h.runner.submit({ kind: 'READY', slot: 'p1' });
+    h.runner.submit({ kind: 'READY', slot: 'p2' });
+    h.scheduler.runUntil(h.clock, h.clock.now() + COUNTDOWN_MS);
+    const playStartedAt = h.clock.now();
+
+    const aiTarget = h.runner.state.targetIndices[0]!;
+    h.runner.submit({ kind: 'TAP', slot: 'p1', ...rectCenter(aiTarget) });
+
+    // 아직 4 개가 남아 매치가 살아 있어야 한다. 이 단언이 없으면 위 주석의
+    // 함정에 다시 빠져도 알아채지 못한다.
+    expect(h.runner.state.phase).toBe('PLAYING');
+    expect(h.runner.state.p1.found).toHaveLength(1);
+
+    // AI 의 예정 시각을 막 지난 지점. 재계획된 다음 발화(+6700ms)는 아직 멀다.
+    h.scheduler.runUntil(h.clock, playStartedAt + AI_DELAY_MS + 100);
+
+    // **이 단언이 변이를 잡는다.** 재검증이 없으면 이미 찾힌 rect 를 눌러
+    // MISS 가 되고 2 초 잠긴다 (lockedUntil = 발화시각 + 2000).
+    expect(h.runner.state.p2.lockedUntil).toBe(0);
+    expect(h.runner.state.p2.found).toHaveLength(0);
+  });
+});
+
+describe('매치 레지스트리', () => {
+  it('넣고 찾고 지운다', () => {
+    const reg = new Registry();
+    const h = harness({ p2Ai: false });
+    reg.add(h.runner);
+    expect(reg.get('m1')).toBe(h.runner);
+    expect(reg.size).toBe(1);
+    reg.remove('m1');
+    expect(reg.get('m1')).toBeUndefined();
+    expect(reg.size).toBe(0);
+  });
+
+  it('없는 id 는 undefined 다 — 던지지 않는다', () => {
+    expect(new Registry().get('nope')).toBeUndefined();
+  });
+});
+```
+
+- [ ] **Step 2: 실패 확인**
+
+Run: `npx vitest run server/src/match/`
+Expected: FAIL — `Cannot find module './runner.js'`
+
+- [ ] **Step 3: 구현**
+
+`server/src/match/runner.ts`:
+
+```typescript
+import type { MessageType } from '@findit/protocol';
+import type { Clock } from '../platform/clock.js';
+import type { Rng } from '../platform/rng.js';
+import { hitTest, reduce, type ContentUrls, type ReduceContext } from '../battle/reducer.js';
+import { planAiAction } from '../battle/ai-driver.js';
+import type { BattleEvent } from '../battle/events.js';
+import type { BattleState, Outbound, PlayerSlot } from '../battle/state.js';
+
+export type TimerHandle = number;
+
+/**
+ * 타이머를 포트로 둔다. setTimeout 을 직접 부르면 40 초 매치를 40 초 기다리는
+ * 테스트밖에 쓸 수 없다. 절대 시각을 받는 이유는 리듀서의 wakeAt 이 절대
+ * 시각이기 때문이다 — 상대 지연으로 변환하는 일은 어댑터가 한다.
+ */
+export interface Scheduler {
+  /**
+   * 예약. **콜백이 Promise 를 돌려주면 구현이 그것까지 기다린다.**
+   *
+   * 큐의 AI 전환 콜백이 Redis 를 때리기 때문에 필요하다. 테스트 스케줄러가
+   * await 하지 않으면 단언이 I/O 보다 먼저 실행돼, 아직 일어나지 않은 일을
+   * "일어나지 않았다" 로 읽는다 — 마이크로태스크를 몇 번 비우는 것으로는
+   * 실제 Redis 왕복이 끝나지 않는다.
+   */
+  at(time: number, fn: () => void | Promise<void>): TimerHandle;
+  cancel(handle: TimerHandle): void;
+}
+
+export interface RunnerPorts {
+  clock: Clock;
+  rng: Rng;
+  urls: ContentUrls;
+  scheduler: Scheduler;
+  /** 한 슬롯에 프레임을 보낸다. 연결이 없으면 구현이 조용히 버린다. */
+  send(slot: PlayerSlot, type: MessageType, payload: Record<string, unknown>): void;
+  /**
+   * 정상 종료를 알린다. 정산과 정리는 바깥 책임이다. abort 로는 불리지 않는다.
+   *
+   * ends 는 리듀서가 만든 슬롯별 END 페이로드다. 점수·코인·경험치를 여기서
+   * 넘기지 않으면 정산이 BattleState 를 훑어 재계산해야 하는데, 콤보 보너스는
+   * 정산 시점의 live 콤보 한 번 조회라 재계산하면 값이 달라진다.
+   */
+  onEnd(state: BattleState, ends: EndPayloads): void;
+}
+
+export type EndPayloads = Partial<Record<PlayerSlot, Record<string, unknown>>>;
+
+const SLOTS = ['p1', 'p2'] as const;
+
+export class MatchRunner {
+  private current: BattleState;
+  private wakeTimer: TimerHandle | null = null;
+  private readonly aiTimers: Record<PlayerSlot, TimerHandle | null> = { p1: null, p2: null };
+  private closed = false;
+
+  constructor(initial: BattleState, private readonly ports: RunnerPorts) {
+    this.current = initial;
+  }
+
+  get matchId(): string {
+    return this.current.matchId;
+  }
+
+  get state(): BattleState {
+    return this.current;
+  }
+
+  /**
+   * 매치를 살린다.
+   *
+   * **AI 슬롯을 그 자리에서 ready 로 만든다.** AI 에는 READY 를 보낼
+   * 클라이언트가 없다. 이것이 없으면 사람이 READY 를 보내도 매치가 WAITING 에
+   * 머물러 START 가 영원히 오지 않는다 — AI 대전이 아예 시작되지 않는다.
+   *
+   * onReady 는 이미 ready 인 슬롯과 WAITING 이 아닌 단계를 무시하므로,
+   * 나중에 같은 슬롯에 READY 가 또 와도 안전하다.
+   */
+  start(): void {
+    this.reschedule(null);
+    for (const slot of SLOTS) {
+      if (this.current[slot].isAi) this.submit({ kind: 'READY', slot });
+    }
+  }
+
+  submit(event: BattleEvent): void {
+    if (this.closed || this.current.phase === 'ENDED') return;
+
+    const before = this.current.phase;
+    const ctx = this.ctx();
+    const { state, outbound, wakeAt } = reduce(this.current, event, ctx);
+    this.current = state;
+
+    // 리듀서가 낸 END 를 슬롯별로 붙잡아 둔다. 정산이 이 값을 쓴다.
+    const ends: EndPayloads = {};
+    for (const item of outbound) {
+      if (item.type === 'END' && item.to !== 'both') ends[item.to] = item.payload;
+    }
+
+    for (const item of outbound) this.emit(item);
+    this.reschedule(wakeAt);
+
+    // PLAYING 에 막 들어섰을 때 AI 사슬을 시작한다. 이후로는 AI 가 자기
+    // 행동을 마칠 때마다 스스로 다음을 건다 — 사람의 탭이 AI 를 흔들지 않는다.
+    if (before !== 'PLAYING' && state.phase === 'PLAYING') {
+      for (const slot of SLOTS) if (state[slot].isAi) this.scheduleAi(slot);
+    }
+
+    if (state.phase === 'ENDED') this.finish(ends);
+  }
+
+  /**
+   * 정산 없이 매치를 버린다. 난입이 쓴다 — 원작에서 중단된 AI 판은
+   * 코인도 경험치도 0 이다 (GameActivity.java:611-616).
+   * END 를 보내지 않고 onEnd 도 부르지 않지만, 자원은 회수한다.
+   */
+  abort(): void {
+    this.closed = true;
+    this.clearAll();
+  }
+
+  private ctx(): ReduceContext {
+    return { now: this.ports.clock.now(), rng: this.ports.rng, urls: this.ports.urls };
+  }
+
+  private emit(item: Outbound): void {
+    const targets: readonly PlayerSlot[] = item.to === 'both' ? SLOTS : [item.to];
+    for (const slot of targets) this.ports.send(slot, item.type, item.payload);
+  }
+
+  private reschedule(wakeAt: number | null): void {
+    if (this.wakeTimer !== null) {
+      this.ports.scheduler.cancel(this.wakeTimer);
+      this.wakeTimer = null;
+    }
+    if (wakeAt === null || this.current.phase === 'ENDED' || this.closed) return;
+    this.wakeTimer = this.ports.scheduler.at(wakeAt, () => {
+      this.wakeTimer = null;
+      this.submit({ kind: 'TIMER' });
+    });
+  }
+
+  private scheduleAi(slot: PlayerSlot): void {
+    const existing = this.aiTimers[slot];
+    if (existing !== null) {
+      this.ports.scheduler.cancel(existing);
+      this.aiTimers[slot] = null;
+    }
+    if (this.closed || this.current.phase !== 'PLAYING') return;
+
+    const ctx = this.ctx();
+    const plan = planAiAction(this.current, slot, ctx);
+
+    if (plan === null) {
+      // 잠겨 있어서 계획하지 못했다면 풀리는 시각에 다시 시도한다.
+      // 이게 없으면 AI 는 한 번 미스한 뒤 판이 끝날 때까지 멈춰 있다.
+      const lockedUntil = this.current[slot].lockedUntil;
+      if (lockedUntil > ctx.now) {
+        this.aiTimers[slot] = this.ports.scheduler.at(lockedUntil, () => {
+          this.aiTimers[slot] = null;
+          this.scheduleAi(slot);
+        });
+      }
+      return;
+    }
+
+    this.aiTimers[slot] = this.ports.scheduler.at(plan.at, () => {
+      this.aiTimers[slot] = null;
+
+      // **발화 시점 재검증.** 계획을 세운 뒤 사람이 그 rect 를 먼저 찾았을 수
+      // 있다. 그대로 누르면 MISS 가 되어 AI 가 2 초 잠긴다 — 사람이 빠를수록
+      // AI 가 약해진다. 대상이 사라졌으면 누르지 말고 다시 계획한다.
+      const event = plan.event;
+      if (event.kind === 'TAP') {
+        const alive = hitTest(
+          this.current.assignment, this.current.targetIndices,
+          this.current.revealed, event.x, event.y,
+        );
+        if (alive === null) {
+          this.scheduleAi(slot);
+          return;
+        }
+      }
+
+      this.submit(event);
+      this.scheduleAi(slot);
+    });
+  }
+
+  private finish(ends: EndPayloads): void {
+    this.clearAll();
+    this.ports.onEnd(this.current, ends);
+  }
+
+  private clearAll(): void {
+    if (this.wakeTimer !== null) {
+      this.ports.scheduler.cancel(this.wakeTimer);
+      this.wakeTimer = null;
+    }
+    for (const slot of SLOTS) {
+      const handle = this.aiTimers[slot];
+      if (handle !== null) {
+        this.ports.scheduler.cancel(handle);
+        this.aiTimers[slot] = null;
+      }
+    }
+  }
+}
+
+export { MatchRegistry } from './registry.js';
+```
+
+`server/src/match/registry.ts`:
+
+```typescript
+import type { MatchRunner } from './runner.js';
+
+/**
+ * 살아 있는 매치 목록. P0 는 서버가 한 프로세스라 메모리에 둔다.
+ *
+ * Redis 에 두지 않는 이유: BattleState 에는 rect 좌표가 통째로 들어 있고
+ * (assignment), 매 이벤트마다 직렬화·역직렬화하는 비용이 실시간 경로에
+ * 그대로 얹힌다. 다중 인스턴스는 P1 의 문제다 — 그때는 매치를 인스턴스에
+ * 고정(sticky)하거나 상태를 옮기는 설계가 따로 필요하다.
+ */
+export class MatchRegistry {
+  private readonly byId = new Map<string, MatchRunner>();
+
+  add(runner: MatchRunner): void {
+    this.byId.set(runner.matchId, runner);
+  }
+
+  get(matchId: string): MatchRunner | undefined {
+    return this.byId.get(matchId);
+  }
+
+  remove(matchId: string): void {
+    this.byId.delete(matchId);
+  }
+
+  get size(): number {
+    return this.byId.size;
+  }
+
+  /** 난입 대상 — 이 사람이 AI 와 붙고 있는 진행 중 매치. */
+  findAiMatchWith(slotKey: string): MatchRunner | undefined {
+    for (const runner of this.byId.values()) {
+      const s = runner.state;
+      if (s.phase === 'ENDED') continue;
+      if (s.p2.isAi && s.p1.name === slotKey) return runner;
+      if (s.p1.isAi && s.p2.name === slotKey) return runner;
+    }
+    return undefined;
+  }
+}
+```
+
+> `TestClock.set(ms)` 은 Plan 2 에서 이미 만들어 뒀다 (`server/src/platform/clock.ts`). **과거로 되돌리면 던진다** — 그래서 가짜 스케줄러는 `Math.max(clock.now(), job.at)` 으로 올라가기만 한다.
+>
+> `SystemClock.now()` 는 `performance.now()` 라 **벽시계가 아니다** — 프로세스 시작 기준 단조 증가다. 실제 스케줄러 어댑터는 `setTimeout(fn, at - clock.now())` 로 상대 지연을 계산하므로 같은 기준 위에서 일관된다. `Date.now()` 와 섞어 쓰면 두 기준이 어긋나 타이머가 즉시 발화하거나 영원히 오지 않는다.
+
+- [ ] **Step 4: 통과 확인**
+
+Run: `npx vitest run server/src/match/ && npm run typecheck`
+Expected: PASS — 13 tests.
+
+**변이로 확인할 것** (하나라도 실패하지 않으면 그 테스트가 잘못된 것이다):
+
+| 변이 | 깨지는 테스트 |
+|---|---|
+| `scheduleAi` 의 `hitTest` 재검증 블록 제거 | `계획한 대상 하나만 사람이 먼저 찾아도…` |
+| `submit` 끝에서 무조건 `scheduleAi` 재호출 | `사람이 계속 탭해도 AI 의 예정 시각이 미뤄지지 않는다` |
+| `finish` 에서 `clearAll()` 제거 | `밖에서 끝난 매치도 예약을 하나도 남기지 않는다` |
+| `abort` 가 `onEnd` 를 부르게 변경 | `abort 는 END 를 보내지도 onEnd 를 부르지도 않는다` |
+| `finish(ends)` 에 빈 객체를 넘김 | `40초가 지나면 아무도 손대지 않아도 끝난다` |
+| `start()` 의 AI 자동 ready 제거 | `AI 슬롯은 start 만으로 ready 가 된다` |
+
+- [ ] **Step 5: 커밋**
+
+```bash
+git add server/src/match/runner.ts server/src/match/registry.ts server/src/match/runner.test.ts
+git commit -m "$(cat <<'EOF'
+feat(server): 매치 러너 — 리듀서에 시간과 AI 를 주입
+
+리듀서는 reduce(state, event, ctx) 로 끝나고 시간이 흐르게 하는 일은 하지
+않는다 (스펙 §6.2 — 주기 틱을 쏘지 않는다). 러너가 wakeAt 에 TIMER 를 한 번
+넣고, AI 슬롯에는 planAiAction 이 준 시각에 TAP 을 넣는다. 그래서 AI 의 판정
+경로는 사람과 완전히 같다.
+
+타이머 둘의 생명주기가 다르다. wakeAt 타이머는 매 submit 마다 다시 걸지만,
+AI 타이머는 그러면 안 된다 — 매번 다시 계획하면 사람이 탭할 때마다 AI 의
+지연이 새로 굴려져 사람이 자주 움직이면 AI 가 영원히 발화하지 못한다. AI 는
+자기 행동을 마친 뒤에만 다음을 계획한다.
+
+발화 시점에 hitTest 로 대상이 살아 있는지 확인한다. 계획을 세운 뒤 사람이
+그 rect 를 먼저 찾았으면 그대로 누를 때 MISS 가 되어 AI 가 2 초 잠긴다 —
+사람이 빠를수록 AI 가 부당하게 약해진다.
+
+onEnd 는 리듀서가 만든 슬롯별 END 페이로드를 함께 넘긴다. 점수·코인·경험치는
+리듀서가 이미 계산해 뒀고, BattleState 만으로는 되살릴 수 없다 — 콤보 보너스가
+정산 시점의 live 콤보 한 번 조회라서 재계산하면 값이 달라진다. Plan 2 에서
+정확히 그 실수로 점수가 3 배가 됐다.
+
+start() 가 AI 슬롯을 ready 로 만든다. AI 에는 READY 를 보낼 클라이언트가
+없어서, 이것이 없으면 AI 매치가 WAITING 에 머물러 START 가 영원히 오지
+않는다.
+
+abort 는 END 도 onEnd 도 없이 자원만 회수한다. 난입이 쓴다. 원작에서 중단된
+AI 판은 결과 화면을 건너뛰므로 코인도 경험치도 0 이다
+(GameActivity.java:611-616, GameView.java:3257-3271).
+
+타이머는 포트다. setTimeout 을 직접 부르면 40 초 매치를 40 초 기다리는
+테스트밖에 쓸 수 없다. SystemClock 이 performance.now() 기준이므로 어댑터는
+at - clock.now() 로 상대 지연을 계산한다 — Date.now() 와 섞으면 기준이 어긋난다.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
+### Task 2: Redis 매치 인덱스 — `resolvePuzzleId` 를 실제 조회로
+
+**Files:**
+- Create: `server/src/match/index.ts`
+- Test: `server/src/match/index.test.ts`
+- Modify: `server/src/platform/redis.ts` (`KEY.match` 추가)
+
+**Interfaces:**
+- Consumes: Plan 3 `Cache`, `KEY`
+- Produces:
+  - `interface MatchIndex { put(matchId: string, puzzleId: string): Promise<void>; puzzleIdOf(matchId: string): Promise<string | null>; drop(matchId: string): Promise<void> }`
+  - `function createMatchIndex(cache: Cache, ttlMs?: number): MatchIndex`
+
+**왜 Redis 인가.** 매치 **상태**는 프로세스 메모리에 있지만(Task 1), `GET /content/:matchId/:kind/:index` 는 **HTTP 경로**다. 스펙 §6.5 가 `match:{id}` 를 Redis 에 두라고 하는 이유가 여기다 — 콘텐츠 서빙은 매치를 진행하는 프로세스와 같은 프로세스일 필요가 없다. Plan 3 은 이 자리에 항등 함수를 넣어 뒀다:
+
+```typescript
+// Plan 3 의 main.ts — 알려진 퍼즐 id 만 통과시키는 임시 구현
+resolvePuzzleId: async (matchId) => (knownPuzzleIds.has(matchId) ? matchId : null),
+```
+
+Plan 4 가 이것을 실제 조회로 바꾼다. **바뀌는 것이 보안상 중요하다**: 지금은 퍼즐 id 를 아는 사람이면 누구나 그 퍼즐의 base 이미지를 서명만 맞으면 받을 수 있다. 바뀐 뒤에는 **진행 중인 매치의 id** 를 알아야 한다.
+
+**TTL 을 거는 이유.** `drop` 이 불리지 않는 경로가 반드시 생긴다 — 프로세스가 죽거나, 예외가 정리를 건너뛰거나. TTL 이 없으면 Redis 에 매치 키가 영원히 쌓인다. 매치는 카운트다운 3 초 + 40 초이므로 **10 분**이면 넉넉하고, 넘겨도 무해하다(만료된 매치의 URL 은 서명 TTL 5 분에 이미 걸린다).
+
+- [ ] **Step 1: 실패하는 테스트 작성**
+
+`server/src/match/index.test.ts`:
+
+```typescript
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { createCache, KEY, type Cache } from '../platform/redis.js';
+import { createMatchIndex } from './index.js';
+
+describe('KEY.match', () => {
+  it('세션·게스트와 다른 접두어를 쓴다', () => {
+    expect(KEY.match('m1')).toBe('findit:match:m1');
+    expect(KEY.match('m1')).not.toBe(KEY.session('m1'));
+    expect(KEY.match('m1')).not.toBe(KEY.guest('m1'));
+  });
+});
+
+const url = process.env['REDIS_URL'];
+const suite = url ? describe : describe.skip;
+
+suite('매치 인덱스', () => {
+  // suite 본문 최상위에서 만들지 않는다 — describe.skip 도 콜백 본문은
+  // 평가하므로 url 이 undefined 여도 ioredis 가 localhost 로 붙는다.
+  let cache: Cache;
+  let seq = 0;
+  const id = (): string => `m-${process.pid}-${++seq}`;
+
+  beforeAll(() => { cache = createCache(url!, () => {}); });
+  afterAll(async () => { await cache.close(); });
+
+  it('넣은 매치의 퍼즐 id 를 돌려준다', async () => {
+    const m = id();
+    const index = createMatchIndex(cache);
+    await index.put(m, 'a0001');
+    expect(await index.puzzleIdOf(m)).toBe('a0001');
+  });
+
+  it('모르는 매치는 null 이다 — 던지지 않는다', async () => {
+    expect(await createMatchIndex(cache).puzzleIdOf(id())).toBeNull();
+  });
+
+  it('drop 한 매치는 더 이상 조회되지 않는다 — 끝난 판의 URL 이 계속 먹으면 안 된다', async () => {
+    const m = id();
+    const index = createMatchIndex(cache);
+    await index.put(m, 'a0001');
+    await index.drop(m);
+    expect(await index.puzzleIdOf(m)).toBeNull();
+  });
+
+  it('TTL 이 걸려 있다 — drop 을 놓쳐도 영원히 남지 않는다', async () => {
+    const m = id();
+    await createMatchIndex(cache, 200).put(m, 'a0001');
+    await new Promise((r) => setTimeout(r, 350));
+    expect(await createMatchIndex(cache).puzzleIdOf(m)).toBeNull();
+  });
+
+  it('빈 matchId 는 Redis 를 때리지 않고 null 이다', async () => {
+    let calls = 0;
+    const counting: Cache = {
+      get: async () => { calls += 1; return null; },
+      setEx: async () => { calls += 1; },
+      del: async () => { calls += 1; },
+      ping: async () => {},
+      close: async () => {},
+    };
+    expect(await createMatchIndex(counting).puzzleIdOf('')).toBeNull();
+    // 결과만 보면 가드를 지워도 통과한다 — 빈 키 조회도 null 을 준다.
+    expect(calls).toBe(0);
+  });
+});
+```
+
+- [ ] **Step 2: 실패 확인**
+
+Run: `npx vitest run server/src/match/index.test.ts`
+Expected: FAIL — `Cannot find module './index.js'`
+
+- [ ] **Step 3: 구현**
+
+`server/src/platform/redis.ts` 의 `KEY` 에 한 줄 추가:
+
+```typescript
+export const KEY = {
+  session: (token: string): string => `${PREFIX}:session:${token}`,
+  guest: (token: string): string => `${PREFIX}:guest:${token}`,
+  match: (matchId: string): string => `${PREFIX}:match:${matchId}`,
+} as const;
+```
+
+`server/src/match/index.ts`:
+
+```typescript
+import { KEY, type Cache } from '../platform/redis.js';
+
+/** 카운트다운 3초 + 본게임 40초를 훨씬 넘기는 여유. 정리를 놓쳐도 사라진다. */
+const DEFAULT_TTL_MS = 600_000;
+
+/**
+ * matchId → puzzleId 인덱스.
+ *
+ * 매치 상태 자체는 프로세스 메모리에 있다 (match/registry.ts). 여기 Redis 에
+ * 두는 것은 HTTP 콘텐츠 라우트가 서명 URL 을 검증한 뒤 "어느 퍼즐의 파일인가"
+ * 를 알아야 하기 때문이다 — 그 요청은 매치를 진행하는 프로세스가 아닌 곳으로
+ * 갈 수 있다 (스펙 §6.5).
+ */
+export interface MatchIndex {
+  put(matchId: string, puzzleId: string): Promise<void>;
+  puzzleIdOf(matchId: string): Promise<string | null>;
+  drop(matchId: string): Promise<void>;
+}
+
+export function createMatchIndex(cache: Cache, ttlMs = DEFAULT_TTL_MS): MatchIndex {
+  return {
+    async put(matchId: string, puzzleId: string): Promise<void> {
+      await cache.setEx(KEY.match(matchId), puzzleId, ttlMs);
+    },
+
+    async puzzleIdOf(matchId: string): Promise<string | null> {
+      // Redis 를 때리기 전에 거른다. 빈 키 조회는 의미가 없다.
+      if (!matchId) return null;
+      return cache.get(KEY.match(matchId));
+    },
+
+    async drop(matchId: string): Promise<void> {
+      if (!matchId) return;
+      await cache.del(KEY.match(matchId));
+    },
+  };
+}
+```
+
+- [ ] **Step 4: 통과 확인**
+
+Run: `REDIS_URL=redis://localhost:6379 npx vitest run server/src/match/index.test.ts && npm run typecheck`
+Expected: PASS — 6 tests.
+
+`REDIS_URL` 없이도 확인한다:
+
+```bash
+npx vitest run server/src/match/index.test.ts 2>&1 | grep -i ioredis
+```
+Expected: 출력 없음.
+
+- [ ] **Step 5: 커밋**
+
+```bash
+git add server/src/match/index.ts server/src/match/index.test.ts server/src/platform/redis.ts
+git commit -m "$(cat <<'EOF'
+feat(server): Redis 매치 인덱스 — matchId → puzzleId
+
+Plan 3 은 resolvePuzzleId 자리에 항등 함수를 넣어 뒀다. 알려진 퍼즐 id 면
+그대로 통과시키는 임시 구현이라, 서명만 맞으면 진행 중인 매치가 아니어도
+그 퍼즐의 이미지를 받을 수 있었다. 이제 진행 중인 매치의 id 를 알아야 한다.
+
+매치 상태 자체는 프로세스 메모리에 둔다. 여기 Redis 에 두는 것은 HTTP 콘텐츠
+라우트가 서명을 검증한 뒤 "어느 퍼즐의 파일인가" 를 알아야 하기 때문이고,
+그 요청은 매치를 진행하는 프로세스가 아닌 곳으로 갈 수 있다 (스펙 §6.5).
+
+TTL 10 분을 건다. drop 이 불리지 않는 경로는 반드시 생긴다 — 프로세스가
+죽거나 예외가 정리를 건너뛴다. TTL 이 없으면 키가 영원히 쌓인다.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
+### Task 3: WS 게이트웨이 — 연결 수명과 프레임 검문
+
+**Files:**
+- Create: `server/src/ws/gateway.ts`, `server/src/ws/session.ts`
+- Test: `server/src/ws/gateway.test.ts`
+- Modify: `server/package.json` (`ws`, `@types/ws`)
+
+**Interfaces:**
+- Consumes: `@findit/protocol` `decodeEnvelope`·`encodeEnvelope`·`ProtocolError`·`MessageType`; Plan 3 `Principal`, `Clock`
+- Produces:
+  - `interface ConnSession { readonly principal: Principal | null; readonly id: string; matchId: string | null; slot: PlayerSlot | null }`
+  - `type GameInput = { kind: 'READY' } | { kind: 'TAP'; x: number; y: number } | { kind: 'SKILL'; skillId: string } | { kind: 'LEAVE' }`
+  - `interface GatewayDeps { clock: Clock; log: {...}; verify(token: string): Promise<Principal | null>; onJoin(conn: Conn, mode: string): Promise<void>; onLeaveQueue(conn: Conn): Promise<void>; onGameInput(conn: Conn, input: GameInput): void; onClose(conn: Conn): void }`
+  - `interface Conn { readonly session: ConnSession; send(type: MessageType, payload: Record<string, unknown>): void; close(code: string, message: string): void }`
+  - `function attachGateway(server: http.Server, deps: GatewayDeps): { close(): Promise<void>; readonly connections: number }`
+
+**문 앞 검문 셋.** 게이트웨이는 게임 규칙을 하나도 모른다. 대신 세 가지를 지킨다.
+
+1. **`decodeEnvelope(raw, 'c2s')`** — 방향까지 검사한다. Plan 1 이 만든 검증기가 이미 그 인자를 받는데 쓰는 곳이 없었다.
+
+   > **이 계약을 "END 를 보내면 끊긴다" 로 검사하면 안 된다.** 방향 인자를 빼도 `END` 는 `switch` 의 `default` 에 걸려 똑같이 끊긴다. 방향 검문이 실제로 사는 자리는 **봉투 단계** 다 — 세션 검사보다, 분기보다 앞이다. 인증하지 않은 연결로 `END` 를 보내 보면 갈린다: 검문이 있으면 `bad_frame`, 없으면 세션 검사까지 내려가 `unauthorized` 가 된다.
+2. **`AUTH` 가 먼저다.** 인증되지 않은 연결은 `AUTH` 외의 어떤 메시지도 처리하지 않는다.
+3. **`ProtocolError` 는 연결을 끊는다.** 조작된 프레임을 보내는 클라와 협상하지 않는다. 다만 **끊기 전에 `ERROR` 를 보낸다** — 정상 클라의 버그를 디버깅할 수 있어야 한다.
+
+**`seq` 는 서버 송신에만 쓴다.** 클라가 보낸 `seq` 는 검증만 하고 버린다. 순서 보장은 TCP 가 한다. 클라의 `seq` 를 신뢰해 재정렬하면 그 자체가 조작 벡터가 된다.
+
+**게이트웨이는 슬롯을 모른다.** 어떤 연결이 `p1` 인지 `p2` 인지는 매칭이 정한다. 그래서 게이트웨이가 넘기는 것은 `BattleEvent` 가 아니라 **슬롯이 없는 `GameInput`** 이다. 슬롯은 배선층이 `conn.session.slot` 으로 채워 넣는다. 게이트웨이에서 `slot: 'p1'` 같은 자리표시자를 쓰면, 슬롯을 채우는 것을 잊은 경로가 **조용히 p1 로 동작한다** — p2 의 탭이 p1 의 점수가 되는 종류의 버그다.
+
+- [ ] **Step 1: 실패하는 테스트 작성**
+
+`server/src/ws/gateway.test.ts`:
+
+```typescript
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import WebSocket from 'ws';
+import { TestClock } from '../platform/clock.js';
+import { attachGateway, type Conn, type GameInput, type GatewayDeps } from './gateway.js';
+
+interface Harness {
+  url: string;
+  inputs: { conn: Conn; input: GameInput }[];
+  joins: string[];
+  leaves: number;
+  closed: number;
+  logged: string[];
+  stop(): Promise<void>;
+}
+
+async function start(overrides: Partial<GatewayDeps> = {}): Promise<Harness> {
+  const inputs: { conn: Conn; input: GameInput }[] = [];
+  const joins: string[] = [];
+  const logged: string[] = [];
+  let closed = 0;
+  let leaves = 0;
+
+  const server: Server = createServer();
+  const deps: GatewayDeps = {
+    clock: new TestClock(1_000_000),
+    log: { error: (m: string) => { logged.push(m); } },
+    verify: async (token: string) =>
+      token === 'good' ? { kind: 'account', accountId: 'acc-1' } : null,
+    onJoin: async (_conn, mode) => { joins.push(mode); },
+    onLeaveQueue: async () => { leaves += 1; },
+    onGameInput: (conn, input) => { inputs.push({ conn, input }); },
+    onClose: () => { closed += 1; },
+    ...overrides,
+  };
+
+  const gw = attachGateway(server, deps);
+  await new Promise<void>((r) => server.listen(0, r));
+  const port = (server.address() as AddressInfo).port;
+
+  return {
+    url: `ws://127.0.0.1:${port}`,
+    inputs, joins, logged,
+    get leaves() { return leaves; },
+    get closed() { return closed; },
+    async stop() {
+      await gw.close();
+      await new Promise<void>((r) => server.close(() => r()));
+    },
+  };
+}
+
+/** 프레임 하나를 보내고, 서버가 보내는 다음 프레임 하나를 기다린다. */
+function open(url: string): Promise<WebSocket> {
+  const ws = new WebSocket(url);
+  return new Promise((resolve, reject) => {
+    ws.once('open', () => resolve(ws));
+    ws.once('error', reject);
+  });
+}
+
+function next(ws: WebSocket): Promise<{ t: string; d: Record<string, unknown> }> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('프레임을 기다리다 시간 초과')), 2_000);
+    ws.once('message', (raw) => { clearTimeout(timer); resolve(JSON.parse(String(raw))); });
+  });
+}
+
+function closedWith(ws: WebSocket): Promise<number> {
+  return new Promise((resolve) => { ws.once('close', (code) => resolve(code)); });
+}
+
+const frame = (t: string, d: Record<string, unknown> = {}): string =>
+  JSON.stringify({ t, seq: 1, d });
+
+let h: Harness;
+beforeEach(async () => { h = await start(); });
+afterEach(async () => { await h.stop(); });
+
+describe('인증', () => {
+  it('좋은 토큰이면 AUTH 가 통과한다', async () => {
+    const ws = await open(h.url);
+    ws.send(frame('AUTH', { token: 'good' }));
+    const reply = await next(ws);
+    expect(reply.t).not.toBe('ERROR');
+    ws.close();
+  });
+
+  it('나쁜 토큰이면 ERROR 를 주고 연결을 끊는다', async () => {
+    const ws = await open(h.url);
+    ws.send(frame('AUTH', { token: 'bad' }));
+    const reply = await next(ws);
+    expect(reply.t).toBe('ERROR');
+    expect(await closedWith(ws)).toBeGreaterThan(0);
+  });
+
+  it('AUTH 전에 온 QUEUE_JOIN 은 처리되지 않는다', async () => {
+    const ws = await open(h.url);
+    ws.send(frame('QUEUE_JOIN', { mode: 'casual' }));
+    const reply = await next(ws);
+    expect(reply.t).toBe('ERROR');
+    // 코드만 보면 onJoin 을 부른 뒤 ERROR 를 내도 통과한다.
+    expect(h.joins).toEqual([]);
+    ws.close();
+  });
+
+  it('AUTH 전에 온 TAP 은 아래로 넘어가지 않는다', async () => {
+    const ws = await open(h.url);
+    ws.send(frame('TAP', { x: 10, y: 10 }));
+    await next(ws);
+    expect(h.inputs).toEqual([]);
+    ws.close();
+  });
+});
+
+describe('프레임 검문', () => {
+  it('s2c 전용 메시지는 세션 검사에 닿기 전에 잘린다 — 봉투 단계의 방향 검문', async () => {
+    // **인증하지 않은 채로** 보낸다. 그래야 방향 검문이 없을 때와 결과가 갈린다.
+    //
+    // 인증한 뒤에 보내면 두 구현 모두 끊는다 — 방향 검문이 없어도 END 는
+    // switch 의 default 라는 마지막 그물에 걸린다. "ERROR 후 종료" 만 보는
+    // 테스트는 그래서 아무것도 증명하지 못한다.
+    //
+    // 인증 전이면 갈린다:
+    //   · 방향 검문 있음 → decodeEnvelope 이 던짐 → code 'bad_frame'
+    //   · 방향 검문 없음 → 봉투를 통과해 세션 검사로 내려감 → code 'unauthorized'
+    const ws = await open(h.url);
+    ws.send(JSON.stringify({
+      t: 'END', seq: 1,
+      d: { result: 'win', myFound: 5, opponentFound: 0, score: 9999, coinDelta: 9999, expDelta: 9999 },
+    }));
+
+    const reply = await next(ws);
+    expect(reply.t).toBe('ERROR');
+    // 구조로 한 번 (코드가 다르다)
+    expect(reply.d['code']).toBe('bad_frame');
+    // 근거로 한 번 (거부의 이유가 방향이어야 한다)
+    expect(String(reply.d['message'])).toContain('방향 불일치');
+    expect(await closedWith(ws)).toBeGreaterThan(0);
+  });
+
+  it('JSON 이 아니면 끊는다', async () => {
+    const ws = await open(h.url);
+    ws.send('{{{');
+    await next(ws);
+    expect(await closedWith(ws)).toBeGreaterThan(0);
+  });
+
+  it('t 가 constructor 여도 죽지 않고 ERROR 를 준다 — 프로토타입 우회', async () => {
+    const ws = await open(h.url);
+    ws.send(JSON.stringify({ t: 'constructor', seq: 1, d: {} }));
+    const reply = await next(ws);
+    expect(reply.t).toBe('ERROR');
+    // 서버가 살아 있어야 한다. 다음 연결이 정상 동작하는지로 확인한다.
+    const second = await open(h.url);
+    second.send(frame('AUTH', { token: 'good' }));
+    expect((await next(second)).t).not.toBe('ERROR');
+    second.close();
+  });
+
+  it('선언되지 않은 필드가 섞이면 끊는다', async () => {
+    const ws = await open(h.url);
+    ws.send(frame('AUTH', { token: 'good', admin: true }));
+    const reply = await next(ws);
+    expect(reply.t).toBe('ERROR');
+    expect(await closedWith(ws)).toBeGreaterThan(0);
+  });
+});
+
+describe('매치 이벤트 전달', () => {
+  it('인증된 TAP 이 좌표 그대로 넘어간다', async () => {
+    const ws = await open(h.url);
+    ws.send(frame('AUTH', { token: 'good' }));
+    await next(ws);
+    ws.send(frame('TAP', { x: 231, y: 402 }));
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(h.inputs).toHaveLength(1);
+    expect(h.inputs[0]!.input).toEqual({ kind: 'TAP', x: 231, y: 402 });
+    // 슬롯은 게이트웨이가 붙이지 않는다. 붙이면 매칭 전 연결이 조용히
+    // p1 로 동작하고, p2 의 탭이 p1 의 점수가 되는 버그가 생긴다.
+    expect(h.inputs[0]!.input).not.toHaveProperty('slot');
+    ws.close();
+  });
+
+  it('QUEUE_JOIN 이 모드와 함께 넘어간다', async () => {
+    const ws = await open(h.url);
+    ws.send(frame('AUTH', { token: 'good' }));
+    await next(ws);
+    ws.send(frame('QUEUE_JOIN', { mode: 'casual' }));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(h.joins).toEqual(['casual']);
+    ws.close();
+  });
+
+  it('QUEUE_LEAVE 가 큐 이탈로 넘어간다', async () => {
+    const ws = await open(h.url);
+    ws.send(frame('AUTH', { token: 'good' }));
+    await next(ws);
+    ws.send(frame('QUEUE_LEAVE'));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(h.leaves).toBe(1);
+    ws.close();
+  });
+
+  it('READY · SKILL · LEAVE 가 모두 아래로 넘어간다 — switch 에 빠진 갈래가 없다', async () => {
+    const ws = await open(h.url);
+    ws.send(frame('AUTH', { token: 'good' }));
+    await next(ws);
+    ws.send(frame('READY'));
+    ws.send(frame('SKILL', { skillId: 'hand_01' }));
+    ws.send(frame('LEAVE'));
+    await new Promise((r) => setTimeout(r, 80));
+
+    // c2s 7 종 중 이 셋은 여기서만 검증된다. switch 에서 갈래 하나를
+    // 빠뜨리면 default 로 떨어져 연결이 끊기는데, 그 결함은 Task 7 의
+    // 통합 테스트까지 드러나지 않는다.
+    expect(h.inputs.map((item) => item.input)).toEqual([
+      { kind: 'READY' },
+      { kind: 'SKILL', skillId: 'hand_01' },
+      { kind: 'LEAVE' },
+    ]);
+    // default 로 떨어졌다면 연결이 이미 닫혀 있다.
+    expect(ws.readyState).toBe(ws.OPEN);
+    ws.close();
+  });
+
+  it('연결이 닫히면 onClose 가 불린다 — 매치 이탈 처리의 근거', async () => {
+    const ws = await open(h.url);
+    ws.send(frame('AUTH', { token: 'good' }));
+    await next(ws);
+    ws.close();
+    await new Promise((r) => setTimeout(r, 100));
+    expect(h.closed).toBe(1);
+  });
+
+  it('서버 송신의 seq 는 연결마다 1 부터 증가한다', async () => {
+    const ws = await open(h.url);
+    ws.send(frame('AUTH', { token: 'good' }));
+    const first = await next(ws);
+    expect(first).toMatchObject({ seq: 1 });
+    ws.close();
+  });
+});
+```
+
+- [ ] **Step 2: 실패 확인**
+
+```bash
+npm install --workspace server ws
+npm install --workspace server -D @types/ws
+```
+
+Run: `npx vitest run server/src/ws/gateway.test.ts`
+Expected: FAIL — `Cannot find module './gateway.js'`
+
+> **`ws` 의 런타임 동작은 실제로 확인해 뒀다** (ws 8.21.3 / @types/ws 8.18.1):
+> - `socket.on('message', raw)` 의 `raw` 는 **`Buffer`** 다 (`Buffer.isBuffer === true`). `String(raw)` 로 프레임을 얻는다.
+> - `import { WebSocketServer, type WebSocket } from 'ws'` 와 `import WebSocket from 'ws'` 는 **타입·런타임 모두 통과**한다.
+> - 클라가 `terminate()` 하면 클라 쪽 `close` 가 코드 **1006** 으로 오고, **서버 쪽 `close` 도 발화한다** — Task 7 의 "양쪽이 다 끊겨도 매치가 회수된다" 가 이 사실에 기대고 있다.
+> - `socket.close(4400, ...)` 처럼 4000~4999 의 애플리케이션 코드를 쓰면 그 코드가 그대로 클라에 전달된다.
+
+- [ ] **Step 3: 구현**
+
+`server/src/ws/session.ts`:
+
+```typescript
+import type { PlayerSlot } from '../battle/state.js';
+import type { Principal } from '../identity/types.js';
+
+/**
+ * 연결 하나의 상태. 매치에 들어가면 matchId·slot 이 채워지고,
+ * 끝나거나 나가면 다시 null 이 된다.
+ */
+export interface ConnSession {
+  readonly id: string;
+  principal: Principal | null;
+  matchId: string | null;
+  slot: PlayerSlot | null;
+  /** 서버가 보내는 프레임의 순번. 클라가 보낸 seq 는 쓰지 않는다. */
+  seq: number;
+}
+
+let counter = 0;
+
+export function createConnSession(): ConnSession {
+  counter += 1;
+  return { id: `c${counter}`, principal: null, matchId: null, slot: null, seq: 0 };
+}
+
+/**
+ * 정산·난입이 "이 사람" 을 가리킬 때 쓰는 키.
+ * 계정은 accountId, 게스트는 guestId 다 — Principal 의 두 변종이 필드 이름이
+ * 다르므로 한 곳에서 좁힌다.
+ */
+export function principalKey(principal: Principal): string {
+  return principal.kind === 'account' ? principal.accountId : principal.guestId;
+}
+```
+
+`server/src/ws/gateway.ts`:
+
+```typescript
+import type { Server } from 'node:http';
+import { WebSocketServer, type WebSocket } from 'ws';
+import {
+  decodeEnvelope, encodeEnvelope, ProtocolError, type MessageType,
+} from '@findit/protocol';
+import type { Clock } from '../platform/clock.js';
+import type { Principal } from '../identity/types.js';
+import { createConnSession, type ConnSession } from './session.js';
+
+/** 프로토콜 위반으로 끊을 때 쓰는 코드. 4000~4999 는 애플리케이션 정의 구간이다. */
+const CLOSE_PROTOCOL = 4400;
+const CLOSE_UNAUTHORIZED = 4401;
+
+/**
+ * 게이트웨이가 위로 넘기는 입력. **슬롯이 없다.**
+ * 어떤 연결이 p1 인지 p2 인지는 매칭이 정하고, 배선층이 conn.session.slot 으로
+ * 채워 BattleEvent 를 만든다.
+ */
+export type GameInput =
+  | { kind: 'READY' }
+  | { kind: 'TAP'; x: number; y: number }
+  | { kind: 'SKILL'; skillId: string }
+  | { kind: 'LEAVE' };
+
+export interface Conn {
+  readonly session: ConnSession;
+  send(type: MessageType, payload: Record<string, unknown>): void;
+  close(code: string, message: string): void;
+}
+
+export interface GatewayDeps {
+  clock: Clock;
+  log: { error(message: string, fields?: Record<string, unknown>): void };
+  verify(token: string): Promise<Principal | null>;
+  onJoin(conn: Conn, mode: string): Promise<void>;
+  onLeaveQueue(conn: Conn): Promise<void>;
+  onGameInput(conn: Conn, input: GameInput): void;
+  onClose(conn: Conn): void;
+}
+
+export function attachGateway(
+  server: Server,
+  deps: GatewayDeps,
+): { close(): Promise<void>; readonly connections: number } {
+  const wss = new WebSocketServer({ server });
+  const conns = new Set<Conn>();
+
+  wss.on('connection', (socket: WebSocket) => {
+    const session = createConnSession();
+
+    const conn: Conn = {
+      session,
+      send(type, payload) {
+        if (socket.readyState !== socket.OPEN) return;
+        session.seq += 1;
+        socket.send(encodeEnvelope(type, session.seq, payload));
+      },
+      close(code, message) {
+        // 끊기 전에 이유를 알려준다. 정상 클라의 버그를 디버깅할 수 있어야 한다.
+        conn.send('ERROR', { code, message });
+        socket.close(code === 'unauthorized' ? CLOSE_UNAUTHORIZED : CLOSE_PROTOCOL, code);
+      },
+    };
+    conns.add(conn);
+
+    socket.on('message', (raw: unknown) => {
+      // ws 는 Buffer 를 준다. 비동기 처리의 rejection 이 아무 데도 닿지 않으면
+      // 연결이 조용히 멈추므로, 여기서 잡아 로그를 남기고 끊는다.
+      void handle(String(raw)).catch((err: unknown) => {
+        deps.log.error('게이트웨이 처리 실패', {
+          conn: session.id, err: err instanceof Error ? err.message : String(err),
+        });
+        conn.close('internal', '처리 중 오류');
+      });
+    });
+
+    socket.on('close', () => {
+      conns.delete(conn);
+      deps.onClose(conn);
+    });
+
+    // ws 는 소켓 오류에 리스너가 없으면 프로세스 수준 예외를 낸다.
+    socket.on('error', (err: Error) => {
+      deps.log.error('소켓 오류', { conn: session.id, err: err.message });
+    });
+
+    async function handle(raw: string): Promise<void> {
+      let envelope;
+      try {
+        // 방향까지 검사한다. 이게 없으면 클라가 END 를 자칭해 보낼 수 있다.
+        envelope = decodeEnvelope(raw, 'c2s');
+      } catch (err) {
+        if (err instanceof ProtocolError) {
+          conn.close('bad_frame', err.message);
+          return;
+        }
+        throw err;
+      }
+
+      const { t, d } = envelope;
+
+      if (t === 'AUTH') {
+        const principal = await deps.verify(String(d['token'] ?? ''));
+        if (principal === null) {
+          // 토큰이 없는 경우와 틀린 경우의 응답이 같아야 한다.
+          conn.close('unauthorized', '인증 실패');
+          return;
+        }
+        session.principal = principal;
+        conn.send('QUEUED', { position: 0 });
+        return;
+      }
+
+      // **AUTH 가 먼저다.** 여기서 돌려보내는 것이 아니라 아무것도 하지 않고
+      // 끊는 것이 중요하다 — 아래 분기 어느 것도 실행되면 안 된다.
+      if (session.principal === null) {
+        conn.close('unauthorized', 'AUTH 가 먼저다');
+        return;
+      }
+
+      switch (t) {
+        case 'QUEUE_JOIN':
+          await deps.onJoin(conn, String(d['mode'] ?? 'casual'));
+          return;
+        case 'QUEUE_LEAVE':
+          await deps.onLeaveQueue(conn);
+          return;
+        case 'READY':
+          deps.onGameInput(conn, { kind: 'READY' });
+          return;
+        case 'TAP':
+          // 값의 타입은 decodeEnvelope 가 이미 스키마대로 검사했다.
+          deps.onGameInput(conn, { kind: 'TAP', x: d['x'] as number, y: d['y'] as number });
+          return;
+        case 'SKILL':
+          deps.onGameInput(conn, { kind: 'SKILL', skillId: d['skillId'] as string });
+          return;
+        case 'LEAVE':
+          deps.onGameInput(conn, { kind: 'LEAVE' });
+          return;
+        default:
+          conn.close('bad_frame', `처리할 수 없는 메시지: ${t}`);
+      }
+    }
+  });
+
+  return {
+    get connections() { return conns.size; },
+    async close(): Promise<void> {
+      for (const conn of conns) conn.close('shutdown', '서버 종료');
+      await new Promise<void>((resolve) => wss.close(() => resolve()));
+    },
+  };
+}
+```
+
+- [ ] **Step 4: 통과 확인**
+
+Run: `npx vitest run server/src/ws/ && npm run typecheck`
+Expected: PASS — **14 tests.**
+
+c2s 7 종이 전부 한 번씩은 지나간다: `AUTH`(인증 4개) · `QUEUE_JOIN` · `QUEUE_LEAVE` · `TAP` · `READY`·`SKILL`·`LEAVE`(한 테스트에 묶음).
+
+**변이로 확인할 것:**
+
+| 변이 | 깨지는 테스트 |
+|---|---|
+| `decodeEnvelope` 의 `'c2s'` 인자 제거 | `s2c 전용 메시지는 세션 검사에 닿기 전에 잘린다` |
+| `session.principal === null` 가드 제거 | `AUTH 전에 온 QUEUE_JOIN 은 처리되지 않는다` · `AUTH 전에 온 TAP 은…` |
+| `onGameInput` 에 `slot: 'p1'` 을 함께 실어 보냄 | `인증된 TAP 이 좌표 그대로 넘어간다` |
+| `switch` 에서 `case 'SKILL'` 갈래 제거 | `READY · SKILL · LEAVE 가 모두 아래로 넘어간다` |
+| `case 'QUEUE_LEAVE'` 갈래 제거 | `QUEUE_LEAVE 가 큐 이탈로 넘어간다` |
+
+- [ ] **Step 5: 커밋**
+
+```bash
+git add server/src/ws/ server/package.json package-lock.json
+git commit -m "$(cat <<'EOF'
+feat(server): WS 게이트웨이 — 연결 수명과 프레임 검문
+
+게이트웨이는 게임 규칙을 하나도 모른다. 프레임을 BattleEvent 로 번역해
+넘기기만 한다. 대신 문 앞에서 셋을 지킨다.
+
+decodeEnvelope 에 'c2s' 를 넘겨 방향까지 검사한다. 이게 없으면 클라가 END 를
+자칭해 보내 스스로 결과를 조작할 수 있다. Plan 1 의 검증기가 이미 그 인자를
+받도록 만들어져 있었는데 쓰는 곳이 없었다.
+
+AUTH 가 먼저다. 인증되지 않은 연결은 AUTH 외의 어떤 분기도 실행하지 않는다.
+상태 코드만 보는 테스트로는 이 계약을 지킬 수 없어서, onJoin·onMatchEvent
+호출 기록이 비어 있는지를 함께 본다.
+
+ProtocolError 는 연결을 끊는다. 다만 끊기 전에 ERROR 를 보낸다 — 정상 클라의
+버그를 디버깅할 수 있어야 한다.
+
+게이트웨이는 슬롯을 모른다. 어떤 연결이 p1 인지 p2 인지는 매칭이 정하므로,
+위로 넘기는 것은 BattleEvent 가 아니라 슬롯 없는 GameInput 이다. 여기서
+자리표시자로 p1 을 쓰면 슬롯 채우기를 잊은 경로가 조용히 p1 로 동작하고,
+p2 의 탭이 p1 의 점수가 된다.
+
+클라가 보낸 seq 는 검증만 하고 버린다. 순서 보장은 TCP 가 한다. 클라의 seq 를
+신뢰해 재정렬하면 그 자체가 조작 벡터가 된다. 서버 송신 seq 는 연결마다 따로
+1 부터 센다.
+
+소켓 error 리스너를 반드시 붙인다. ws 는 리스너가 없으면 프로세스 수준
+예외를 낸다 — 연결 하나의 오류로 서버가 죽는다.
+
+c2s 7 종이 전부 한 번씩은 테스트를 지나간다. switch 에서 갈래 하나를
+빠뜨리면 default 로 떨어져 연결이 끊기는데, 그 결함은 통합 테스트까지
+드러나지 않고 "READY 를 눌러도 아무 일도 안 난다" 로만 보인다.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
+### Task 4: 매칭 큐 — 5 초 뒤 AI 전환
+
+**Files:**
+- Create: `server/src/match/queue.ts`
+- Test: `server/src/match/queue.test.ts`
+- Modify: `server/src/platform/redis.ts` (`Cache` 에 리스트 연산 4개)
+- Modify: `server/src/match/runner.ts` (`Scheduler.at` 이 비동기 콜백을 받도록)
+- Modify: **`Cache` 를 객체 리터럴로 만드는 모든 곳** — `server/src/identity/session.test.ts`, `server/src/match/index.test.ts`
+
+> **포트를 넓히면 그것을 구현한 스텁이 전부 깨진다.** 저장소에 `Cache` 리터럴은 두 곳뿐이지만(`session.test.ts` 의 `counting`, `index.test.ts` 의 `counting`), 빠뜨리면 `npm run typecheck` 가 그 파일에서 죽는다. 아래 Step 3 에 두 곳 모두의 교체 코드를 적어 뒀다.
+
+**Interfaces:**
+- Consumes: Plan 3 `Cache`, `Clock`; Task 1 `Scheduler`, `TimerHandle`
+- Produces:
+  - `const AI_TRANSITION_MS = 5_000`
+  - `interface Waiting { key: string; name: string; level: number; conn: unknown }`
+  - `interface MatchmakerPorts { clock: Clock; scheduler: Scheduler; cache: Cache; queueKey: string; aiTransitionMs?: number; startMatch(a: Waiting, b: Waiting | null): Promise<string> }`
+  - `class Matchmaker { join(w: Waiting): Promise<void>; leave(key: string): Promise<void>; waitingCount(): Promise<number> }`
+  - `Cache` 에 추가: `listPushRight` · `listPopLeft` · `listRemove` · `listLength`
+
+> **매치를 만드는 것은 큐의 일이 아니다.** `startMatch` 를 포트로 받는다. 큐는 "누가 누구와 붙는가" 만 정하고, 퍼즐 배정·러너 생성·Redis 인덱스 기록은 Task 7 의 배선층이 한다. 그래야 큐를 Redis 하나만으로 테스트할 수 있다.
+
+**AI 전환 5 초는 원작 수치다.** `SINGLETIME = 100` 프레임 ÷ 20 프레임/초 = 5 초 (조사 기록 참조). 상수로 박되 포트로 주입받아 테스트가 줄일 수 있게 한다.
+
+**직렬화 범위는 `join` 하나가 아니다.** `leave` 와 타이머의 AI 전환도 같은 줄에 세워야 한다. `join` 이 `LPOP` 에서 await 하는 동안 `QUEUE_LEAVE` 가 들어오면, 그 사람은 아직 `waiting` 에 없으므로 `leave` 가 그냥 돌아가고 뒤이어 완료된 `join` 이 그를 큐에 남긴다 — **나가려던 사람이 5 초 뒤 AI 와 붙는다.**
+
+**타이머 콜백은 `Promise` 를 돌려줘야 한다.** AI 전환이 Redis 를 때리기 때문이다. 스케줄러가 그것을 기다리지 않으면, 테스트가 아직 일어나지 않은 일을 보고 "안 일어났다" 로 읽는다. 마이크로태스크를 몇 번 비우는 것으로는 실제 왕복이 끝나지 않는다.
+
+**큐에는 고아 키가 남는다.** 프로세스가 재시작하면 `waiting` 은 비지만 Redis 리스트는 살아 있다. `LPOP` 을 한 번만 하면 고아 하나를 버리고 끝나므로, 그 뒤에 실제 대기자가 있어도 만나지 못한다 — **사람이 둘인데 아무도 못 만나고 각자 AI 로 빠진다.** 큐가 비거나 살아 있는 대기자를 만날 때까지 꺼내야 하고, 그 과정이 곧 고아 청소가 된다.
+
+**Review Focus 4 — 동시 진입.** 두 사람이 같은 순간에 `QUEUE_JOIN` 하면 이런 순서가 가능하다.
+
+```
+A: LPOP → nil        (큐가 비었다)
+B: LPOP → nil        (B 도 비었다고 본다)
+A: RPUSH A
+B: RPUSH B
+→ 5 초 뒤 둘 다 AI 와 붙는다. 사람이 둘 있는데 아무도 못 만난다.
+```
+
+`LPOP` 자체는 원자적이지만 **`LPOP` 과 `RPUSH` 사이에 `await` 가 있다.** Node 는 단일 스레드라도 그 지점에서 다른 요청이 끼어든다. P0 는 서버가 한 프로세스이므로 **프로세스 안에서 join 을 직렬화**해 막는다. 다중 인스턴스에서는 이것으로 부족하다 — Lua 스크립트나 `BLMOVE` 가 필요하고, 그건 P1 의 문제다. **그 한계를 코드 주석에 남긴다.**
+
+**우선순위는 셋이다.**
+
+1. 큐에 사람이 기다리고 있으면 → 그 사람과 붙인다.
+2. 아니면, **AI 와 붙고 있는 사람이 있으면 → 난입**한다 (Task 5).
+3. 아니면 → 큐에 들어가 5 초 뒤 AI 와 붙는다.
+
+Task 4 는 1 과 3 을 만들고, 2 는 Task 5 가 끼워 넣는다.
+
+- [ ] **Step 1: 실패하는 테스트 작성**
+
+`server/src/match/queue.test.ts`:
+
+```typescript
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { TestClock } from '../platform/clock.js';
+import { createCache, type Cache } from '../platform/redis.js';
+import { Matchmaker, AI_TRANSITION_MS, type Waiting } from './queue.js';
+
+/** Task 1 의 테스트와 같은 가짜 스케줄러. 실시간을 기다리지 않는다. */
+class TestScheduler {
+  private seq = 0;
+  private readonly jobs = new Map<number, { at: number; fn: () => void | Promise<void> }>();
+  at(time: number, fn: () => void | Promise<void>): number {
+    const id = ++this.seq; this.jobs.set(id, { at: time, fn }); return id;
+  }
+  cancel(h: number): void { this.jobs.delete(h); }
+  get pending(): number { return this.jobs.size; }
+  async runUntil(clock: TestClock, to: number): Promise<void> {
+    for (let guard = 0; guard < 1_000; guard += 1) {
+      const due = [...this.jobs.entries()].filter(([, j]) => j.at <= to).sort((a, b) => a[1].at - b[1].at)[0];
+      if (!due) break;
+      const [id, job] = due;
+      this.jobs.delete(id);
+      clock.set(Math.max(clock.now(), job.at));
+      // **반드시 await 한다.** AI 전환 콜백은 Redis 를 때린다.
+      // 마이크로태스크를 몇 번 비우는 것으로는 그 왕복이 끝나지 않아,
+      // 단언이 아직 일어나지 않은 일을 보고 "안 일어났다" 로 읽는다.
+      await job.fn();
+    }
+    clock.set(to);
+  }
+}
+
+it('AI 전환 시각이 원작 수치다', () => {
+  // SINGLETIME=100 프레임 ÷ 20 프레임/초 = 5 초 (GameView.java:1240, 3553-3558)
+  expect(AI_TRANSITION_MS).toBe(5_000);
+});
+
+const url = process.env['REDIS_URL'];
+const suite = url ? describe : describe.skip;
+
+suite('매칭 큐', () => {
+  let cache: Cache;
+  let n = 0;
+  const player = (name: string): Waiting => ({ key: `k-${name}`, name, level: 10, conn: null });
+
+  beforeAll(() => { cache = createCache(url!, () => {}); });
+  afterAll(async () => { await cache.close(); });
+
+  function harness(opts: { aiMs?: number } = {}) {
+    n += 1;
+    const clock = new TestClock(1_000_000);
+    const scheduler = new TestScheduler();
+    const started: { a: string; b: string | null }[] = [];
+    const queueKey = `findit:test:queue:${process.pid}:${n}`;
+    const maker = new Matchmaker({
+      clock, scheduler, cache, queueKey,
+      aiTransitionMs: opts.aiMs ?? AI_TRANSITION_MS,
+      startMatch: async (a, b) => {
+        started.push({ a: a.name, b: b?.name ?? null });
+        return `match-${started.length}`;
+      },
+    });
+    // queueKey 는 테스트마다 다르다. 같은 Redis 를 쓰는 병렬 실행에서
+    // 큐가 섞이면 "혼자 들어갔는데 누군가와 붙는" 유령 실패가 난다.
+    return { clock, scheduler, started, maker, queueKey };
+  }
+
+  it('혼자 들어가면 대기한다 — 즉시 AI 가 되지 않는다', async () => {
+    const h = harness();
+    await h.maker.join(player('A'));
+    expect(h.started).toEqual([]);
+    expect(await h.maker.waitingCount()).toBe(1);
+  });
+
+  it('둘째가 들어오면 즉시 붙는다', async () => {
+    const h = harness();
+    await h.maker.join(player('A'));
+    await h.maker.join(player('B'));
+
+    expect(h.started).toEqual([{ a: 'B', b: 'A' }]);
+    // 붙은 뒤 큐는 비어야 한다. 남으면 다음 사람이 유령과 매칭된다.
+    expect(await h.maker.waitingCount()).toBe(0);
+  });
+
+  it('붙은 뒤에는 AI 전환 타이머가 남지 않는다', async () => {
+    const h = harness();
+    await h.maker.join(player('A'));
+    await h.maker.join(player('B'));
+    expect(h.scheduler.pending).toBe(0);
+  });
+
+  it('5초가 지나면 AI 와 붙는다', async () => {
+    const h = harness();
+    await h.maker.join(player('A'));
+    await h.scheduler.runUntil(h.clock, h.clock.now() + AI_TRANSITION_MS + 1);
+
+    expect(h.started).toEqual([{ a: 'A', b: null }]);
+    expect(await h.maker.waitingCount()).toBe(0);
+  });
+
+  it('4.9초에는 아직 AI 가 아니다 — 경계', async () => {
+    const h = harness();
+    await h.maker.join(player('A'));
+    await h.scheduler.runUntil(h.clock, h.clock.now() + AI_TRANSITION_MS - 100);
+    expect(h.started).toEqual([]);
+  });
+
+  it('leave 하면 AI 전환도 취소된다', async () => {
+    const h = harness();
+    const a = player('A');
+    await h.maker.join(a);
+    expect(h.scheduler.pending).toBe(1);
+
+    await h.maker.leave(a.key);
+
+    // **이 단언이 취소 계약을 잡는다.** 아래 started·waitingCount 만 보면
+    // 타이머를 취소하지 않아도 통과한다 — 남은 타이머가 나중에 발화해도
+    // waiting 에 그 사람이 없어 toAi 가 아무 일도 하지 않기 때문이다.
+    // "결과가 같다" 와 "예약을 거뒀다" 는 다른 계약이고, 거두지 않은 예약은
+    // 서버가 오래 돌수록 쌓인다.
+    expect(h.scheduler.pending).toBe(0);
+
+    await h.scheduler.runUntil(h.clock, h.clock.now() + AI_TRANSITION_MS + 1);
+    expect(h.started).toEqual([]);
+    expect(await h.maker.waitingCount()).toBe(0);
+  });
+
+  it('동시에 들어온 둘이 서로를 만난다 — 둘 다 AI 로 빠지면 안 된다', async () => {
+    const h = harness();
+    // await 를 끼우지 않고 동시에 부른다. 직렬화가 없으면 둘 다 큐가 비었다고
+    // 보고 각자 대기에 들어가, 5 초 뒤 각자 AI 와 붙는다.
+    await Promise.all([h.maker.join(player('A')), h.maker.join(player('B'))]);
+
+    expect(h.started).toHaveLength(1);
+    expect(h.started[0]!.b).not.toBeNull();
+    expect(await h.maker.waitingCount()).toBe(0);
+  });
+
+it('join 이 Redis 를 기다리는 동안 들어온 leave 가 무시되지 않는다', async () => {
+    const h = harness();
+    const a = player('A');
+
+    // await 하지 않고 곧바로 leave 를 부른다. join 은 지금 LPOP 에서 멈춰 있다.
+    //
+    // join 만 직렬화하면: leave 가 그 순간 waiting 을 비어 있는 것으로 보고
+    // 그냥 돌아가고, 뒤이어 완료된 join 이 그 사람을 큐에 남긴다 —
+    // **나가려던 사람이 5 초 뒤 AI 와 붙는다.**
+    const joining = h.maker.join(a);
+    const leaving = h.maker.leave(a.key);
+    await Promise.all([joining, leaving]);
+
+    expect(await h.maker.waitingCount()).toBe(0);
+    expect(h.scheduler.pending).toBe(0);
+
+    await h.scheduler.runUntil(h.clock, h.clock.now() + AI_TRANSITION_MS + 1);
+    expect(h.started).toEqual([]);
+  });
+
+it('고아 키 뒤에 기다리는 사람이 있으면 그 사람과 붙는다', async () => {
+    const h = harness();
+    const a = player('A');
+    await h.maker.join(a);
+
+    // **재시작 뒤 상태를 재현한다.** 프로세스가 죽으면 waiting 은 비지만
+    // Redis 리스트는 살아남아, 본문 없는 고아 키가 큐 앞에 남는다.
+    // A 를 그 뒤로 옮겨 놓는다.
+    await cache.listRemove(h.queueKey, a.key);
+    await cache.listPushRight(h.queueKey, 'k-ghost');
+    await cache.listPushRight(h.queueKey, a.key);
+
+    await h.maker.join(player('B'));
+
+    // 고아를 하나만 버리고 말면 B 는 A 를 만나지 못하고 큐 뒤에 선다.
+    // 그러면 둘 다 5 초 뒤 각자 AI 와 붙는다 — 사람이 둘인데 아무도 못 만난다.
+    expect(h.started).toEqual([{ a: 'B', b: 'A' }]);
+    expect(await h.maker.waitingCount()).toBe(0);
+    expect(h.scheduler.pending).toBe(0);
+  });
+
+  it('같은 사람이 두 번 들어가도 자기 자신과 붙지 않는다', async () => {
+    const h = harness();
+    const a = player('A');
+    await h.maker.join(a);
+    await h.maker.join(a);
+
+    expect(h.started).toEqual([]);
+    expect(await h.maker.waitingCount()).toBe(1);
+  });
+});
+```
+
+- [ ] **Step 2: 실패 확인**
+
+Run: `npx vitest run server/src/match/queue.test.ts`
+Expected: FAIL — `Cannot find module './queue.js'`
+
+- [ ] **Step 3: 구현**
+
+`server/src/match/queue.ts`:
+
+```typescript
+import type { Clock } from '../platform/clock.js';
+import type { Cache } from '../platform/redis.js';
+import type { Scheduler, TimerHandle } from './runner.js';
+
+/**
+ * 큐 진입 후 AI 로 전환하기까지의 시간.
+ *
+ * 원작 수치다. GameView.java:1240 의 SINGLETIME = 100 은 프레임 카운터이고,
+ * 같은 루프가 mGameTimeCount > 19 마다 mGameTime 을 1 초 올린다
+ * (GameView.java:3553-3558). 즉 20 프레임 = 1 초이므로 100 프레임 = 5 초다.
+ * 스펙 §3.6 의 "5 초" 는 재해석이 아니라 원작 그대로다.
+ */
+export const AI_TRANSITION_MS = 5_000;
+
+export interface Waiting {
+  /** 이 사람을 가리키는 안정된 키 — 계정이면 accountId, 게스트면 guestId. */
+  key: string;
+  name: string;
+  level: number;
+  /** 배선층이 넣는 연결 핸들. 큐는 들여다보지 않는다. */
+  conn: unknown;
+}
+
+export interface MatchmakerPorts {
+  clock: Clock;
+  scheduler: Scheduler;
+  cache: Cache;
+  queueKey: string;
+  aiTransitionMs?: number;
+  /** b 가 null 이면 AI 전. 매치 id 를 돌려준다. */
+  startMatch(a: Waiting, b: Waiting | null): Promise<string>;
+}
+
+export class Matchmaker {
+  private readonly aiMs: number;
+  private readonly timers = new Map<string, TimerHandle>();
+  /** key → 대기자. Redis 에는 키만 넣고 본문은 여기 둔다. */
+  private readonly waiting = new Map<string, Waiting>();
+  /** 직렬화용 꼬리. join · leave · AI 전환이 **모두** 여기를 지난다. */
+  private tail: Promise<void> = Promise.resolve();
+
+  constructor(private readonly ports: MatchmakerPorts) {
+    this.aiMs = ports.aiTransitionMs ?? AI_TRANSITION_MS;
+  }
+
+  /**
+   * 큐 진입.
+   *
+   * **직렬화가 필요한 이유.** LPOP 자체는 원자적이지만 LPOP 과 RPUSH 사이에
+   * await 가 있다. 두 사람이 같은 순간에 들어오면 둘 다 "큐가 비었다" 를 보고
+   * 각자 대기에 들어가, 5 초 뒤 각자 AI 와 붙는다 — 사람이 둘인데 아무도
+   * 만나지 못한다.
+   *
+   * P0 는 서버가 한 프로세스라 프로세스 안에서 직렬화하면 충분하다.
+   * **다중 인스턴스에서는 이것으로 막지 못한다** — Lua 스크립트나 BLMOVE 가
+   * 필요하고, 그건 P1 의 문제다.
+   */
+  async join(w: Waiting): Promise<void> {
+    return this.serialize(() => this.joinLocked(w));
+  }
+
+  /**
+   * 큐를 건드리는 모든 작업을 한 줄로 세운다.
+   *
+   * **join 만 보호하면 안 된다.** join 이 LPOP 에서 await 하는 동안 leave 가
+   * 들어오면, 그 사람은 아직 waiting 에 없으므로 leave 가 그냥 돌아가고
+   * 뒤이어 완료된 join 이 그를 큐에 남긴다 — 나가려던 사람이 5 초 뒤 AI 와
+   * 붙는다. 타이머의 AI 전환도 같은 경쟁을 갖는다.
+   */
+  private serialize<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.tail.then(fn);
+    // 앞선 작업이 실패해도 꼬리가 끊기지 않게 한다.
+    this.tail = run.then(() => undefined, () => undefined);
+    return run;
+  }
+
+  private async joinLocked(w: Waiting): Promise<void> {
+    // 이미 대기 중이면 아무 일도 하지 않는다. 자기 자신과 붙는 것을 막는다.
+    if (this.waiting.has(w.key)) return;
+
+    // **큐가 비거나 살아 있는 대기자를 만날 때까지 꺼낸다.** 한 번만 꺼내면
+    // 고아 키 뒤의 실제 대기자를 놓친다 — 프로세스 재시작 뒤 Redis 리스트만
+    // 살아남았을 때 정확히 그렇게 된다.
+    //
+    // 위의 has 가드를 통과했으므로 opponentKey 가 w.key 와 같다면 그것도
+    // 본문 없는 유령이고, 아래 undefined 분기가 그대로 처리한다.
+    for (;;) {
+      const opponentKey = await this.ports.cache.listPopLeft(this.ports.queueKey);
+      if (opponentKey === null) break;            // 큐가 비었다
+
+      const opponent = this.waiting.get(opponentKey);
+      if (opponent === undefined) continue;       // 고아 — 버리고 다음 키를 본다
+
+      this.forget(opponentKey);
+      await this.ports.startMatch(w, opponent);
+      return;
+    }
+
+    this.waiting.set(w.key, w);
+    await this.ports.cache.listPushRight(this.ports.queueKey, w.key);
+
+    const at = this.ports.clock.now() + this.aiMs;
+    // 콜백이 Promise 를 돌려준다. 스케줄러가 그것까지 기다린다.
+    this.timers.set(w.key, this.ports.scheduler.at(at, () => this.toAi(w.key)));
+  }
+
+  async leave(key: string): Promise<void> {
+    return this.serialize(() => this.leaveLocked(key));
+  }
+
+  private async leaveLocked(key: string): Promise<void> {
+    if (!this.waiting.has(key)) return;
+    this.forget(key);
+    await this.ports.cache.listRemove(this.ports.queueKey, key);
+  }
+
+  async waitingCount(): Promise<number> {
+    return this.ports.cache.listLength(this.ports.queueKey);
+  }
+
+  /** 타이머 콜백. 스케줄러가 이 Promise 를 기다린다. */
+  private toAi(key: string): Promise<void> {
+    return this.serialize(() => this.toAiLocked(key));
+  }
+
+  private async toAiLocked(key: string): Promise<void> {
+    const w = this.waiting.get(key);
+    this.timers.delete(key);
+    if (w === undefined) return;
+
+    this.waiting.delete(key);
+    await this.ports.cache.listRemove(this.ports.queueKey, key);
+    await this.ports.startMatch(w, null);
+  }
+
+  private forget(key: string): void {
+    this.waiting.delete(key);
+    const handle = this.timers.get(key);
+    if (handle !== undefined) {
+      this.ports.scheduler.cancel(handle);
+      this.timers.delete(key);
+    }
+  }
+}
+```
+
+`Cache` 포트에 리스트 연산 넷을 추가한다 (`server/src/platform/redis.ts`):
+
+```typescript
+export interface Cache {
+  get(key: string): Promise<string | null>;
+  setEx(key: string, value: string, ttlMs: number): Promise<void>;
+  del(key: string): Promise<void>;
+  /** 큐용. FIFO 를 만들려면 오른쪽에 넣고 왼쪽에서 뺀다. */
+  listPushRight(key: string, value: string): Promise<void>;
+  listPopLeft(key: string): Promise<string | null>;
+  listRemove(key: string, value: string): Promise<void>;
+  listLength(key: string): Promise<number>;
+  ping(timeoutMs?: number): Promise<void>;
+  close(): Promise<void>;
+}
+```
+
+구현은 `createCache` 안에 넷을 더한다:
+
+```typescript
+    async listPushRight(key: string, value: string): Promise<void> {
+      await client.rpush(key, value);
+    },
+
+    async listPopLeft(key: string): Promise<string | null> {
+      return client.lpop(key);
+    },
+
+    async listRemove(key: string, value: string): Promise<void> {
+      // count 0 = 일치하는 값을 전부 지운다. 중복 진입이 있었어도 깨끗이 빠진다.
+      await client.lrem(key, 0, value);
+    },
+
+    async listLength(key: string): Promise<number> {
+      return client.llen(key);
+    },
+```
+
+**`Cache` 리터럴 두 곳을 함께 고친다.** 빠뜨리면 `npm run typecheck` 가 그 파일에서 죽는다. 두 곳 모두 아래 네 줄을 `del` 다음에 넣으면 된다:
+
+```typescript
+      listPushRight: async () => { calls += 1; },
+      listPopLeft: async () => { calls += 1; return null; },
+      listRemove: async () => { calls += 1; },
+      listLength: async () => { calls += 1; return 0; },
+```
+
+- `server/src/identity/session.test.ts` — Plan 3 이 만든 `빈 토큰 가드` 의 `counting`
+- `server/src/match/index.test.ts` — Task 2 가 만든 `빈 matchId` 의 `counting`
+
+> 두 스텁의 단언은 `calls === 0` 이므로, 새 메서드가 호출되지 않는 한 값은 그대로다. 호출되면 그 테스트가 먼저 깨져 알려 준다 — 그게 맞는 동작이다.
+
+**`Scheduler.at` 의 콜백 타입도 넓힌다** (`server/src/match/runner.ts`). Task 1 의 `TestScheduler` 도 같은 형태로 맞춰 둔다 — 메서드 매개변수는 이변성이라 그대로도 컴파일되지만, 나중에 러너 테스트에 비동기 콜백이 들어오면 조용히 기다리지 않게 된다.
+
+- [ ] **Step 4: 통과 확인**
+
+Run: `REDIS_URL=redis://localhost:6379 npx vitest run server/src/match/ && npm run typecheck`
+Expected: PASS — Task 1 의 11 + Task 2 의 6 + 이번 11 = 28 tests.
+
+**변이로 확인할 것:**
+
+| 변이 | 깨지는 테스트 |
+|---|---|
+| `join` 의 직렬화 제거 (`joinLocked` 를 직접 호출) | `동시에 들어온 둘이 서로를 만난다` |
+| `forget` 에서 `scheduler.cancel` 제거 | `leave 하면 AI 전환도 취소된다` · `붙은 뒤에는 AI 전환 타이머가 남지 않는다` |
+| `joinLocked` 첫 줄의 `waiting.has` 가드 제거 | `같은 사람이 두 번 들어가도 자기 자신과 붙지 않는다` |
+| `leave` 를 `serialize` 없이 `leaveLocked` 직접 호출 | `join 이 Redis 를 기다리는 동안 들어온 leave 가 무시되지 않는다` |
+| `TestScheduler.runUntil` 의 `await job.fn()` → `job.fn()` | `5초가 지나면 AI 와 붙는다` (Redis 왕복 전에 단언한다) |
+| `for(;;)` 을 `LPOP` 한 번으로 되돌림 | `고아 키 뒤에 기다리는 사람이 있으면 그 사람과 붙는다` |
+
+- [ ] **Step 5: 커밋**
+
+```bash
+git add server/src/match/queue.ts server/src/match/queue.test.ts server/src/platform/redis.ts \
+        server/src/match/runner.ts server/src/match/runner.test.ts \
+        server/src/match/index.test.ts server/src/identity/session.test.ts
+git commit -m "$(cat <<'EOF'
+feat(server): 매칭 큐 + 5초 AI 전환
+
+5 초는 원작 수치다. GameView.java:1240 의 SINGLETIME = 100 은 프레임
+카운터이고, 같은 루프가 mGameTimeCount > 19 마다 1 초를 올린다
+(GameView.java:3553-3558). 20 프레임 = 1 초이므로 100 프레임 = 정확히 5 초.
+스펙 §3.6 의 "5 초" 는 재해석이 아니라 그대로 옮긴 값이다.
+
+v1 서버에는 큐가 없었다 (legacy/server/src/socket/handlers.js, 248 줄).
+방 기반이었고 AI 전환은 클라이언트가 혼자 했다. 2026 은 서버 권위이므로
+큐로 옮긴다 (스펙 §3.6 "실행 위치: 서버").
+
+join 을 프로세스 안에서 직렬화한다. LPOP 자체는 원자적이지만 LPOP 과 RPUSH
+사이에 await 가 있어서, 두 사람이 같은 순간에 들어오면 둘 다 큐가 비었다고
+보고 각자 5 초 뒤 AI 와 붙는다 — 사람이 둘인데 아무도 만나지 못한다.
+다중 인스턴스에서는 이것으로 부족하고 Lua 나 BLMOVE 가 필요하다. P1 의
+문제이며 주석으로 남겼다.
+
+직렬화 범위는 join 하나가 아니다. leave 와 타이머의 AI 전환도 같은 줄에
+세운다. join 이 LPOP 에서 await 하는 동안 QUEUE_LEAVE 가 들어오면 그 사람은
+아직 waiting 에 없어서 leave 가 그냥 돌아가고, 뒤이어 완료된 join 이 그를
+큐에 남긴다 — 나가려던 사람이 5 초 뒤 AI 와 붙는다.
+
+Scheduler.at 의 콜백이 Promise 를 돌려줄 수 있게 넓힌다. AI 전환이 Redis 를
+때리므로 스케줄러가 그것을 기다려야 한다. 마이크로태스크를 비우는 것으로는
+실제 왕복이 끝나지 않아, 테스트가 아직 일어나지 않은 일을 "안 일어났다" 로
+읽는다.
+
+큐에서 상대를 꺼낼 때 한 번만 LPOP 하지 않는다. 프로세스가 재시작하면
+waiting 은 비지만 Redis 리스트는 살아 있어 본문 없는 고아 키가 남는다.
+하나만 버리고 말면 그 뒤의 실제 대기자를 놓치고 둘 다 각자 AI 로 빠진다.
+큐가 비거나 살아 있는 대기자를 만날 때까지 꺼내며, 그 과정이 고아 청소가
+된다. 꺼내기만 하고 다시 넣지 않으므로 반복은 리스트 길이 안에서 끝난다.
+
+Cache 포트에 리스트 연산 넷을 더한다. 큐는 FIFO 여야 하므로 오른쪽에 넣고
+왼쪽에서 뺀다. listRemove 는 count 0 으로 일치하는 값을 전부 지운다.
+Cache 리터럴 두 곳(session.test.ts, index.test.ts)도 함께 고친다 —
+포트를 넓히면 그것을 구현한 스텁이 전부 깨진다.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
+### Task 5: 난입 — 진행 중인 AI 판을 가로챈다
+
+**Files:**
+- Modify: `server/src/match/queue.ts` (`onIntrude` 포트 추가)
+- Test: `server/src/match/queue.test.ts` (난입 describe 추가)
+
+**Interfaces:**
+- Consumes: Task 1 `MatchRunner.abort()`, `MatchRegistry.findAiMatchWith`
+- Produces:
+  - `MatchmakerPorts` 에 추가: `findIntrudable(): Waiting | null`
+
+**원작 동작 셋** (`GameActivity.java:611-616`, 조사 기록 참조).
+
+1. 진행 중인 AI 판을 **즉시 끝낸다** (`mGameTime = 40` = 종료 임계값).
+2. 난입자가 **그 자리에서 상대가 된다** — 별도 매칭 과정이 없다.
+3. **정산이 일어나지 않는다** — `mResultPass = true` 로 결과 화면을 건너뛰는데, 코인·경험치 전송이 결과 화면 애니메이션 안에서만 실행된다(`GameView.java:3257-3271`). 중단된 AI 판은 코인도 경험치도 0 이다.
+
+즉 **"없던 일이 된다".** Task 1 의 `abort()` 가 정확히 이것이다 — `END` 도 `onEnd` 도 없이 자원만 회수한다.
+
+**클라이언트에 무엇을 보내는가.** 프로토콜(스펙 §8)에 "중단" 메시지가 없다. 새로 만들지 않고 **`MATCH_FOUND` 가 진행 중인 매치를 덮어쓴다**는 규칙을 둔다. 원작이 결과 화면을 건너뛰고 배틀룸으로 바로 가는 것과 같은 모양이고, 프로토콜을 늘리지 않는다.
+
+> **이 규칙은 클라이언트 계약이다.** Plan 5 의 Flutter 클라는 `MATCH_FOUND` 를 받으면 **현재 매치 상태를 무조건 버리고** 새 매치로 전환해야 한다. 여기 적어 두지 않으면 클라가 "이미 매치 중인데 MATCH_FOUND 가 왔다" 를 오류로 처리하게 된다.
+
+**우선순위에서 난입은 두 번째다.** 큐에 사람이 기다리면 그쪽이 먼저다 — 기다리던 사람을 계속 기다리게 하면서 남의 AI 판을 깨는 것은 불공정하다.
+
+**순서도 계약이다 — 버리는 것이 먼저다.** `startMatch` 가 먼저 돌면 새 매치가 연결과 타이머를 잡은 뒤에도 이전 AI 러너가 잠시 살아 있다. 그 사이 이전 판의 outbound 가 같은 클라이언트로 흘러가 **새 판이 시작되자마자 지난 판의 진행이 섞여 보인다.** 결과만 보는 단언으로는 이 순서를 지킬 수 없으므로, 테스트 스텁이 호출 순서를 기록한다.
+
+- [ ] **Step 1: 실패하는 테스트 작성**
+
+`server/src/match/queue.test.ts` 의 `suite('매칭 큐', ...)` 안에 추가한다. `harness` 를 난입 포트까지 받도록 넓힌다:
+
+```typescript
+  function harness(opts: { aiMs?: number; intrudable?: () => Waiting | null } = {}) {
+    n += 1;
+    const clock = new TestClock(1_000_000);
+    const scheduler = new TestScheduler();
+    const started: { a: string; b: string | null }[] = [];
+    const intruded: string[] = [];
+    // **호출 순서 기록.** 결과만 보면 abort 와 start 의 순서를 뒤집어도
+    // 통과한다. 순서는 결과가 아니라 기록으로만 잡힌다.
+    const events: string[] = [];
+    const queueKey = `findit:test:queue:${process.pid}:${n}`;
+    const maker = new Matchmaker({
+      clock, scheduler, cache, queueKey,
+      aiTransitionMs: opts.aiMs ?? AI_TRANSITION_MS,
+      findIntrudable: opts.intrudable ?? (() => null),
+      startMatch: async (a, b) => {
+        started.push({ a: a.name, b: b?.name ?? null });
+        events.push(`start:${a.name}:${b?.name ?? 'ai'}`);
+        return `match-${started.length}`;
+      },
+      abortMatch: (victimKey: string) => {
+        intruded.push(victimKey);
+        events.push(`abort:${victimKey}`);
+      },
+    });
+    return { clock, scheduler, started, intruded, events, maker, queueKey };
+  }
+```
+
+```typescript
+describe('난입 — 원작 GameActivity.java:611-616', () => {
+  const victim: Waiting = { key: 'k-V', name: 'V', level: 10, conn: null };
+
+  it('난입은 이전 판을 먼저 버리고 그다음에 새 매치를 연다', async () => {
+    const h = harness({ intrudable: () => victim });
+    await h.maker.join(player('I'));
+
+    expect(h.started).toEqual([{ a: 'I', b: 'V' }]);
+    expect(h.intruded).toEqual(['k-V']);
+
+    // **순서가 계약이다.** 결과만 보면 뒤집어도 통과한다.
+    //
+    // startMatch 가 먼저 돌면 새 매치가 연결과 타이머를 잡은 뒤에도 이전
+    // AI 러너가 잠시 살아 있다. 그 사이 이전 판의 outbound(REVEAL,
+    // OPPONENT_PROGRESS…)가 같은 클라이언트로 흘러가, 새 판이 시작되자마자
+    // 지난 판의 진행이 섞여 보인다.
+    expect(h.events).toEqual(['abort:k-V', 'start:I:V']);
+  });
+
+  it('난입자는 큐에서 기다리지 않는다', async () => {
+    const h = harness({ intrudable: () => victim });
+    await h.maker.join(player('I'));
+    expect(await h.maker.waitingCount()).toBe(0);
+    // 난입했는데 AI 전환 타이머가 남으면 5 초 뒤 또 매치가 생긴다.
+    expect(h.scheduler.pending).toBe(0);
+  });
+
+  it('큐에 기다리는 사람이 있으면 난입보다 그쪽이 먼저다', async () => {
+    // **시나리오를 시간 순서대로 세워야 한다.** intrudable 이 언제나 victim 을
+    // 돌려주면 A 조차 큐에 서지 못하고 곧바로 난입해 버려서, 검사하려던
+    // 상황(큐에 사람이 있는 채로 누가 들어옴)이 아예 만들어지지 않는다.
+    //
+    // A 가 들어올 때는 AI 판이 없고, B 가 들어올 때는 V 가 AI 와 붙고 있다.
+    let aiMatchExists = false;
+    const h = harness({ intrudable: () => (aiMatchExists ? victim : null) });
+
+    await h.maker.join(player('A'));
+    expect(await h.maker.waitingCount()).toBe(1);   // A 가 실제로 기다리는 중
+
+    aiMatchExists = true;                            // 이제 V 가 AI 와 붙고 있다
+    await h.maker.join(player('B'));
+
+    // 기다리던 A 를 계속 기다리게 하면서 남의 AI 판을 깨면 안 된다.
+    expect(h.started).toEqual([{ a: 'B', b: 'A' }]);
+    expect(h.intruded).toEqual([]);
+    // 난입을 큐 조회보다 앞으로 옮기면 여기가 ['abort:k-V', 'start:B:V'] 가 된다.
+    expect(h.events).toEqual(['start:B:A']);
+  });
+
+  it('난입 대상이 없으면 평소대로 큐에 들어간다', async () => {
+    const h = harness({ intrudable: () => null });
+    await h.maker.join(player('A'));
+    expect(h.started).toEqual([]);
+    expect(await h.maker.waitingCount()).toBe(1);
+  });
+});
+```
+
+- [ ] **Step 2: 실패 확인**
+
+Run: `REDIS_URL=redis://localhost:6379 npx vitest run server/src/match/queue.test.ts`
+Expected: FAIL — `findIntrudable` 이 `MatchmakerPorts` 에 없다는 타입 오류, 그리고 난입 테스트 4개 실패.
+
+- [ ] **Step 3: 구현**
+
+`server/src/match/queue.ts` 의 `MatchmakerPorts` 에 둘을 더한다:
+
+```typescript
+export interface MatchmakerPorts {
+  clock: Clock;
+  scheduler: Scheduler;
+  cache: Cache;
+  queueKey: string;
+  aiTransitionMs?: number;
+  startMatch(a: Waiting, b: Waiting | null): Promise<string>;
+  /** AI 와 붙고 있어 난입할 수 있는 사람. 없으면 null. */
+  findIntrudable(): Waiting | null;
+  /** 그 사람의 진행 중 AI 판을 정산 없이 버린다 (MatchRunner.abort). */
+  abortMatch(victimKey: string): void;
+}
+```
+
+`joinLocked` 의 큐 조회와 대기 등록 사이에 난입을 끼운다:
+
+```typescript
+  private async joinLocked(w: Waiting): Promise<void> {
+    if (this.waiting.has(w.key)) return;
+
+    // 1순위: 큐에서 기다리는 사람.
+    //
+    // **한 번만 꺼내면 안 된다.** 큐에는 본문 없는 고아 키가 남을 수 있다 —
+    // 프로세스가 재시작하면 waiting 은 비지만 Redis 리스트는 살아 있다.
+    // 고아를 하나 버리고 마는 구조에서는, 그 뒤에 실제 대기자가 있어도
+    // 만나지 못하고 둘 다 각자 AI 로 빠진다.
+    //
+    // 큐가 비거나 살아 있는 대기자를 만날 때까지 꺼낸다. 꺼내기만 하고 다시
+    // 넣지 않으므로 반복은 리스트 길이 안에서 끝나고, 그 과정이 곧 고아
+    // 청소가 된다.
+    for (;;) {
+      const opponentKey = await this.ports.cache.listPopLeft(this.ports.queueKey);
+      if (opponentKey === null) break;            // 큐가 비었다
+
+      const opponent = this.waiting.get(opponentKey);
+      if (opponent === undefined) continue;       // 고아 — 버리고 다음 키를 본다
+
+      this.forget(opponentKey);
+      await this.ports.startMatch(w, opponent);
+      return;
+    }
+
+    // 2순위: AI 와 붙고 있는 사람에게 난입.
+    //
+    // 원작은 진행 중인 AI 판을 즉시 끝내고(mGameTime = 40), 난입자를 그 자리에서
+    // 상대로 세우고(setRightCharacter), 결과 화면을 건너뛴다(mResultPass = true).
+    // 코인·경험치 전송이 결과 화면 애니메이션 안에서만 일어나므로 중단된 판은
+    // 코인도 경험치도 0 이다 (GameActivity.java:611-616, GameView.java:3257-3271).
+    // 그래서 abort 는 END 도 onEnd 도 부르지 않는다 — "없던 일이 된다".
+    const victim = this.ports.findIntrudable();
+    if (victim !== null) {
+      this.ports.abortMatch(victim.key);
+      await this.ports.startMatch(w, victim);
+      return;
+    }
+
+    // 3순위: 큐에서 대기, 5 초 뒤 AI.
+    this.waiting.set(w.key, w);
+    await this.ports.cache.listPushRight(this.ports.queueKey, w.key);
+
+    const at = this.ports.clock.now() + this.aiMs;
+    // 콜백이 Promise 를 돌려준다. 스케줄러가 그것까지 기다린다.
+    this.timers.set(w.key, this.ports.scheduler.at(at, () => this.toAi(w.key)));
+  }
+```
+
+- [ ] **Step 4: 통과 확인**
+
+Run: `REDIS_URL=redis://localhost:6379 npx vitest run server/src/match/ && npm run typecheck`
+Expected: PASS — 32 tests (Task 4 의 28 + 난입 4).
+
+**변이로 확인할 것:**
+
+| 변이 | 깨지는 테스트 |
+|---|---|
+| 난입 블록을 큐 조회 **앞으로** 옮김 | `큐에 기다리는 사람이 있으면 난입보다 그쪽이 먼저다` |
+| `abortMatch` 호출 제거 | `난입은 이전 판을 먼저 버리고 그다음에 새 매치를 연다` |
+| `abortMatch` 와 `startMatch` 호출 순서를 맞바꿈 | 같은 테스트의 `h.events` 단언 |
+| 난입 후 `return` 을 빼고 대기 등록까지 진행 | `난입자는 큐에서 기다리지 않는다` |
+
+- [ ] **Step 5: 커밋**
+
+```bash
+git add server/src/match/queue.ts server/src/match/queue.test.ts
+git commit -m "$(cat <<'EOF'
+feat(server): 난입 — 진행 중인 AI 판을 가로챈다
+
+원작에 실제로 구현돼 있다 (GameActivity.java:611-616). 셋이 일어난다.
+진행 중인 AI 판을 즉시 끝내고(mGameTime = 40 은 종료 임계값), 난입자가 그
+자리에서 상대가 되고(setRightCharacter), 결과 화면을 건너뛴다
+(mResultPass = true).
+
+정산은 일어나지 않는다. 코인·경험치 전송이 결과 화면 애니메이션 안에서만
+실행되기 때문이다 (GameView.java:3257-3271). 중단된 AI 판은 코인도 경험치도
+0 이다. Task 1 의 abort() 가 정확히 이것 — END 도 onEnd 도 없이 자원만
+회수한다.
+
+우선순위에서 난입은 두 번째다. 큐에 기다리는 사람이 있으면 그쪽이 먼저다.
+기다리던 사람을 계속 기다리게 하면서 남의 AI 판을 깨는 것은 불공정하다.
+
+버리는 것이 새 매치보다 먼저다. startMatch 가 먼저 돌면 새 매치가 연결과
+타이머를 잡은 뒤에도 이전 AI 러너가 잠시 살아 있고, 그 사이 이전 판의
+outbound 가 같은 클라이언트로 흘러가 새 판이 시작되자마자 지난 판의 진행이
+섞여 보인다. 결과만 보는 단언으로는 이 순서를 지킬 수 없어 테스트 스텁이
+호출 순서를 기록한다.
+
+클라이언트 계약을 하나 정한다. 프로토콜에 "중단" 메시지가 없으므로
+MATCH_FOUND 가 진행 중인 매치를 덮어쓴다. 원작이 결과 화면을 건너뛰고
+배틀룸으로 바로 가는 것과 같은 모양이고 프로토콜을 늘리지 않는다. Plan 5 의
+클라는 MATCH_FOUND 를 받으면 현재 매치를 무조건 버려야 한다.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
+### Task 6: 정산 영속화 — 전적과 프로필
+
+**Files:**
+- Create: `server/src/match/settlement.ts`
+- Test: `server/src/match/settlement.test.ts`
+
+**Interfaces:**
+- Consumes: Plan 3 `Db`; `levelForScore`; Plan 2 `BattleState`·`opponentOf`·`PlayerSlot`; Task 1 `EndPayloads`
+- Produces:
+  - `interface SettlementRow { accountId: string | null; matchId: string; puzzleId: string; result: 'win'|'lose'|'draw'; foundCount: number; opponentFound: number; scoreDelta: number; coinDelta: number; expDelta: number; vsAi: boolean }`
+  - `interface SettlementInputs { state: BattleState; ends: EndPayloads; accountIds: Partial<Record<PlayerSlot, string | null>> }`
+  - `function settlementRows(inputs: SettlementInputs): SettlementRow[]` — **순수 함수.** DB 를 모른다.
+  - `async function persistSettlement(db: Db, row: SettlementRow): Promise<{ level: number; leveledUp: boolean } | null>`
+
+> **매핑을 따로 떼는 이유.** "AI 는 전적을 남기지 않는다", "숫자는 END 페이로드에서 온다", "게스트는 `accountId` 가 null" 은 전부 규칙이지 DB 작업이 아니다. 순수 함수로 두면 Postgres 없이 검증되고, Task 7 이 같은 매핑을 다시 쓰지 않아도 된다.
+
+**원작에는 경험치가 없다.** 정산은 `score = mScore + calculateScore(...)`, `level = getLevel(score)`, `coin = coin + 1` 이고 **레벨이 오른 판에만 스킬 포인트가 1 오른다**(`GameView.java:3255-3271`). 레벨링 통화는 **점수**다. 그대로 따른다:
+
+- `player_profile.total_score += score_delta`
+- `level = levelForScore(total_score)` — `LEVEL_SCORE` 는 v1 의 `balance.js` 를 이식한 것이다
+- **레벨이 올랐으면 `skill_points += 1`**
+- `player_profile.coins += coin_delta`
+- `exp_delta` 는 `match_history` 에 기록만 한다. 프로필에 자리가 없다 — 별도 축으로 만들지는 P1 이 정한다.
+
+**Review Focus 1 — 게스트.** 게스트는 `account` 행이 없다. `match_history.account_id` 는 `account(id)` 를 참조하는 FK 이고(널 허용), `player_profile` 행도 없다. 게스트는 `account_id = NULL` 로 전적만 남기고 프로필 갱신은 건너뛴다.
+
+> **이 계약은 결과로 검사되지 않는다.** 가드를 지워도 `WHERE account_id = NULL` 은 아무 행도 찾지 못해 조용히 `null` 을 돌려주고, 전적 INSERT 는 그대로 성공한다 — 반환값도 남는 행도 똑같다. `player_profile` 을 **건드리지 않았다** 는 사실은 질의 기록으로만 잡힌다.
+
+**Review Focus 2 — `bigint` 가 문자열로 온다.** `player_profile.total_score` 와 `coins` 는 `bigint` 다. node-postgres 는 `int8` 을 **문자열로** 준다 — `"100" + 5 === "1005"` 다. Plan 3 에서 같은 계열(다중 문장 질의가 배열을 돌려주는 것)에 한 번 당했다. **덧셈을 SQL 안에서 하고**, 읽어 온 값은 반드시 `Number(...)` 로 좁힌다. `LEVEL_SCORE` 의 최댓값은 약 6.6 억이라 `Number` 정밀도에 안전하다.
+
+- [ ] **Step 1: 실패하는 테스트 작성**
+
+`server/src/match/settlement.test.ts`:
+
+```typescript
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { createDb, type Db } from '../platform/pg.js';
+import { createAccount } from '../identity/repository.js';
+import { createBattle } from '../battle/state.js';
+import { assignPuzzle } from '../content/assigner.js';
+import { createRng } from '../platform/rng.js';
+import type { EndPayloads } from './runner.js';
+import { persistSettlement, settlementRows, type SettlementRow } from './settlement.js';
+
+// ── settlementRows — 순수 함수라 DB 없이 돈다 ────────────────────────
+describe('정산 행 만들기', () => {
+  const base = createBattle({
+    matchId: 'm1',
+    assignment: assignPuzzle([{
+      id: 'p1', width: 1024, height: 768,
+      rects: Array.from({ length: 7 }, (_, i) => ({
+        index: i, x: 111 + i * 97, y: 211, w: 33, h: 29, sourceDrawable: `p1_${i}`,
+      })),
+    }], createRng(7)),
+    p1: { name: 'A', level: 10, isAi: false },
+    p2: { name: 'B', level: 10, isAi: false },
+  });
+
+  const ends: EndPayloads = {
+    p1: { result: 'win', myFound: 3, opponentFound: 2, score: 700, coinDelta: 5, expDelta: 30 },
+    p2: { result: 'lose', myFound: 2, opponentFound: 3, score: 200, coinDelta: 0, expDelta: 20 },
+  };
+
+  it('사람 둘이면 두 행이 나오고 숫자는 END 페이로드에서 온다', () => {
+    // base 는 갓 만든 상태라 p1.found 도 p2.found 도 비어 있다. 반면 END
+    // 페이로드는 3 / 2 를 말한다. **상태에서 다시 세는 구현이면 0 이 나온다** —
+    // 그래서 이 두 단언이 값의 출처를 못 박는다.
+    expect(base.p1.found).toHaveLength(0);
+    expect(base.p2.found).toHaveLength(0);
+
+    const rows = settlementRows({ state: base, ends, accountIds: {} });
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({
+      result: 'win', foundCount: 3, opponentFound: 2,
+      scoreDelta: 700, coinDelta: 5, expDelta: 30, vsAi: false,
+    });
+    expect(rows[1]).toMatchObject({
+      result: 'lose', foundCount: 2, opponentFound: 3, scoreDelta: 200, coinDelta: 0,
+    });
+  });
+
+  it('AI 슬롯은 행을 만들지 않는다 — 전적은 사람의 것이다', () => {
+    const vsAi = { ...base, p2: { ...base.p2, isAi: true } };
+    const rows = settlementRows({ state: vsAi, ends, accountIds: {} });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.result).toBe('win');
+    // 상대가 AI 였다는 사실은 남은 한 행에 기록된다.
+    expect(rows[0]!.vsAi).toBe(true);
+  });
+
+  it('계정이면 accountId, 게스트면 null 이다', () => {
+    const rows = settlementRows({
+      state: base, ends, accountIds: { p1: 'acc-1', p2: null },
+    });
+    expect(rows[0]!.accountId).toBe('acc-1');
+    expect(rows[1]!.accountId).toBeNull();
+  });
+
+  it('END 페이로드가 없는 슬롯은 건너뛴다 — 값을 지어내지 않는다', () => {
+    const rows = settlementRows({ state: base, ends: { p1: ends.p1 }, accountIds: {} });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.result).toBe('win');
+  });
+});
+
+const url = process.env['DATABASE_URL'];
+const suite = url ? describe : describe.skip;
+
+suite('정산 영속화', () => {
+  let db: Db;
+  let seq = 0;
+  const email = (): string => `s${process.pid}-${++seq}@example.test`;
+  const matchId = (): string => `m-${process.pid}-${++seq}`;
+
+  beforeAll(async () => {
+    db = createDb(url!);
+    await db.query(readFileSync(resolve(import.meta.dirname, '../../sql/001_init.sql'), 'utf8'));
+  });
+  afterAll(async () => { await db.close(); });
+
+  async function newAccount(): Promise<string> {
+    const { accountId } = await createAccount(db, {
+      email: email(), passwordHash: 'h', nickname: 'n', characterId: 0,
+    });
+    return accountId;
+  }
+
+  /**
+   * 질의 종류만 기록하는 Db 래퍼. 실제 질의는 그대로 흘려보낸다.
+   *
+   * "무엇을 하지 않았는가" 와 "어떤 순서로 했는가" 는 결과 값으로 잡히지
+   * 않는다. 이 저장소에서 반복해서 당한 형태라, 두 계약 모두 호출 기록으로
+   * 본다.
+   */
+  function recording(inner: Db, seen: string[]): Db {
+    const note = (sql: string): void => {
+      if (/player_profile/i.test(sql)) seen.push('profile');
+      if (/match_history/i.test(sql)) seen.push('history');
+    };
+    return {
+      query<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<T[]> {
+        note(sql);
+        return inner.query<T>(sql, params);
+      },
+      tx<T>(fn: (d: Db) => Promise<T>): Promise<T> {
+        return inner.tx((t) => fn(recording(t, seen)));
+      },
+      close(): Promise<void> { return inner.close(); },
+    };
+  }
+
+  const row = (over: Partial<SettlementRow> = {}): SettlementRow => ({
+    accountId: null, matchId: matchId(), puzzleId: 'a0001',
+    result: 'win', foundCount: 3, opponentFound: 2,
+    scoreDelta: 100, coinDelta: 5, expDelta: 30, vsAi: false,
+    ...over,
+  });
+
+  it('전적을 남긴다', async () => {
+    const accountId = await newAccount();
+    const r = row({ accountId });
+    await persistSettlement(db, r);
+
+    const [saved] = await db.query<{ result: string; found_count: number; vs_ai: boolean }>(
+      `SELECT result, found_count, vs_ai FROM match_history WHERE match_id = $1`, [r.matchId],
+    );
+    expect(saved).toMatchObject({ result: 'win', found_count: 3, vs_ai: false });
+  });
+
+  it('프로필의 점수와 코인이 더해진다 — bigint 를 문자열로 이어붙이면 안 된다', async () => {
+    const accountId = await newAccount();
+    await persistSettlement(db, row({ accountId, scoreDelta: 100, coinDelta: 5 }));
+    await persistSettlement(db, row({ accountId, scoreDelta: 30, coinDelta: 2 }));
+
+    const [p] = await db.query<{ total_score: string; coins: string }>(
+      `SELECT total_score, coins FROM player_profile WHERE account_id = $1`, [accountId],
+    );
+    // 문자열 연결이었다면 "100" + "30" = "10030" 이 된다.
+    expect(Number(p!.total_score)).toBe(130);
+    expect(Number(p!.coins)).toBe(7);
+  });
+
+  it('레벨이 점수에서 다시 계산된다', async () => {
+    const accountId = await newAccount();
+    const out = await persistSettlement(db, row({ accountId, scoreDelta: 0 }));
+    expect(out).not.toBeNull();
+    expect(out!.level).toBe(1);
+    expect(out!.leveledUp).toBe(false);
+  });
+
+  it('레벨이 오른 판에만 스킬 포인트가 1 오른다 — 원작 GameView.java:3265-3267', async () => {
+    const accountId = await newAccount();
+
+    // LEVEL_SCORE[1] 을 확실히 넘기는 점수. 레벨이 오른다.
+    const up = await persistSettlement(db, row({ accountId, scoreDelta: 1_000_000 }));
+    expect(up!.leveledUp).toBe(true);
+
+    const [afterUp] = await db.query<{ skill_points: number }>(
+      `SELECT skill_points FROM player_profile WHERE account_id = $1`, [accountId],
+    );
+    expect(afterUp!.skill_points).toBe(1);
+
+    // 같은 레벨에 머무는 작은 점수. 포인트는 그대로여야 한다.
+    const flat = await persistSettlement(db, row({ accountId, scoreDelta: 1 }));
+    expect(flat!.leveledUp).toBe(false);
+
+    const [afterFlat] = await db.query<{ skill_points: number }>(
+      `SELECT skill_points FROM player_profile WHERE account_id = $1`, [accountId],
+    );
+    expect(afterFlat!.skill_points).toBe(1);
+  });
+
+  it('게스트는 전적만 남기고 프로필을 아예 조회하지 않는다 — account 행이 없다', async () => {
+    const r = row({ accountId: null });
+    const seen: string[] = [];
+
+    // FK 위반으로 던지면 매치 종료 경로 전체가 죽는다.
+    await expect(persistSettlement(recording(db, seen), r)).resolves.toBeNull();
+
+    const [saved] = await db.query<{ account_id: string | null }>(
+      `SELECT account_id FROM match_history WHERE match_id = $1`, [r.matchId],
+    );
+    expect(saved!.account_id).toBeNull();
+
+    // **이 단언이 가드를 잡는다.** accountId === null 가드를 지우면
+    // WHERE account_id = NULL 로 player_profile 을 조회하게 되는데, 그 조건은
+    // 아무 행도 찾지 못해 조용히 null 을 돌려준다 — 반환값도 전적도 똑같다.
+    // 결과로는 구별되지 않고, "건드리지 않았다" 는 기록으로만 잡힌다.
+    expect(seen).toEqual(['history']);
+  });
+
+  it('전적과 프로필이 한 트랜잭션이다', async () => {
+    const accountId = await newAccount();
+    // result 제약(win/lose/draw)을 어기면 전적 INSERT 가 터진다.
+    // 프로필이 먼저 갱신되고 트랜잭션이 없으면 점수만 오른 채 남는다.
+    await expect(persistSettlement(db, {
+      ...row({ accountId }), result: 'victory' as 'win',
+    })).rejects.toThrow();
+
+    const [p] = await db.query<{ total_score: string }>(
+      `SELECT total_score FROM player_profile WHERE account_id = $1`, [accountId],
+    );
+    expect(Number(p!.total_score)).toBe(0);
+  });
+
+  it('프로필 갱신이 전적 INSERT 보다 먼저 일어난다 — tx 검사를 무력화하지 않기 위한 순서', async () => {
+    const accountId = await newAccount();
+    const seen: string[] = [];
+
+    await persistSettlement(recording(db, seen), row({ accountId }));
+
+    // 순서를 뒤집으면 `전적과 프로필이 한 트랜잭션이다` 가 db.tx 를 지워도
+    // 통과하게 된다 — 검사가 조용히 무력화된다. 그래서 순서 자체를 못 박는다.
+    expect(seen[0]).toBe('profile');
+    expect(seen).toContain('history');
+    expect(seen.indexOf('profile')).toBeLessThan(seen.indexOf('history'));
+  });
+
+  it('점수는 음수로 내려가지 않는다 — CHECK 제약을 어기면 정산이 죽는다', async () => {
+    const accountId = await newAccount();
+    const out = await persistSettlement(db, row({ accountId, scoreDelta: -500, coinDelta: 0 }));
+    const [p] = await db.query<{ total_score: string }>(
+      `SELECT total_score FROM player_profile WHERE account_id = $1`, [accountId],
+    );
+    expect(Number(p!.total_score)).toBe(0);
+    expect(out!.level).toBe(1);
+  });
+});
+```
+
+- [ ] **Step 2: 실패 확인**
+
+Run: `DATABASE_URL=postgres://findit:findit@localhost:5432/findit npx vitest run server/src/match/settlement.test.ts`
+Expected: FAIL — `Cannot find module './settlement.js'`
+
+- [ ] **Step 3: 구현**
+
+`server/src/match/settlement.ts`:
+
+```typescript
+import type { Db } from '../platform/pg.js';
+import { levelForScore } from '../rules/levels.js';
+import { opponentOf, type BattleState, type PlayerSlot } from '../battle/state.js';
+import type { EndPayloads } from './runner.js';
+
+export interface SettlementRow {
+  /** 게스트는 null. account 행이 없으므로 FK 에 넣을 수 없다. */
+  accountId: string | null;
+  matchId: string;
+  puzzleId: string;
+  result: 'win' | 'lose' | 'draw';
+  foundCount: number;
+  opponentFound: number;
+  scoreDelta: number;
+  coinDelta: number;
+  expDelta: number;
+  vsAi: boolean;
+}
+
+export interface SettlementInputs {
+  state: BattleState;
+  /** 리듀서가 만든 슬롯별 END 페이로드. 점수·코인·경험치가 여기 있다. */
+  ends: EndPayloads;
+  /** 슬롯별 계정 id. 게스트는 null, AI 는 아예 없다. */
+  accountIds: Partial<Record<PlayerSlot, string | null>>;
+}
+
+/**
+ * 끝난 매치를 전적 행으로 옮긴다. **순수 함수다** — DB 를 모른다.
+ *
+ * **숫자는 전부 END 페이로드에서 온다.** 상태에서 다시 세거나 계산하지
+ * 않는다. 두 가지 이유가 있다.
+ *
+ * 첫째, 클라가 결과 화면에서 본 숫자와 전적에 남는 숫자가 갈라지면 안 된다.
+ * 지금은 리듀서가 같은 상태로 END 를 만들므로 두 값이 같지만, 한쪽만 바뀌는
+ * 날이 오면 그때부터 조용히 어긋난다.
+ *
+ * 둘째, 점수는 애초에 상태에서 복원할 수 없다. 콤보 보너스가 정산 시점의
+ * live 콤보 한 번 조회라서, 상태를 훑어 재계산하면 원작과 다른 값이 나온다
+ * (Plan 2 에서 그 실수로 점수가 3 배가 됐다).
+ *
+ * 예외는 vsAi 하나다 — END 가 싣지 않는 정보라 상태에서 읽는다.
+ */
+export function settlementRows(inputs: SettlementInputs): SettlementRow[] {
+  const { state, ends, accountIds } = inputs;
+  const rows: SettlementRow[] = [];
+
+  for (const slot of ['p1', 'p2'] as const) {
+    const me = state[slot];
+    if (me.isAi) continue;                 // 전적은 사람의 것이다
+
+    // 러너는 종료 시 양쪽 END 를 모두 만든다. 없다면 내부 결함이므로
+    // 값을 지어내지 않고 건너뛴다.
+    const payload = ends[slot];
+    if (payload === undefined) continue;
+
+    const other = state[opponentOf(slot)];
+    rows.push({
+      accountId: accountIds[slot] ?? null,
+      matchId: state.matchId,
+      puzzleId: state.puzzleId,
+      // **숫자는 전부 END 페이로드에서 온다.** 상태에서 다시 세지 않는다 —
+      // 클라가 결과 화면에서 본 숫자와 전적에 남는 숫자가 갈라지면 안 된다.
+      // 지금은 두 값이 같지만(리듀서가 같은 상태로 END 를 만든다), 한쪽만
+      // 바뀌는 날이 오면 그때부터 조용히 어긋난다.
+      result: payload['result'] as 'win' | 'lose' | 'draw',
+      foundCount: Number(payload['myFound']),
+      opponentFound: Number(payload['opponentFound']),
+      scoreDelta: Number(payload['score']),
+      coinDelta: Number(payload['coinDelta']),
+      expDelta: Number(payload['expDelta']),
+      // vsAi 만 상태에서 온다. END 가 싣지 않는 정보다.
+      vsAi: other.isAi,
+    });
+  }
+
+  return rows;
+}
+
+/**
+ * 한 사람의 정산을 기록한다.
+ *
+ * 원작에는 경험치가 없다. 레벨링 통화는 점수이고, 레벨이 오른 판에만 스킬
+ * 포인트가 1 오른다 (GameView.java:3255-3271 의 `if (prelevel < level) point++`).
+ * exp_delta 는 전적에 기록만 하고 프로필에는 자리가 없다 — 별도 축으로 만들지는
+ * P1 이 정한다.
+ *
+ * 게스트(accountId === null)는 전적만 남기고 null 을 돌려준다. account 행이
+ * 없으므로 프로필이 존재할 수 없다.
+ */
+export async function persistSettlement(
+  db: Db,
+  row: SettlementRow,
+): Promise<{ level: number; leveledUp: boolean } | null> {
+  return db.tx(async (tx) => {
+    const profile = row.accountId === null
+      ? null
+      : await updateProfile(tx, row.accountId, row);
+
+    // **전적을 프로필 뒤에 넣는다.** 트랜잭션 안에서는 순서가 결과를 바꾸지
+    // 않지만, 이 순서라야 "전적이 실패했는데 점수만 올랐다" 를 테스트가 실제로
+    // 잡을 수 있다. 전적을 먼저 넣으면 그 INSERT 가 터질 때 프로필은 애초에
+    // 손대지 않았으므로, db.tx 를 통째로 벗겨도 테스트가 통과한다.
+    await tx.query(
+      `INSERT INTO match_history(
+         match_id, account_id, puzzle_id, result,
+         found_count, opponent_found, score_delta, coin_delta, exp_delta, vs_ai)
+       VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      [
+        row.matchId, row.accountId, row.puzzleId, row.result,
+        row.foundCount, row.opponentFound, row.scoreDelta, row.coinDelta,
+        row.expDelta, row.vsAi,
+      ],
+    );
+
+    return profile;
+  });
+}
+
+/** accountId 를 따로 받는다 — 게스트 분기를 호출부에서 끝내고 여기서는 null 을 다루지 않는다. */
+async function updateProfile(
+  tx: Db,
+  accountId: string,
+  row: SettlementRow,
+): Promise<{ level: number; leveledUp: boolean } | null> {
+  // 같은 계정의 두 정산이 겹치면 레벨업 판정이 어긋난다. 행을 잠근다.
+  const [current] = await tx.query<{ total_score: string }>(
+    `SELECT total_score FROM player_profile WHERE account_id = $1 FOR UPDATE`,
+    [accountId],
+  );
+  // 계정에는 프로필이 반드시 함께 생긴다 (Plan 3 의 createAccount 가 한
+  // 트랜잭션으로 만든다). 없다면 데이터가 깨진 것이므로 조용히 넘어간다.
+  if (current === undefined) return null;
+
+  // int8 은 node-postgres 가 문자열로 준다. Number 로 좁히지 않으면
+  // 아래 비교와 levelForScore 가 문자열을 받는다.
+  const beforeLevel = levelForScore(Number(current.total_score));
+
+  // **덧셈을 SQL 안에서 한다.** JS 로 가져와 더하면 "100" + 30 이 "10030" 이
+  // 된다. GREATEST 는 CHECK (>= 0) 를 지킨다 — 음수 점수 한 번이 정산 경로
+  // 전체를 멈추게 하면 안 된다.
+  const [updated] = await tx.query<{ total_score: string }>(
+    `UPDATE player_profile
+        SET total_score = GREATEST(0, total_score + $2),
+            coins       = GREATEST(0, coins + $3),
+            updated_at  = now()
+      WHERE account_id = $1
+      RETURNING total_score`,
+    [accountId, row.scoreDelta, row.coinDelta],
+  );
+
+  const level = levelForScore(Number(updated!.total_score));
+  const leveledUp = level > beforeLevel;
+
+  // level 컬럼도 맞춰 둔다. 조회가 매번 levelForScore 를 돌리지 않아도 된다.
+  // 원작과 같이 레벨이 오른 판에만 스킬 포인트가 1 오른다
+  // (GameView.java:3265-3267 의 `if (prelevel < level) point++`).
+  await tx.query(
+    `UPDATE player_profile
+        SET level = $2, skill_points = skill_points + $3
+      WHERE account_id = $1`,
+    [accountId, level, leveledUp ? 1 : 0],
+  );
+
+  return { level, leveledUp };
+}
+```
+
+> **수치를 확인해 뒀다.** `levelForScore(0) = 1`, `levelForScore(130) = 1`, `levelForScore(1_000_000) = 32`, `levelForScore(1_000_001) = 32`, 최댓값 `100`. `LEVEL_SCORE` 는 101 칸이고 `[0, 5000, 10000, 15000, ...]` 로 시작한다. 따라서 테스트의 `scoreDelta: 1_000_000` 은 확실히 레벨을 올리고, 이어지는 `scoreDelta: 1` 은 같은 레벨에 머문다. `player_profile.level` 의 `CHECK (level BETWEEN 1 AND 100)` 도 항상 만족한다.
+
+- [ ] **Step 4: 통과 확인**
+
+Run: `DATABASE_URL=postgres://findit:findit@localhost:5432/findit npx vitest run server/src/match/settlement.test.ts && npm run typecheck`
+Expected: PASS — **12 tests** (순수 4 + DB 8).
+
+순수 4 개는 `DATABASE_URL` 없이도 돈다. Postgres 를 주지 않았을 때
+`4 passed / 8 skipped` 가 나오면 정상이고, CI 에서는 skip 이 0 이어야 한다.
+
+**변이로 확인할 것:**
+
+| 변이 | 깨지는 테스트 |
+|---|---|
+| SQL 덧셈을 JS 덧셈으로 (`total_score: before + delta` 를 값으로 전달) | `프로필의 점수와 코인이 더해진다` |
+| `leveledUp` 분기 제거 (항상 `skill_points + 1`) | `레벨이 오른 판에만 스킬 포인트가 1 오른다` |
+| `db.tx` 를 벗기고 순차 실행 | `전적과 프로필이 한 트랜잭션이다` |
+| 전적 INSERT 를 프로필 UPDATE **앞으로** 옮김 | `프로필 갱신이 전적 INSERT 보다 먼저 일어난다` |
+| `settlementRows` 의 `me.isAi` 건너뛰기 제거 | `AI 슬롯은 행을 만들지 않는다` |
+| `accountIds[slot] ?? null` → 항상 `null` | `계정이면 accountId, 게스트면 null 이다` |
+| `foundCount` 를 `me.found.length` 로 되돌림 | `사람 둘이면 두 행이 나오고 숫자는 END 페이로드에서 온다` |
+
+> **순서 변경은 단독으로는 `전적과 프로필이 한 트랜잭션이다` 를 깨뜨리지 않는다.** 트랜잭션이 살아 있는 한 어느 순서든 롤백되기 때문이다. 순서가 중요한 이유는 그 검사를 **살려 두기 위해서**다 — 순서를 뒤집고 `db.tx` 까지 지우면 둘 다 통과해 버린다. 그래서 순서 자체를 별도 테스트로 못 박았다.
+| `accountId === null` 가드 제거 | `게스트는 전적만 남기고 프로필을 아예 조회하지 않는다` |
+| `GREATEST(0, ...)` 제거 | `점수는 음수로 내려가지 않는다` (CHECK 위반) |
+
+- [ ] **Step 5: 커밋**
+
+```bash
+git add server/src/match/settlement.ts server/src/match/settlement.test.ts
+git commit -m "$(cat <<'EOF'
+feat(server): 정산 영속화 — 전적과 프로필
+
+원작에는 경험치가 없다. 정산은 score = mScore + calculateScore(...),
+level = getLevel(score), coin = coin + 1 이고 레벨이 오른 판에만 스킬
+포인트가 1 오른다 (GameView.java:3255-3271 의 if (prelevel < level) point++).
+레벨링 통화는 점수다. 그대로 따른다. exp_delta 는 전적에 기록만 하고
+프로필에는 자리가 없다 — 별도 축으로 만들지는 P1 이 정한다.
+
+덧셈을 SQL 안에서 한다. player_profile.total_score 와 coins 는 bigint 이고
+node-postgres 는 int8 을 문자열로 준다. JS 로 가져와 더하면 "100" + 30 이
+"10030" 이 된다. Plan 3 에서 같은 계열(다중 문장 질의가 배열을 돌려주는 것)에
+한 번 당했다. 읽어 오는 값도 전부 Number 로 좁힌다.
+
+게스트는 전적만 남기고 프로필을 건드리지 않는다. account 행이 없으므로
+match_history.account_id FK 에 넣을 수 없고 player_profile 행도 없다. 그대로
+INSERT 하면 FK 위반으로 터지면서 매치 종료 경로 전체가 죽는다.
+
+전적과 프로필을 한 트랜잭션으로 묶고, 전적 INSERT 를 프로필 UPDATE 뒤에
+둔다. 트랜잭션 안에서는 순서가 결과를 바꾸지 않지만, 이 순서라야 "전적이
+실패했는데 점수만 올랐다" 를 테스트가 실제로 잡는다 — 전적을 먼저 넣으면
+그 INSERT 가 터질 때 프로필은 애초에 손대지 않았으므로 db.tx 를 통째로
+벗겨도 테스트가 통과한다.
+
+GREATEST(0, ...) 로 음수를 막는다. player_profile 에 CHECK (>= 0) 이 걸려
+있어, 음수 점수 한 번이 정산 경로 전체를 멈춘다.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
+### Task 7: 배선 — 부팅과 2-클라이언트 통합 테스트
+
+**Files:**
+- Create: `server/src/match/wiring.ts`, `server/src/match/wiring.test.ts`
+- Modify: `server/src/main.ts`
+- Modify: `server/src/match/runner.ts`, `server/src/match/runner.test.ts` — `start()` 가 AI 슬롯을 ready 로 만든다 (Task 1 로 거슬러 올라가는 수정)
+
+**Interfaces:**
+- Consumes: Task 1~6 전부
+- Produces: `function createRealtime(deps: RealtimeDeps): { attach(server: Server): void; close(): Promise<void> }`
+
+**여기서 처음으로 전부 맞물린다.** 지금까지 각 조각은 포트 뒤에서 혼자 돌았다. 배선층이 하는 일은 넷이다.
+
+1. `GameInput` + `conn.session.slot` → `BattleEvent` — **슬롯을 채우는 유일한 곳**이다.
+2. `Outbound.to` → 그 슬롯의 연결 → `conn.send`.
+3. 매치 생성: `assignPuzzle` → `createBattle` → `MatchRunner` → `registry.add` → `index.put` → 양쪽에 `MATCH_FOUND`.
+4. 매치 종료: `settlementRows`(순수 매핑) → `persistSettlement` → `registry.remove` → `index.drop`.
+
+**Review Focus 5 — 양쪽이 다 끊긴 매치.** 두 연결이 모두 닫히면 리듀서는 `LEAVE` 로 매치를 끝내지만, 러너의 타이머·레지스트리 항목·Redis `match:{id}` 키가 남으면 누수다. 서버가 오래 돌수록 쌓인다. **끝난 매치는 반드시 셋 다 회수한다.**
+
+**AI 상대에게는 연결이 없다.** `send` 가 AI 슬롯으로 향하면 조용히 버린다. 이것이 없으면 AI 매치의 모든 `REVEAL` 이 `undefined.send` 로 터진다.
+
+**정산 대상은 사람뿐이다.** AI 슬롯은 `match_history` 에 넣지 않는다 — 그 규칙은 Task 6 의 `settlementRows` 안에 있고 거기서 단위 테스트된다. 배선은 자리에서 계정 id 만 채워 넘긴다.
+
+- [ ] **Step 1: 실패하는 테스트 작성**
+
+`server/src/match/wiring.test.ts` — **진짜 WS 클라이언트 둘로 한 판을 끝까지 친다.**
+
+```typescript
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import WebSocket from 'ws';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { createDb, type Db } from '../platform/pg.js';
+import { createCache, type Cache } from '../platform/redis.js';
+import { SystemClock } from '../platform/clock.js';
+import { createRng } from '../platform/rng.js';
+import { loadPuzzles } from '../content/loader.js';
+import { createContentUrls } from '../content/urls.js';
+import { createRealtime } from './wiring.js';
+
+const dbUrl = process.env['DATABASE_URL'];
+const redisUrl = process.env['REDIS_URL'];
+const suite = dbUrl && redisUrl ? describe : describe.skip;
+
+suite('2-클라이언트 통합', () => {
+  let db: Db;
+  let cache: Cache;
+  let server: Server;
+  let realtime: ReturnType<typeof createRealtime>;
+  let url = '';
+  let run = 0;
+
+  beforeEach(async () => {
+    run += 1;
+    db = createDb(dbUrl!);
+    await db.query(readFileSync(resolve(import.meta.dirname, '../../sql/001_init.sql'), 'utf8'));
+    cache = createCache(redisUrl!, () => {});
+
+    const clock = new SystemClock();
+    const contentDir = resolve(import.meta.dirname, '../../../content');
+    const puzzles = loadPuzzles(resolve(contentDir, 'puzzles'));
+
+    realtime = createRealtime({
+      db, cache, clock,
+      rng: createRng(1234),
+      puzzles,
+      urls: createContentUrls({ secret: 's'.repeat(32), ttlMs: 300_000, clock }),
+      log: { error: () => {} },
+      queueKey: `findit:test:wire:${process.pid}:${run}`,
+      // 통합 테스트에서 5초를 실제로 기다리지 않는다.
+      aiTransitionMs: 150,
+      // 게스트 토큰을 그대로 신뢰하는 검증기. 인증은 Task 3 이 검사한다.
+      verify: async (token: string) =>
+        token.startsWith('g-') ? { kind: 'guest', guestId: token } : null,
+    });
+
+    server = createServer();
+    realtime.attach(server);
+    await new Promise<void>((r) => server.listen(0, r));
+    url = `ws://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  });
+
+  afterEach(async () => {
+    await realtime.close();
+    await new Promise<void>((r) => server.close(() => r()));
+    await Promise.allSettled([db.close(), cache.close()]);
+  });
+
+  interface Client {
+    ws: WebSocket;
+    seen: { t: string; d: Record<string, unknown> }[];
+    waitFor(t: string, ms?: number): Promise<Record<string, unknown>>;
+    send(t: string, d?: Record<string, unknown>): void;
+    close(): void;
+  }
+
+  async function connect(token: string): Promise<Client> {
+    const ws = new WebSocket(url);
+    const seen: { t: string; d: Record<string, unknown> }[] = [];
+    await new Promise<void>((r, j) => { ws.once('open', () => r()); ws.once('error', j); });
+    ws.on('message', (raw) => { seen.push(JSON.parse(String(raw))); });
+
+    const client: Client = {
+      ws, seen,
+      send(t, d = {}) { ws.send(JSON.stringify({ t, seq: 1, d })); },
+      close() { ws.close(); },
+      async waitFor(t, ms = 4_000) {
+        const deadline = Date.now() + ms;
+        for (;;) {
+          const hit = seen.find((m) => m.t === t);
+          if (hit) return hit.d;
+          if (Date.now() > deadline) {
+            throw new Error(`${t} 를 기다리다 시간 초과. 받은 것: ${seen.map((m) => m.t).join(',')}`);
+          }
+          await new Promise((r) => setTimeout(r, 20));
+        }
+      },
+    };
+    client.send('AUTH', { token });
+    await client.waitFor('QUEUED');
+    return client;
+  }
+
+  it('두 사람이 큐에서 만나 매치가 시작된다', async () => {
+    const a = await connect('g-a');
+    const b = await connect('g-b');
+    a.send('QUEUE_JOIN', { mode: 'casual' });
+    b.send('QUEUE_JOIN', { mode: 'casual' });
+
+    const [fa, fb] = await Promise.all([a.waitFor('MATCH_FOUND'), b.waitFor('MATCH_FOUND')]);
+    expect(fa['matchId']).toBe(fb['matchId']);
+    expect(fa['isAi']).toBe(false);
+    a.close(); b.close();
+  });
+
+  it('양쪽 READY 로 카운트다운과 START 가 온다', async () => {
+    const a = await connect('g-a');
+    const b = await connect('g-b');
+    a.send('QUEUE_JOIN', { mode: 'casual' });
+    b.send('QUEUE_JOIN', { mode: 'casual' });
+    await Promise.all([a.waitFor('MATCH_FOUND'), b.waitFor('MATCH_FOUND')]);
+
+    a.send('READY'); b.send('READY');
+    const start = await a.waitFor('START', 6_000);
+    expect(start['targetCount']).toBe(5);
+    // 스펙 §6.3 — 좌표는 나가지 않는다.
+    expect(JSON.stringify(start)).not.toContain('rects');
+    expect(start).not.toHaveProperty('targetIndices');
+    a.close(); b.close();
+  });
+
+  it('START 의 imageUrl 이 이 매치의 서명 URL 이고, 매치 인덱스가 Redis 에 있다', async () => {
+    const a = await connect('g-a');
+    const b = await connect('g-b');
+    a.send('QUEUE_JOIN', { mode: 'casual' });
+    b.send('QUEUE_JOIN', { mode: 'casual' });
+    const found = await a.waitFor('MATCH_FOUND');
+    a.send('READY'); b.send('READY');
+    const start = await a.waitFor('START', 6_000);
+
+    expect(String(start['imageUrl'])).toContain(String(found['matchId']));
+    // Plan 3 의 콘텐츠 라우트가 이 키로 퍼즐을 찾는다. 없으면 이미지가 404 다.
+    expect(await cache.get(`findit:match:${String(found['matchId'])}`))
+      .toBe(String(start['puzzleId']));
+    a.close(); b.close();
+  });
+
+  it('혼자 들어가면 AI 와 붙고, 상대 진행이 흘러온다', async () => {
+    const a = await connect('g-solo');
+    a.send('QUEUE_JOIN', { mode: 'casual' });
+
+    const found = await a.waitFor('MATCH_FOUND');
+    expect(found['isAi']).toBe(true);
+
+    a.send('READY');
+    await a.waitFor('START', 6_000);
+    // AI 는 상대 연결 없이도 스스로 움직인다. 그 진행이 사람에게 보여야 한다.
+    await a.waitFor('OPPONENT_PROGRESS', 15_000);
+    a.close();
+  }, 25_000);
+
+  it('상대가 나가면 남은 사람이 END 를 받는다', async () => {
+    const a = await connect('g-a');
+    const b = await connect('g-b');
+    a.send('QUEUE_JOIN', { mode: 'casual' });
+    b.send('QUEUE_JOIN', { mode: 'casual' });
+    await Promise.all([a.waitFor('MATCH_FOUND'), b.waitFor('MATCH_FOUND')]);
+    a.send('READY'); b.send('READY');
+    await a.waitFor('START', 6_000);
+
+    b.send('LEAVE');
+    const end = await a.waitFor('END', 6_000);
+    expect(end['result']).toBe('win');
+    a.close(); b.close();
+  });
+
+  it('게스트의 전적이 남는다 — account 행이 없어도 정산이 죽지 않는다', async () => {
+    const a = await connect('g-a');
+    const b = await connect('g-b');
+    a.send('QUEUE_JOIN', { mode: 'casual' });
+    b.send('QUEUE_JOIN', { mode: 'casual' });
+    const found = await a.waitFor('MATCH_FOUND');
+    a.send('READY'); b.send('READY');
+    await a.waitFor('START', 6_000);
+    b.send('LEAVE');
+    await a.waitFor('END', 6_000);
+    await new Promise((r) => setTimeout(r, 300));
+
+    const rows = await db.query<{ account_id: string | null }>(
+      `SELECT account_id FROM match_history WHERE match_id = $1`,
+      [String(found['matchId'])],
+    );
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows[0]!.account_id).toBeNull();
+    a.close(); b.close();
+  });
+
+  it('끝난 매치는 레지스트리와 Redis 에서 사라진다 — 누수', async () => {
+    const a = await connect('g-a');
+    const b = await connect('g-b');
+    a.send('QUEUE_JOIN', { mode: 'casual' });
+    b.send('QUEUE_JOIN', { mode: 'casual' });
+    const found = await a.waitFor('MATCH_FOUND');
+    a.send('READY'); b.send('READY');
+    await a.waitFor('START', 6_000);
+    b.send('LEAVE');
+    await a.waitFor('END', 6_000);
+    await new Promise((r) => setTimeout(r, 300));
+
+    expect(realtime.matchCount).toBe(0);
+    expect(await cache.get(`findit:match:${String(found['matchId'])}`)).toBeNull();
+    a.close(); b.close();
+  });
+
+  it('양쪽이 다 끊겨도 매치가 회수된다', async () => {
+    const a = await connect('g-a');
+    const b = await connect('g-b');
+    a.send('QUEUE_JOIN', { mode: 'casual' });
+    b.send('QUEUE_JOIN', { mode: 'casual' });
+    await Promise.all([a.waitFor('MATCH_FOUND'), b.waitFor('MATCH_FOUND')]);
+    a.send('READY'); b.send('READY');
+    await a.waitFor('START', 6_000);
+
+    // 아무에게도 END 를 보낼 수 없는 상황. 그래도 자원은 반드시 돌아와야 한다.
+    a.ws.terminate();
+    b.ws.terminate();
+    await new Promise((r) => setTimeout(r, 500));
+
+    expect(realtime.matchCount).toBe(0);
+  });
+
+  it('AI 와 붙고 있는 사람에게 난입하면 두 사람의 새 매치가 시작된다', async () => {
+    const solo = await connect('g-solo');
+    solo.send('QUEUE_JOIN', { mode: 'casual' });
+    const aiMatch = await solo.waitFor('MATCH_FOUND');
+    expect(aiMatch['isAi']).toBe(true);
+
+    const intruder = await connect('g-in');
+    intruder.send('QUEUE_JOIN', { mode: 'casual' });
+
+    const forIntruder = await intruder.waitFor('MATCH_FOUND');
+    expect(forIntruder['isAi']).toBe(false);
+
+    // 난입당한 쪽에도 새 MATCH_FOUND 가 간다. 프로토콜에 "중단" 메시지가
+    // 없으므로 MATCH_FOUND 가 진행 중인 매치를 덮어쓴다 — 원작이 결과 화면을
+    // 건너뛰고 배틀룸으로 바로 가는 것과 같은 모양이다.
+    const second = solo.seen.filter((m) => m.t === 'MATCH_FOUND');
+    await new Promise((r) => setTimeout(r, 200));
+    expect(solo.seen.filter((m) => m.t === 'MATCH_FOUND').length).toBeGreaterThan(1);
+    expect(second.length).toBeGreaterThan(0);
+
+    // 중단된 AI 판은 없던 일이 된다 — 정산이 없어야 한다.
+    const rows = await db.query(
+      `SELECT 1 FROM match_history WHERE match_id = $1`, [String(aiMatch['matchId'])],
+    );
+    expect(rows).toHaveLength(0);
+    solo.close(); intruder.close();
+  }, 15_000);
+
+  it('전적에 리듀서가 계산한 점수가 그대로 들어간다 — 0 이 아니다', async () => {
+    const a = await connect('g-a');
+    const b = await connect('g-b');
+    a.send('QUEUE_JOIN', { mode: 'casual' });
+    b.send('QUEUE_JOIN', { mode: 'casual' });
+    const found = await a.waitFor('MATCH_FOUND');
+    a.send('READY'); b.send('READY');
+    await a.waitFor('START', 6_000);
+
+    b.send('LEAVE');
+    const end = await a.waitFor('END', 6_000);
+    await new Promise((r) => setTimeout(r, 300));
+
+    const rows = await db.query<{ score_delta: number; coin_delta: number }>(
+      `SELECT score_delta, coin_delta FROM match_history
+        WHERE match_id = $1 AND result = 'win'`,
+      [String(found['matchId'])],
+    );
+    expect(rows).toHaveLength(1);
+    // END 가 클라에 보낸 값과 DB 에 남은 값이 같아야 한다. 자리표시자 0 을
+    // 넣어 두면 여기서 걸린다.
+    expect(rows[0]!.score_delta).toBe(Number(end['score']));
+    expect(rows[0]!.coin_delta).toBe(Number(end['coinDelta']));
+    a.close(); b.close();
+  });
+
+  it('p2 의 탭이 p2 의 점수가 된다 — 슬롯이 뒤바뀌지 않는다', async () => {
+    const a = await connect('g-a');
+    const b = await connect('g-b');
+    a.send('QUEUE_JOIN', { mode: 'casual' });
+    b.send('QUEUE_JOIN', { mode: 'casual' });
+    await Promise.all([a.waitFor('MATCH_FOUND'), b.waitFor('MATCH_FOUND')]);
+    a.send('READY'); b.send('READY');
+    const start = await a.waitFor('START', 6_000);
+
+    // **"빈 곳" 을 하드코딩하면 안 된다.** 어떤 퍼즐이 뽑힐지는 시드에
+    // 달렸고, 실제로 (1,1) 을 덮는 rect 가 있다 — 시드 1234 는 a0003 을
+    // 고르고 그 index 7 rect 가 (0,0,90,130) 이다. 그러면 LOCK 대신
+    // REVEAL 이 와서 테스트가 시드에 따라 흔들린다.
+    //
+    // 이미지 밖은 어떤 rect 에도 들지 않는다 (추출된 262 개 rect 가 전부
+    // 퍼즐 경계 안임을 확인했다). START 가 준 크기에서 계산한다.
+    const miss = {
+      x: Number(start['width']) + 1000,
+      y: Number(start['height']) + 1000,
+    };
+
+    // b 만 빈 곳을 두드린다. LOCK 은 b 에게만 가야 한다.
+    b.send('TAP', miss);
+    await b.waitFor('LOCK', 3_000);
+    await new Promise((r) => setTimeout(r, 200));
+    expect(a.seen.some((m) => m.t === 'LOCK')).toBe(false);
+    a.close(); b.close();
+  });
+});
+```
+
+- [ ] **Step 2: 실패 확인**
+
+Run: `npx vitest run server/src/match/wiring.test.ts`
+Expected: FAIL — `Cannot find module './wiring.js'`
+
+- [ ] **Step 3: 구현**
+
+`server/src/match/wiring.ts`:
+
+```typescript
+import type { Server } from 'node:http';
+import { randomUUID } from 'node:crypto';
+import type { Clock } from '../platform/clock.js';
+import type { Rng } from '../platform/rng.js';
+import type { Cache } from '../platform/redis.js';
+import type { Db } from '../platform/pg.js';
+import type { Puzzle } from '../content/types.js';
+import type { ContentUrls } from '../battle/reducer.js';
+import { assignPuzzle } from '../content/assigner.js';
+import { createBattle, opponentOf, type BattleState, type PlayerSlot } from '../battle/state.js';
+import type { Principal } from '../identity/types.js';
+import { attachGateway, type Conn, type GameInput } from '../ws/gateway.js';
+import { principalKey } from '../ws/session.js';
+import { MatchRunner, type EndPayloads, type Scheduler, type TimerHandle } from './runner.js';
+import { MatchRegistry } from './registry.js';
+import { createMatchIndex } from './index.js';
+import { Matchmaker, type Waiting } from './queue.js';
+import { persistSettlement, settlementRows } from './settlement.js';
+
+export interface RealtimeDeps {
+  db: Db;
+  cache: Cache;
+  clock: Clock;
+  rng: Rng;
+  puzzles: readonly Puzzle[];
+  urls: ContentUrls;
+  log: { error(message: string, fields?: Record<string, unknown>): void };
+  queueKey: string;
+  aiTransitionMs?: number;
+  verify(token: string): Promise<Principal | null>;
+}
+
+/**
+ * 실제 타이머 어댑터.
+ *
+ * clock.now() 는 SystemClock 에서 performance.now() 이므로 벽시계가 아니다.
+ * 절대 시각을 상대 지연으로 바꿀 때 Date.now() 를 섞으면 두 기준이 어긋나
+ * 타이머가 즉시 발화하거나 영원히 오지 않는다. 반드시 같은 clock 을 쓴다.
+ */
+function realScheduler(clock: Clock, log: RealtimeDeps['log']): Scheduler {
+  let seq = 0;
+  const handles = new Map<number, NodeJS.Timeout>();
+  return {
+    at(time, fn) {
+      seq += 1;
+      const id = seq;
+      handles.set(id, setTimeout(() => {
+        handles.delete(id);
+        // 콜백이 Promise 를 돌려줄 수 있다 (큐의 AI 전환은 Redis 를 때린다).
+        // 그대로 버리면 rejection 이 아무 데도 닿지 않아 매칭이 조용히
+        // 멈춘다 — 사용자에게는 "큐에서 영원히 안 나온다" 로 보인다.
+        void Promise.resolve(fn()).catch((err: unknown) => {
+          log.error('예약 콜백 실패', {
+            err: err instanceof Error ? err.message : String(err),
+          });
+        });
+      }, Math.max(0, time - clock.now())));
+      return id;
+    },
+    cancel(handle: TimerHandle) {
+      const t = handles.get(handle);
+      if (t !== undefined) { clearTimeout(t); handles.delete(handle); }
+    },
+  };
+}
+
+export function createRealtime(deps: RealtimeDeps): {
+  attach(server: Server): void;
+  close(): Promise<void>;
+  readonly matchCount: number;
+} {
+  const scheduler = realScheduler(deps.clock, deps.log);
+  const registry = new MatchRegistry();
+  const index = createMatchIndex(deps.cache);
+  /**
+   * matchId → 슬롯별 자리.
+   *
+   * 연결과 accountId 를 **따로** 들고 있는 것이 중요하다. 연결은 끊기면
+   * null 이 되지만 정산은 그 뒤에 일어난다 — 연결에서 principal 을 읽으려 하면
+   * 끊고 나간 사람의 전적이 전부 익명이 된다. AI 슬롯은 자리 자체가 없다.
+   */
+  interface Seat { conn: Conn | null; accountId: string | null }
+  const seats = new Map<string, Partial<Record<PlayerSlot, Seat>>>();
+  let gateway: ReturnType<typeof attachGateway> | null = null;
+
+  const matchmaker = new Matchmaker({
+    clock: deps.clock, scheduler, cache: deps.cache,
+    queueKey: deps.queueKey,
+    aiTransitionMs: deps.aiTransitionMs,
+    // 난입 대상: AI 와 붙고 있고 연결이 살아 있는 사람. 없으면 null.
+    // seats 와 registry 가 위에서 이미 선언돼 있으므로 여기서 바로 읽는다.
+    findIntrudable: (): Waiting | null => {
+      for (const [matchId, row] of seats) {
+        const runner = registry.get(matchId);
+        if (runner === undefined) continue;
+        const st = runner.state;
+        if (st.phase === 'ENDED') continue;
+
+        const humanSlot: PlayerSlot | null =
+          st.p2.isAi && !st.p1.isAi ? 'p1' : st.p1.isAi && !st.p2.isAi ? 'p2' : null;
+        if (humanSlot === null) continue;
+
+        const conn = row[humanSlot]?.conn;
+        if (conn == null) continue;   // 이미 끊긴 사람에게 난입할 수 없다
+
+        const person = st[humanSlot];
+        return { key: person.name, name: person.name, level: person.level, conn };
+      }
+      return null;
+    },
+    abortMatch: (victimKey) => {
+      const runner = registry.findAiMatchWith(victimKey);
+      if (runner === undefined) return;
+      // 정산 없이 버린다 — 원작에서 중단된 AI 판은 코인도 경험치도 0 이다.
+      runner.abort();
+      cleanup(runner.matchId);
+    },
+    startMatch: async (a, b) => start(a, b),
+  });
+
+  function seatOf(conn: Conn): { runner: MatchRunner; slot: PlayerSlot } | null {
+    const matchId = conn.session.matchId;
+    const slot = conn.session.slot;
+    if (matchId === null || slot === null) return null;
+    const runner = registry.get(matchId);
+    return runner === undefined ? null : { runner, slot };
+  }
+
+  async function start(a: Waiting, b: Waiting | null): Promise<string> {
+    const matchId = randomUUID();
+    const assignment = assignPuzzle(deps.puzzles, deps.rng);
+
+    const state = createBattle({
+      matchId, assignment,
+      p1: { name: a.key, level: a.level, isAi: false },
+      p2: b === null
+        ? { name: `ai-${matchId.slice(0, 8)}`, level: a.level, isAi: true }
+        : { name: b.key, level: b.level, isAi: false },
+    });
+
+    const connA = a.conn as Conn;
+    const connB = b === null ? null : (b.conn as Conn);
+    seats.set(matchId, {
+      p1: { conn: connA, accountId: accountIdOf(connA) },
+      // AI 상대면 p2 자리는 아예 없다.
+      ...(connB === null ? {} : { p2: { conn: connB, accountId: accountIdOf(connB) } }),
+    });
+
+    const runner = new MatchRunner(state, {
+      clock: deps.clock, rng: deps.rng, urls: deps.urls, scheduler,
+      send: (slot, type, payload) => {
+        // AI 슬롯에는 자리가 없고, 끊긴 사람의 conn 은 null 이다.
+        // 조용히 버린다 — 이게 없으면 AI 매치의 모든 REVEAL 이 터진다.
+        seats.get(matchId)?.[slot]?.conn?.send(type, payload);
+      },
+      onEnd: (ended, ends) => { void settle(ended, ends).finally(() => cleanup(matchId)); },
+    });
+
+    registry.add(runner);
+    await index.put(matchId, assignment.puzzle.id);
+    runner.start();
+
+    bind(connA, matchId, 'p1');
+    if (connB !== null) bind(connB, matchId, 'p2');
+
+    announce(matchId, state);
+    return matchId;
+  }
+
+  /** 계정이면 accountId, 게스트면 null. match_history.account_id 는 FK 다. */
+  function accountIdOf(conn: Conn): string | null {
+    const p = conn.session.principal;
+    return p !== null && p.kind === 'account' ? p.accountId : null;
+  }
+
+  function bind(conn: Conn, matchId: string, slot: PlayerSlot): void {
+    conn.session.matchId = matchId;
+    conn.session.slot = slot;
+  }
+
+  function announce(matchId: string, state: BattleState): void {
+    for (const slot of ['p1', 'p2'] as const) {
+      const other = state[opponentOf(slot)];
+      seats.get(matchId)?.[slot]?.conn?.send('MATCH_FOUND', {
+        matchId,
+        opponentName: other.name,
+        opponentLevel: other.level,
+        isAi: other.isAi,
+      });
+    }
+  }
+
+  async function settle(state: BattleState, ends: EndPayloads): Promise<void> {
+    const row = seats.get(state.matchId);
+
+    // 매핑은 Task 6 의 순수 함수가 한다. 여기서 다시 쓰면 두 벌이 생기고,
+    // 그중 하나만 고쳐지는 날이 온다.
+    //
+    // 계정 id 는 연결이 아니라 **자리**에서 읽는다 — 끊고 나간 사람도
+    // 전적이 자기 계정에 남아야 하는데, 연결은 그때 이미 null 이다.
+    const rows = settlementRows({
+      state, ends,
+      accountIds: {
+        p1: row?.p1?.accountId ?? null,
+        p2: row?.p2?.accountId ?? null,
+      },
+    });
+
+    for (const item of rows) {
+      try {
+        await persistSettlement(deps.db, item);
+      } catch (err: unknown) {
+        // 한 사람의 정산 실패가 다른 사람의 정산과 자원 회수를 막으면 안 된다.
+        deps.log.error('정산 실패', {
+          matchId: state.matchId,
+          err: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  }
+
+  function cleanup(matchId: string): void {
+    registry.remove(matchId);
+    for (const slot of ['p1', 'p2'] as const) {
+      const conn = seats.get(matchId)?.[slot]?.conn;
+      if (conn && conn.session.matchId === matchId) {
+        conn.session.matchId = null;
+        conn.session.slot = null;
+      }
+    }
+    seats.delete(matchId);
+    void index.drop(matchId).catch((err: unknown) => {
+      deps.log.error('매치 인덱스 정리 실패', {
+        matchId, err: err instanceof Error ? err.message : String(err),
+      });
+    });
+  }
+
+  function toEvent(input: GameInput, slot: PlayerSlot) {
+    switch (input.kind) {
+      case 'TAP': return { kind: 'TAP' as const, slot, x: input.x, y: input.y };
+      case 'SKILL': return { kind: 'SKILL' as const, slot, skillId: input.skillId };
+      case 'READY': return { kind: 'READY' as const, slot };
+      case 'LEAVE': return { kind: 'LEAVE' as const, slot };
+    }
+  }
+
+  return {
+    get matchCount() { return registry.size; },
+
+    attach(server: Server): void {
+      gateway = attachGateway(server, {
+        clock: deps.clock,
+        log: deps.log,
+        verify: deps.verify,
+
+        onJoin: async (conn, _mode) => {
+          const principal = conn.session.principal;
+          if (principal === null) return;
+          if (conn.session.matchId !== null) return;  // 이미 매치 중이면 무시
+          await matchmaker.join({
+            key: principalKey(principal), name: principalKey(principal),
+            level: 1, conn,
+          });
+        },
+
+        onLeaveQueue: async (conn) => {
+          const principal = conn.session.principal;
+          if (principal !== null) await matchmaker.leave(principalKey(principal));
+        },
+
+        // **슬롯을 채우는 유일한 곳.** 게이트웨이는 슬롯을 모른다.
+        onGameInput: (conn, input) => {
+          const seat = seatOf(conn);
+          if (seat === null) return;
+          seat.runner.submit(toEvent(input, seat.slot));
+        },
+
+        onClose: (conn) => {
+          const principal = conn.session.principal;
+          if (principal !== null) void matchmaker.leave(principalKey(principal));
+
+          const seat = seatOf(conn);
+          if (seat === null) return;
+          // 자리를 먼저 비운다. 그래야 남은 쪽에 보내는 END 가 죽은 소켓으로
+          // 가지 않고, 양쪽이 다 끊겨도 send 가 조용히 버려진다.
+          // conn 만 비운다. accountId 는 남겨야 끊고 나간 사람의 전적이
+          // 자기 계정에 남는다.
+          const place = seats.get(seat.runner.matchId)?.[seat.slot];
+          if (place !== undefined) place.conn = null;
+          seat.runner.submit({ kind: 'LEAVE', slot: seat.slot });
+        },
+      });
+    },
+
+    async close(): Promise<void> {
+      for (const matchId of [...seats.keys()]) {
+        registry.get(matchId)?.abort();
+        cleanup(matchId);
+      }
+      await gateway?.close();
+    },
+  };
+}
+```
+
+> **`findIntrudable` 은 `seats` 와 `registry` 를 함께 읽어 `Waiting` 을 재구성한다.** 레지스트리만으로는 부족하다 — `MatchRunner` 는 연결을 모르고, 큐는 `Waiting.conn` 이 있어야 새 매치에 자리를 줄 수 있다. `st[humanSlot].name` 에는 `principalKey` 가 들어 있어서 `abortMatch` 의 `registry.findAiMatchWith(victimKey)` 와 같은 키로 맞물린다.
+>
+> **연결이 끊긴 사람에게는 난입하지 않는다** (`conn === null`). 그 사람은 곧 `LEAVE` 로 판이 끝나므로, 난입해 봐야 상대 없는 매치가 하나 더 생길 뿐이다.
+
+`server/src/main.ts` 를 고친다.
+
+**import 넷을 더한다.** 빠뜨리면 `TS2304: Cannot find name ...` 로 typecheck 가 죽는다:
+
+```typescript
+import { randomInt } from 'node:crypto';
+import { createRng } from './platform/rng.js';
+import { createContentUrls } from './content/urls.js';
+import { createMatchIndex } from './match/index.js';
+import { createRealtime } from './match/wiring.js';
+```
+
+**`contentUrls` 와 `matchIndex` 를 만든다.** Plan 3 의 `main.ts` 에는 둘 다 없다 — `createApp` 은 URL 을 **검증**만 했고 **발급**할 일이 없었다. 매치를 여는 지금부터 발급기가 필요하다. `clock` · `config` 선언 뒤, `createApp` 호출 앞에 넣는다:
+
+```typescript
+  const contentUrls = createContentUrls({
+    secret: config.contentUrlSecret,
+    ttlMs: config.contentUrlTtlMs,
+    clock,
+  });
+  const matchIndex = createMatchIndex(cache);
+```
+
+**`createApp` 의 `resolvePuzzleId` 를 실제 조회로 바꾼다:**
+
+```typescript
+    // Plan 3 의 항등 함수를 실제 조회로 바꾼다. 이제 진행 중인 매치의 id 를
+    // 알아야 그 퍼즐의 이미지를 받을 수 있다.
+    resolvePuzzleId: (matchId) => matchIndex.puzzleIdOf(matchId),
+```
+
+**`app.listen` 뒤에 실시간 계층을 붙인다:**
+
+```typescript
+  const realtime = createRealtime({
+    db, cache, clock, puzzles, log,
+    // **시드를 시계에서 뽑지 않는다.** SystemClock 은 performance.now() 라
+    // 부팅 직후 값이 20~200 남짓이다. 그것을 시드로 쓰면 재시작할 때마다
+    // 거의 같은 수열이 나와 **첫 매치의 퍼즐이 늘 같아진다** — 공정성 문제이자
+    // 콘텐츠가 예측 가능해지는 경로다. Date.now() 는 Clock 포트 제약에 걸리고
+    // 시드로서도 1 초 단위로 뭉친다. 암호학적 난수로 뽑는다.
+    rng: createRng(randomInt(0, 2 ** 32)),
+    urls: contentUrls,
+    queueKey: 'findit:queue:casual',
+    verify: (token) => verifySession(sessionDeps, token),
+  });
+  realtime.attach(server);
+```
+
+**종료 처리에 한 줄 더한다:**
+
+```typescript
+  const shutdown = async (signal: string): Promise<void> => {
+    log.info('종료 신호 수신', { signal });
+    server.close();
+    await realtime.close();
+    await Promise.allSettled([db.close(), cache.close()]);
+    process.exit(0);
+  };
+```
+
+- [ ] **Step 4: 통과 확인**
+
+```bash
+DATABASE_URL=postgres://findit:findit@localhost:5432/findit \
+REDIS_URL=redis://localhost:6379 \
+npx vitest run server/ && npm run typecheck
+```
+Expected: PASS — Plan 1~3 의 362 + Task 1~7 의 신규 분. **skip 이 0 이어야 한다.**
+
+실제로 띄워 확인한다:
+
+```bash
+npm run compose:up
+curl -s localhost:8080/health
+```
+
+- [ ] **Step 5: 커밋**
+
+```bash
+git add server/src/match/wiring.ts server/src/match/wiring.test.ts server/src/main.ts
+git commit -m "$(cat <<'EOF'
+feat(server): 실시간 배선 + 2-클라이언트 통합 테스트
+
+지금까지 각 조각은 포트 뒤에서 혼자 돌았다. 배선층이 넷을 한다. GameInput 에
+conn.session.slot 을 채워 BattleEvent 로 만들고, Outbound.to 를 그 슬롯의
+연결로 보내고, 매치를 만들고(assignPuzzle → createBattle → MatchRunner →
+registry → Redis 인덱스), 끝난 매치를 정산하고 회수한다.
+
+슬롯을 채우는 곳은 여기 하나다. 게이트웨이는 슬롯을 모른다 — 어떤 연결이
+p1 인지는 매칭이 정한다. 통합 테스트가 p2 의 탭에 대한 LOCK 이 p2 에게만
+가는지로 이것을 확인한다.
+
+AI 슬롯에는 연결이 없다. send 가 그쪽으로 향하면 조용히 버린다. 이게 없으면
+AI 매치의 모든 REVEAL 이 undefined.send 로 터진다.
+
+끝난 매치는 러너 타이머·레지스트리 항목·Redis match:{id} 를 전부 회수한다.
+양쪽이 다 끊겨 아무에게도 END 를 보낼 수 없는 경우까지 포함한다 — 서버가
+오래 돌수록 쌓이는 종류의 누수다.
+
+정산 실패가 자원 회수를 막지 않는다. 한 사람의 정산이 터져도 다른 사람의
+정산과 정리는 계속된다.
+
+main.ts 의 resolvePuzzleId 를 Redis 실조회로 바꾼다. Plan 3 의 항등 함수는
+서명만 맞으면 진행 중인 매치가 아니어도 이미지를 내주었다.
+
+타이머 어댑터는 주입받은 clock 만 쓴다. SystemClock 은 performance.now()
+기준이라 Date.now() 를 섞으면 두 기준이 어긋나 타이머가 즉시 발화하거나
+영원히 오지 않는다. 콜백이 돌려준 Promise 의 rejection 도 잡는다 — 큐의
+AI 전환이 Redis 를 때리므로, 그대로 버리면 매칭이 조용히 멈추고 사용자에게는
+"큐에서 영원히 안 나온다" 로 보인다.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
+### Task 8: 서명 콘텐츠 URL 이 실제 시계에서 동작하게
+
+**Files:**
+- Modify: `server/src/platform/clock.ts` (`SystemClock.now()` 가 정수 밀리초를 준다)
+- Test: `server/src/content/urls.test.ts` (실제 시계 왕복), `server/src/match/wiring.test.ts` (이미지를 실제로 가져온다)
+
+**Interfaces:**
+- Consumes: Plan 3 `SystemClock`·`createContentUrls`·`parseContentUrl`
+- Produces: 없음 — 동작을 고친다
+
+**운영에서 서명 URL 이 하나도 동작하지 않는다.** 확인한 사실이다.
+
+`SystemClock.now()` 는 `performance.now()` 라 **소수**를 준다 (`354.624333`). `createContentUrls` 가 `exp = clock.now() + ttlMs` 로 만들므로 URL 에 `exp=300355.109291` 이 실린다. 그런데 `parseContentUrl` 에는 이런 줄이 있다:
+
+```typescript
+  if (!Number.isInteger(exp) || !sig) return null;
+```
+
+파싱이 `null` 을 주고 라우트는 **403** 을 낸다. base 도 patch 도 전부 403 이라 **게임 화면에 이미지가 하나도 나오지 않는다.**
+
+**왜 아무 테스트도 잡지 못했나.** 단위 테스트는 전부 `TestClock` 을 쓴다 — 정수다. 실제 시계를 쓰는 곳은 Task 7 의 통합 테스트뿐인데, 그것은 `imageUrl` **문자열**이 matchId 를 담고 있는지만 보고 URL 을 가져오지 않는다. 문자열은 멀쩡했다.
+
+**어디를 고치는가.** `Clock` 포트의 주석은 "단조 증가하는 **밀리초** 시계" 다. `TestClock` 은 정수이고, 모든 소비자가 정수 밀리초를 가정한다. 어긋나 있던 것은 `SystemClock` 하나다. 거기를 고치면 같은 계열의 사고가 한 번에 닫힌다 — `exp` 뿐 아니라 로그 타임스탬프, 타이머 계산 전부.
+
+`Math.floor` 는 단조성을 깨지 않는다. 타이머의 `at - clock.now()` 도 그대로 성립한다.
+
+- [ ] **Step 1: 실패하는 테스트 작성**
+
+`server/src/content/urls.test.ts` 에 추가한다. **`TestClock` 이 아니라 `SystemClock` 을 쓰는 것이 요점이다:**
+
+```typescript
+import { SystemClock } from '../platform/clock.js';
+
+describe('실제 시계에서의 왕복 — 운영 경로', () => {
+  it('SystemClock 으로 발급한 URL 이 파싱되고 검증된다', () => {
+    // 단위 테스트가 전부 TestClock(정수)을 쓰는 바람에, 실제 시계의
+    // performance.now() 가 소수를 준다는 사실이 여기까지 숨어 있었다.
+    // exp 가 소수면 parseContentUrl 이 null 을 주고 라우트가 403 을 낸다.
+    const clock = new SystemClock();
+    expect(Number.isInteger(clock.now())).toBe(true);
+
+    const urls = createContentUrls({ secret, ttlMs, clock });
+
+    // 한 번은 우연히 정수일 수 있다. 여러 번 본다.
+    for (let i = 0; i < 50; i += 1) {
+      const parsed = parseContentUrl(urls.patch('m1', i));
+      expect(parsed).not.toBeNull();
+      expect(verifyContentUrl({ secret, clock }, parsed!)).toBe(true);
+    }
+  });
+});
+```
+
+`server/src/match/wiring.test.ts` 의 `START 의 imageUrl 이 …` 테스트를 **실제로 가져오도록** 고친다:
+
+```typescript
+  it('START 의 imageUrl 로 이미지를 실제로 받을 수 있다', async () => {
+    const a = await connect('g-a');
+    const b = await connect('g-b');
+    a.send('QUEUE_JOIN', { mode: 'casual' });
+    b.send('QUEUE_JOIN', { mode: 'casual' });
+    const found = await a.waitFor('MATCH_FOUND');
+    a.send('READY'); b.send('READY');
+    const start = await a.waitFor('START', 6_000);
+
+    expect(String(start['imageUrl'])).toContain(String(found['matchId']));
+    expect(await cache.get(`findit:match:${String(found['matchId'])}`))
+      .toBe(String(start['puzzleId']));
+
+    // **문자열만 보면 안 된다.** URL 이 matchId 를 담고 있어도 exp 가 소수면
+    // 라우트가 403 을 낸다 — 실제로 그랬다. 가져와야 안다.
+    const res = await fetch(`${httpUrl}${String(start['imageUrl'])}`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toMatch(/image\/webp/);
+
+    // 인덱스를 바꿔치기하면 서명이 맞지 않아 거부돼야 한다 (스펙 §6.3).
+    const forged = String(start['imageUrl']).replace('/base/0', '/patch/3');
+    expect((await fetch(`${httpUrl}${forged}`)).status).toBe(403);
+
+    a.close(); b.close();
+  });
+```
+
+> `httpUrl` 이 필요하다. `beforeEach` 에서 `url` 을 만들 때 함께 둔다: `httpUrl = \`http://127.0.0.1:${port}\``. 그리고 이 테스트가 콘텐츠 라우트를 타므로, `realtime.attach(server)` 만으로는 부족하고 **`createApp` 이 붙은 서버**여야 한다. `beforeEach` 가 `createServer()` 대신 `createApp({...}).listen(0)` 으로 서버를 만들고 거기에 `realtime.attach` 하도록 바꾼다 — `main.ts` 의 배선과 같은 모양이다.
+
+- [ ] **Step 2: 실패 확인**
+
+Run: `npx vitest run server/src/content/urls.test.ts`
+Expected: FAIL — `expected false to be true` (`Number.isInteger(clock.now())`).
+
+- [ ] **Step 3: 구현**
+
+`server/src/platform/clock.ts`:
+
+```typescript
+/**
+ * 운영용. performance.now() 는 프로세스 시작 기준 단조 증가를 보장한다.
+ *
+ * **정수로 내린다.** performance.now() 는 소수(354.624333)를 주는데, 포트의
+ * 계약은 "밀리초 시계" 이고 TestClock 도 정수다. 소수가 새어 나가면 그 값을
+ * 문자열로 싣는 곳에서 터진다 — 서명 콘텐츠 URL 의 exp 가 소수가 되어
+ * parseContentUrl 의 Number.isInteger 검사에 걸리고, base·patch 이미지가
+ * 전부 403 이 된다. Math.floor 는 단조성을 깨지 않는다.
+ */
+export class SystemClock implements Clock {
+  now(): number {
+    return Math.floor(performance.now());
+  }
+}
+```
+
+- [ ] **Step 4: 통과 확인**
+
+```bash
+DATABASE_URL=postgres://findit:findit@localhost:5432/findit \
+REDIS_URL=redis://localhost:6379 \
+npm test && npm run typecheck
+```
+Expected: PASS, skip 0.
+
+**손으로도 한 번 확인한다.** 이 결함은 단위 테스트가 아니라 실제 왕복에서만 드러났다:
+
+```bash
+npm run compose:up
+TOKEN=$(curl -s -XPOST localhost:8080/auth/guest | node -pe 'JSON.parse(require("fs").readFileSync(0)).token')
+# WS 로 AUTH → QUEUE_JOIN ×2 → READY ×2 → START 의 imageUrl 을 curl
+```
+Expected: `200 image/webp`.
+
+- [ ] **Step 5: 커밋**
+
+```bash
+git add server/src/platform/clock.ts server/src/content/urls.test.ts server/src/match/wiring.test.ts
+git commit -m "$(cat <<'EOF'
+fix(server): SystemClock 이 소수를 흘려 서명 URL 이 전부 403 이던 것
+
+performance.now() 는 소수를 준다 (354.624333). createContentUrls 가
+exp = clock.now() + ttlMs 로 만들어 URL 에 exp=300355.109291 이 실리는데,
+parseContentUrl 의 Number.isInteger(exp) 검사가 그것을 거부한다. 라우트는
+403 을 내고, base 도 patch 도 전부 403 이라 게임 화면에 이미지가 하나도
+나오지 않는다.
+
+단위 테스트가 전부 TestClock(정수)을 써서 여기까지 숨어 있었다. 실제 시계를
+쓰는 곳은 통합 테스트뿐인데 imageUrl 문자열이 matchId 를 담고 있는지만 보고
+가져오지 않았다. 문자열은 멀쩡했다.
+
+Clock 포트의 계약은 "밀리초 시계" 이고 TestClock 도 정수다. 어긋나 있던 것은
+SystemClock 하나이므로 거기를 고친다. Math.floor 는 단조성을 깨지 않고,
+타이머의 at - clock.now() 도 그대로 성립한다.
+
+회귀를 둘 막는다. urls.test.ts 가 SystemClock 으로 50 회 왕복하고,
+통합 테스트가 START 의 imageUrl 을 실제로 가져와 200 image/webp 를 받는다.
+인덱스를 바꿔치기한 URL 이 403 인지도 함께 본다.
+
+EOF
+)"
+```
+
+---
+
+## 완료 기준
+
+1. 두 사람이 큐에서 만나 한 판을 끝까지 치고 양쪽이 `END` 를 받는다
+2. 혼자 들어가면 **5 초 뒤** AI 와 붙고, AI 가 스스로 rect 를 찾아 `OPPONENT_PROGRESS` 가 흘러온다
+3. AI 와 붙고 있는 사람에게 난입하면 그 판이 **정산 없이** 버려지고 두 사람의 새 매치가 시작된다
+4. 큐에 기다리는 사람이 있으면 난입보다 그쪽이 먼저다
+5. 동시에 큐에 들어온 둘이 서로를 만난다 — 둘 다 AI 로 빠지지 않는다
+6. `START` 에 좌표도 `targetIndices` 도 없다. `START.imageUrl` 은 그 매치의 서명 URL 이다
+7. `resolvePuzzleId` 가 Redis 실조회다 — 진행 중인 매치의 id 를 알아야 이미지를 받는다
+8. 게스트의 전적이 `account_id = NULL` 로 남고, 정산이 FK 위반으로 죽지 않는다
+9. `player_profile` 의 점수·코인이 **SQL 안에서** 더해진다 — `bigint` 문자열 이어붙이기가 없다
+10. 레벨이 오른 판에만 `skill_points` 가 1 오른다 (원작 `GameView.java:3265-3267`)
+11. 전적과 프로필이 한 트랜잭션이다 — 전적이 실패하면 점수도 오르지 않는다
+12. 끝난 매치의 러너 타이머·레지스트리 항목·Redis `match:{id}` 가 전부 회수된다
+13. **양쪽이 다 끊겨도** 매치가 회수된다
+14. p2 의 탭이 p2 에게만 영향을 준다 — 슬롯이 뒤바뀌지 않는다
+15. 인증 없는 연결이 `QUEUE_JOIN`·`TAP` 을 보내도 아래로 내려가지 않는다
+16. 클라가 `END` 같은 s2c 메시지를 자칭해 보내면 연결이 끊긴다
+17. Plan 1~3 의 기존 362 테스트가 전부 그대로 통과한다
+18. **`START` 의 `imageUrl` 로 이미지를 실제로 받을 수 있다** — 문자열이 아니라 응답이 `200 image/webp` 다
+19. `npm run typecheck` exit 0, CI 5개 체크 전부 통과, **skip 0**
+
+---
+
+## 주의해서 볼 곳 — 저자가 가장 확신이 낮은 지점
+
+**나는 이 계획을 실행해 보지 않았다.** Task 1·4·6 의 수치와 SQL 은 실제로 확인했지만(아래), WS 경로는 코드를 한 줄도 돌려보지 않았다.
+
+**확인한 것:** `levelForScore` 의 경계값 넷(0·130·1e6·1e6+1)과 최댓값 100 을 실행해 봤다. `SINGLETIME = 100` ÷ 20 프레임/초 = 5 초는 원작 코드 두 곳을 읽어 계산했다. `TestClock.set` 이 이미 존재하고 과거로 되돌리면 던진다는 것도 확인했다.
+
+**1. 난입의 `MATCH_FOUND` 덮어쓰기 (가장 위험).** 프로토콜에 "중단" 메시지가 없어서, 난입당한 사람은 진행 중인 매치 위로 `MATCH_FOUND` 를 받는다. 이것은 **내가 정한 클라이언트 계약**이지 스펙에 적혀 있던 것이 아니다. 원작이 결과 화면을 건너뛰고 배틀룸으로 바로 가는 모양과 같다고 판단했지만, Plan 5 의 클라가 이 규칙을 모르면 "이미 매치 중인데 MATCH_FOUND 가 왔다" 를 오류로 처리한다. **대안은 프로토콜에 `ABORT` 를 추가하는 것이고, 그건 스펙 §8 의 메시지 목록을 고치는 일이다.** Plan 5 를 쓸 때 다시 판단할 가치가 있다.
+
+**2. `SystemClock` 이 벽시계가 아니다.** `performance.now()` 라 프로세스 시작 기준이다. 타이머 어댑터가 같은 clock 만 쓰면 일관되지만, 어디선가 `Date.now()` 가 섞이면 5 초가 5 시간이 되거나 즉시 발화한다. 통합 테스트가 실제 시간에 의존하므로 이런 오류는 "가끔 시간 초과" 로만 드러난다.
+
+**3. 계정 경로의 통합 테스트가 얇다.** 배선은 `accountIdOf` 로 계정과 게스트를 가르고, 자리(`Seat`)에 `accountId` 를 따로 들고 있어 끊고 나간 사람의 전적도 자기 계정에 남는다. Task 6 이 계정 정산(점수 누적·레벨업·스킬 포인트)을 실제 Postgres 로 검증하고, Task 7 의 통합 테스트는 **게스트 경로만** 끝에서 끝까지 돈다. 계정 토큰으로 매치를 치는 통합 테스트는 세션 발급까지 엮어야 해서 넣지 않았다 — 두 계층이 각각 검증됐지만 **그 둘이 만나는 지점은 실제로 돌려본 적이 없다.**
+
+**4. `ws` 의 런타임 동작 — 확인함.** Plan 3 에서 node-postgres 가 다중 문장 질의에 배열을 돌려준다는 것에 한 번 당했으므로, 이번에는 실제로 돌려 봤다 (ws 8.21.3). `message` 인자는 `Buffer` 이고, `terminate()` 뒤 클라 `close` 는 1006 으로 오며 **서버 쪽 `close` 도 발화한다.** 두 import 형태도 타입·런타임 모두 통과한다. 남은 불확실은 부하 상황의 동작(백프레셔, `send` 가 큐에 쌓일 때)이고 P0 범위에서는 검증하지 않는다.
+
+**5. 큐 직렬화가 다중 인스턴스에서 무의미하다.** 프로세스 안 직렬화는 P0(단일 프로세스)에서만 맞다. 인스턴스를 늘리는 순간 Review Focus 4 의 경쟁이 그대로 돌아온다. Lua 나 `BLMOVE` 가 필요하고 P1 의 문제다.
+
+**6. `createRealtime` 의 `rng` 가 매치 전체를 좌우한다.** 퍼즐 배정과 AI 지연이 같은 `Rng` 하나에서 나온다. 프로세스 수명 동안 한 인스턴스를 공유하므로, 어느 한쪽의 소비 패턴이 바뀌면 다른 쪽 수열도 함께 바뀐다. P0 에서는 문제가 아니지만, 리플레이나 재현 가능한 매치가 필요해지면 매치별로 시드를 갈라야 한다.
+
+**7. 재접속이 없다.** 연결이 끊기면 `LEAVE` 다. 지하철에서 한 칸 지나가면 판이 끝난다. 스펙 §1 의 비목표에 명시돼 있지는 않지만 P0 범위 밖으로 둔다 — 재접속은 매치 상태를 프로세스 밖에 두는 설계를 요구하고, 그건 Task 1 의 결정(메모리 보관)을 뒤집는 일이다.

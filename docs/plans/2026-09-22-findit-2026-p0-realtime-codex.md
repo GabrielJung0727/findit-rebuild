@@ -25,6 +25,7 @@
 - **Node 24 LTS**, TypeScript 5.7 strict + `noUncheckedIndexedAccess`. `engines` 로 강제돼 있다.
 - **모든 판정은 서버가 한다** (스펙 §10-3). 클라이언트가 보낸 시각은 판정에 쓰지 않는다.
 - **좌표는 절대 클라로 나가지 않는다** (스펙 §6.3). `START` 는 `targetCount` 만, `REVEAL` 은 **이미 찾은** rect 의 좌표만 싣는다.
+  > 이것을 "직렬화한 JSON 에 좌표 값이 없다" 로 검사할 때는 **테스트 픽스처의 좌표가 메타데이터와 겹치지 않아야 한다.** 겹치면 정상 구현이 누출로 오진된다 — 예전 Task 1 픽스처는 `height: 300` 에 rect `x: 300` 을 두어 실제로 그랬다. 검사 목록도 손으로 쓰지 말고 픽스처를 순회할 것.
 - **패치 URL 은 매치별 서명 URL** 이다 (스펙 §6.3). 리듀서가 `ctx.urls` 로 받아 쓴다 — Plan 4 는 그 구현을 바꾸지 않는다.
 - **동기화는 대칭** (스펙 §3.8). 두 플레이어가 같은 퍼즐, 같은 5 개를 받는다. `assignPuzzle` 은 매치당 **한 번만** 부른다.
 - **비밀값을 소스·테스트·Compose 에 넣지 않는다.** `.env` 는 gitignore, Gitleaks 가 CI 에서 돈다.
@@ -200,12 +201,27 @@ class TestScheduler implements Scheduler {
   }
 }
 
+/**
+ * 좌표 누출 검사를 위해 **메타데이터와 겹치지 않는 값**을 고른 픽스처다.
+ *
+ * 정상 START 는 이렇게 생겼다:
+ *   {"puzzleId":"p1","imageUrl":"/c/m1/base","width":1024,"height":768,
+ *    "targetCount":5,"durationMs":40000}
+ *
+ * 여기 쓰인 숫자(1024·768·5·40000)의 어느 부분 문자열도 아래 좌표와 겹치지
+ * 않는다. 겹치면 **정상 구현이 좌표 누출로 오진된다** — 예전 픽스처는
+ * width 400 / height 300 에 x 를 0,50,…,300 으로 두어 0·40·300 이 충돌했다.
+ * 픽스처를 손대면 그 성질을 다시 확인할 것.
+ */
 const puzzle: Puzzle = {
-  id: 'p1', width: 400, height: 300,
+  id: 'p1', width: 1024, height: 768,
   rects: Array.from({ length: 7 }, (_, i) => ({
-    index: i, x: i * 50, y: 10, w: 40, h: 40, sourceDrawable: `p1_${i}`,
+    index: i, x: 111 + i * 97, y: 211, w: 33, h: 29, sourceDrawable: `p1_${i}`,
   })),
 };
+
+/** 어느 rect 에도 들어가지 않는 점. 미스를 만들 때 쓴다. */
+const EMPTY_SPOT = { x: 1, y: 1 };
 
 interface Sent { slot: string; type: MessageType; payload: Record<string, unknown> }
 
@@ -246,7 +262,7 @@ function harness(opts: { p2Ai: boolean; seed?: number; rng?: Rng }) {
 }
 
 const typesOf = (sent: Sent[]): string[] => sent.map((s) => s.type);
-const rectCenter = (i: number): { x: number; y: number } => ({ x: i * 50 + 20, y: 30 });
+const rectCenter = (i: number): { x: number; y: number } => ({ x: 127 + i * 97, y: 225 });
 
 describe('매치 러너 — 진행', () => {
   it('양쪽 READY 로 카운트다운이 시작되고 3초 뒤 START 가 나간다', () => {
@@ -278,7 +294,7 @@ describe('매치 러너 — 진행', () => {
     expect(h.ended[0]!.ends.p2).toHaveProperty('score');
   });
 
-  it('START 페이로드에 좌표도 rect 개수 외의 정보도 없다 — 스펙 §6.3', () => {
+  it('START 페이로드에 좌표가 하나도 없다 — 스펙 §6.3', () => {
     const h = harness({ p2Ai: false });
     h.runner.start();
     h.runner.submit({ kind: 'READY', slot: 'p1' });
@@ -287,11 +303,17 @@ describe('매치 러너 — 진행', () => {
 
     const start = h.sent.find((s) => s.type === 'START')!;
     const json = JSON.stringify(start.payload);
-    // 이 퍼즐의 rect 는 x = 0,50,...,300 / y = 10 이다. 하나라도 새면 안 된다.
-    for (const v of [50, 100, 150, 200, 250, 300]) {
-      expect(json).not.toContain(`:${v}`);
+
+    // **손으로 고른 목록을 쓰지 않는다.** 픽스처의 모든 좌표를 훑는다.
+    // 목록을 손으로 쓰면 빠뜨리기도 하고(예전 목록은 x=0 과 w=40 을 놓쳤다),
+    // 메타데이터와 겹치는 값을 넣어 정상 구현을 오진하기도 한다.
+    for (const rect of puzzle.rects) {
+      for (const value of [rect.x, rect.y, rect.w, rect.h]) {
+        expect(json).not.toContain(String(value));
+      }
     }
     expect(json).not.toContain('rects');
+    expect(start.payload).not.toHaveProperty('targetIndices');
   });
 
   it('밖에서 끝난 매치도 예약을 하나도 남기지 않는다 — 타이머 누수', () => {
@@ -385,7 +407,7 @@ describe('매치 러너 — AI 구동', () => {
 
     for (let i = 0; i < TAPS; i += 1) {
       // 빈 곳을 두드린다. p1 은 미스로 잠기지만 p2 의 계획과는 무관하다.
-      h.runner.submit({ kind: 'TAP', slot: 'p1', x: 399, y: 299 });
+      h.runner.submit({ kind: 'TAP', slot: 'p1', ...EMPTY_SPOT });
       h.scheduler.runUntil(h.clock, h.clock.now() + TAP_INTERVAL_MS);
       if (firstFindAt === null && h.runner.state.p2.found.length > 0) {
         firstFindAt = h.clock.now();

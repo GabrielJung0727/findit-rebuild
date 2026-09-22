@@ -124,6 +124,8 @@ server/src/
 
 **왜 러너가 따로 있어야 하는가.** 리듀서는 `reduce(state, event, ctx) → { state, outbound, wakeAt }` 로 끝난다. 시간이 흐르게 하는 것도, AI 가 움직이게 하는 것도 리듀서의 일이 아니다(스펙 §6.2 — 주기 틱을 쏘지 않는다). 러너가 `wakeAt` 에 `TIMER` 를 한 번 넣고, AI 슬롯에 대해 `planAiAction` 이 준 시각에 `TAP` 을 넣는다. 그래서 **AI 의 판정 경로는 사람과 완전히 같다.**
 
+**AI 슬롯은 `start()` 가 ready 로 만든다.** AI 에는 `READY` 를 보낼 클라이언트가 없다. 이것을 빠뜨리면 AI 매치가 WAITING 에 머물러 **START 가 영원히 오지 않는다** — 사람 쪽에서는 "매칭은 됐는데 게임이 시작 안 된다" 로 보인다.
+
 **타이머가 둘이라는 점이 함정이다.** `wakeAt` 타이머와 AI 타이머는 서로 다른 생명주기를 갖는다.
 
 - `wakeAt` 타이머는 **매 `submit` 마다** 취소하고 다시 건다. 상태가 바뀌면 다음 깨어날 시각도 바뀐다.
@@ -365,6 +367,28 @@ describe('매치 러너 — 진행', () => {
   });
 });
 
+describe('매치 러너 — 준비', () => {
+  it('AI 슬롯은 start 만으로 ready 가 된다 — READY 를 보낼 클라이언트가 없다', () => {
+    const h = harness({ p2Ai: true });
+    h.runner.start();
+
+    expect(h.runner.state.p2.ready).toBe(true);
+    expect(h.runner.state.p1.ready).toBe(false);
+
+    // 사람 쪽 READY 하나로 카운트다운이 시작돼야 한다. 이게 없으면 AI 매치는
+    // 영원히 WAITING 에 머물고 START 가 오지 않는다.
+    h.runner.submit({ kind: 'READY', slot: 'p1' });
+    expect(typesOf(h.sent)).toContain('COUNTDOWN');
+  });
+
+  it('사람끼리면 start 가 아무도 ready 로 만들지 않는다', () => {
+    const h = harness({ p2Ai: false });
+    h.runner.start();
+    expect(h.runner.state.p1.ready).toBe(false);
+    expect(h.runner.state.p2.ready).toBe(false);
+  });
+});
+
 describe('매치 러너 — AI 구동', () => {
   it('AI 는 PLAYING 이 된 뒤에 스스로 rect 를 찾는다', () => {
     const h = harness({ p2Ai: true });
@@ -549,9 +573,21 @@ export class MatchRunner {
     return this.current;
   }
 
-  /** 매치를 살린다. 아직 이벤트는 없고, WAITING 의 wakeAt 만 건다. */
+  /**
+   * 매치를 살린다.
+   *
+   * **AI 슬롯을 그 자리에서 ready 로 만든다.** AI 에는 READY 를 보낼
+   * 클라이언트가 없다. 이것이 없으면 사람이 READY 를 보내도 매치가 WAITING 에
+   * 머물러 START 가 영원히 오지 않는다 — AI 대전이 아예 시작되지 않는다.
+   *
+   * onReady 는 이미 ready 인 슬롯과 WAITING 이 아닌 단계를 무시하므로,
+   * 나중에 같은 슬롯에 READY 가 또 와도 안전하다.
+   */
   start(): void {
     this.reschedule(null);
+    for (const slot of SLOTS) {
+      if (this.current[slot].isAi) this.submit({ kind: 'READY', slot });
+    }
   }
 
   submit(event: BattleEvent): void {
@@ -733,7 +769,7 @@ export class MatchRegistry {
 - [ ] **Step 4: 통과 확인**
 
 Run: `npx vitest run server/src/match/ && npm run typecheck`
-Expected: PASS — 11 tests.
+Expected: PASS — 13 tests.
 
 **변이로 확인할 것** (하나라도 실패하지 않으면 그 테스트가 잘못된 것이다):
 
@@ -744,6 +780,7 @@ Expected: PASS — 11 tests.
 | `finish` 에서 `clearAll()` 제거 | `밖에서 끝난 매치도 예약을 하나도 남기지 않는다` |
 | `abort` 가 `onEnd` 를 부르게 변경 | `abort 는 END 를 보내지도 onEnd 를 부르지도 않는다` |
 | `finish(ends)` 에 빈 객체를 넘김 | `40초가 지나면 아무도 손대지 않아도 끝난다` |
+| `start()` 의 AI 자동 ready 제거 | `AI 슬롯은 start 만으로 ready 가 된다` |
 
 - [ ] **Step 5: 커밋**
 
@@ -770,6 +807,10 @@ onEnd 는 리듀서가 만든 슬롯별 END 페이로드를 함께 넘긴다. �
 리듀서가 이미 계산해 뒀고, BattleState 만으로는 되살릴 수 없다 — 콤보 보너스가
 정산 시점의 live 콤보 한 번 조회라서 재계산하면 값이 달라진다. Plan 2 에서
 정확히 그 실수로 점수가 3 배가 됐다.
+
+start() 가 AI 슬롯을 ready 로 만든다. AI 에는 READY 를 보낼 클라이언트가
+없어서, 이것이 없으면 AI 매치가 WAITING 에 머물러 START 가 영원히 오지
+않는다.
 
 abort 는 END 도 onEnd 도 없이 자원만 회수한다. 난입이 쓴다. 원작에서 중단된
 AI 판은 결과 화면을 건너뛰므로 코인도 경험치도 0 이다
@@ -2820,6 +2861,7 @@ EOF
 **Files:**
 - Create: `server/src/match/wiring.ts`, `server/src/match/wiring.test.ts`
 - Modify: `server/src/main.ts`
+- Modify: `server/src/match/runner.ts`, `server/src/match/runner.test.ts` — `start()` 가 AI 슬롯을 ready 로 만든다 (Task 1 로 거슬러 올라가는 수정)
 
 **Interfaces:**
 - Consumes: Task 1~6 전부
@@ -3129,10 +3171,22 @@ suite('2-클라이언트 통합', () => {
     b.send('QUEUE_JOIN', { mode: 'casual' });
     await Promise.all([a.waitFor('MATCH_FOUND'), b.waitFor('MATCH_FOUND')]);
     a.send('READY'); b.send('READY');
-    await a.waitFor('START', 6_000);
+    const start = await a.waitFor('START', 6_000);
+
+    // **"빈 곳" 을 하드코딩하면 안 된다.** 어떤 퍼즐이 뽑힐지는 시드에
+    // 달렸고, 실제로 (1,1) 을 덮는 rect 가 있다 — 시드 1234 는 a0003 을
+    // 고르고 그 index 7 rect 가 (0,0,90,130) 이다. 그러면 LOCK 대신
+    // REVEAL 이 와서 테스트가 시드에 따라 흔들린다.
+    //
+    // 이미지 밖은 어떤 rect 에도 들지 않는다 (추출된 262 개 rect 가 전부
+    // 퍼즐 경계 안임을 확인했다). START 가 준 크기에서 계산한다.
+    const miss = {
+      x: Number(start['width']) + 1000,
+      y: Number(start['height']) + 1000,
+    };
 
     // b 만 빈 곳을 두드린다. LOCK 은 b 에게만 가야 한다.
-    b.send('TAP', { x: 1, y: 1 });
+    b.send('TAP', miss);
     await b.waitFor('LOCK', 3_000);
     await new Promise((r) => setTimeout(r, 200));
     expect(a.seen.some((m) => m.t === 'LOCK')).toBe(false);

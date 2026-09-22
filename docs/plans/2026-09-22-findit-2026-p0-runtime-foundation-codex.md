@@ -759,7 +759,7 @@ EOF
 `server/src/platform/redis.test.ts`:
 
 ```typescript
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { KEY, createCache, type Cache } from './redis.js';
 
 let seq = 0;
@@ -780,7 +780,13 @@ const url = process.env['REDIS_URL'];
 const suite = url ? describe : describe.skip;
 
 suite('Redis 어댑터', () => {
-  const cache: Cache = createCache(url!);
+  // **suite 본문 최상위에서 클라이언트를 만들지 말 것.**
+  // describe.skip 도 콜백 본문은 평가한다. 여기서 createCache(url!) 를 부르면
+  // url 이 undefined 여도 ioredis 가 기본 localhost 로 붙으려 하고,
+  // "[ioredis] Unhandled error event" 가 뜬다 — skip 이 외부 연결을 막지 못한다.
+  // beforeAll 은 skip 된 suite 에서 실행되지 않으므로 여기가 안전한 자리다.
+  let cache: Cache;
+  beforeAll(() => { cache = createCache(url!); });
   afterAll(async () => { await cache.close(); });
 
   it('넣은 값을 읽는다', async () => {
@@ -880,7 +886,16 @@ docker run -d --name findit-redis-test -p 6379:6379 redis:7-alpine
 ```
 
 Run: `REDIS_URL=redis://localhost:6379 npx vitest run server/src/platform/redis.test.ts`
-Expected: PASS — 7 tests. `REDIS_URL` 없이는 2개만 돌고 나머지는 skip.
+Expected: PASS — 7 tests.
+
+**`REDIS_URL` 없이도 반드시 확인할 것:**
+
+```bash
+npx vitest run server/src/platform/redis.test.ts 2>&1 | grep -i ioredis
+```
+Expected: **아무 출력도 없어야 한다.** `[ioredis] Unhandled error event` 가 뜨면 skip 이
+외부 연결을 막지 못한 것이다. 통과/스킵 숫자만 보면 이 누수가 보이지 않는다 —
+`2 passed / 5 skipped` 로 정상처럼 나온다.
 
 - [ ] **Step 5: 커밋**
 
@@ -894,6 +909,11 @@ feat(server): Redis 어댑터 + 키 네임스페이스
 찾기 어렵다.
 
 setEx 는 ttlMs <= 0 을 거부한다. 즉시 사라지는 세션은 버그이지 설정이 아니다.
+
+통합 테스트의 클라이언트를 beforeAll 안에서 만든다. describe.skip 도 콜백
+본문은 평가하므로, suite 최상위에서 createCache(url!) 를 부르면 url 이
+undefined 여도 ioredis 가 기본 localhost 로 붙는다. 통과/스킵 숫자는 정상으로
+보이지만 [ioredis] Unhandled error event 가 뜬다.
 EOF
 )"
 ```
@@ -967,16 +987,20 @@ describe('비밀번호', () => {
 `server/src/identity/session.test.ts` — Redis 가 필요하다.
 
 ```typescript
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { TestClock } from '../platform/clock.js';
-import { createCache, KEY } from '../platform/redis.js';
+import { createCache, KEY, type Cache } from '../platform/redis.js';
 import { createGuestSession, createSession, revokeSession, verifySession } from './session.js';
 
 const url = process.env['REDIS_URL'];
 const suite = url ? describe : describe.skip;
 
 suite('세션', () => {
-  const cache = createCache(url!);
+  // Task 3 과 같은 이유로 suite 본문에서 만들지 않는다 — describe.skip 도
+  // 본문은 평가되고, ioredis 가 localhost 로 붙으려 한다.
+  let cache: Cache;
+  beforeAll(() => { cache = createCache(url!); });
+
   const clock = new TestClock(1_000_000);
   // Postgres 감사 기록은 여기서 검증하지 않는다 — 스텁을 넣는다.
   const audit = { issued: [] as string[], revoked: [] as string[] };
@@ -2403,7 +2427,8 @@ Task 2 에서 이미 한 번 걸렸다 — node-postgres 가 다중 문장 질�
 12. 뒤늦게 도착한 logout 이 새 로그인 세션을 무효화하지 않는다
 13. 라우트 의존성이 throw 해도 500 으로 응답이 끝난다 — 매달리지 않는다
 14. Plan 1·2 의 기존 259 테스트가 전부 그대로 통과한다
-15. `npm run typecheck` exit 0, CI 5개 체크 전부 통과
+15. `DATABASE_URL`·`REDIS_URL` 없이 돌렸을 때 통합 테스트가 **외부 연결을 시도하지 않는다** — `[ioredis]` 경고가 없어야 한다
+16. `npm run typecheck` exit 0, CI 5개 체크 전부 통과
 
 ## 이 계획이 남기는 것 (Plan 4 의 입력)
 

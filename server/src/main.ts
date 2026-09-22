@@ -1,12 +1,17 @@
+import { randomInt } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { loadConfig } from './platform/config.js';
 import { createLogger } from './platform/logger.js';
 import { SystemClock } from './platform/clock.js';
+import { createRng } from './platform/rng.js';
 import { createDb } from './platform/pg.js';
 import { createCache } from './platform/redis.js';
 import { loadPuzzles } from './content/loader.js';
+import { createContentUrls } from './content/urls.js';
 import { createApp } from './http/app.js';
+import { createMatchIndex } from './match/index.js';
+import { createRealtime } from './match/wiring.js';
 import {
   createAccount, createGuestRegistry, createSessionAudit, findAccountByEmail,
 } from './identity/repository.js';
@@ -42,7 +47,12 @@ async function main(): Promise<void> {
   const audit = createSessionAudit(db);
   const guests = createGuestRegistry(db);
   const sessionDeps = { cache, clock, audit, guests };
-  const knownPuzzleIds = new Set(puzzles.map((puzzle) => puzzle.id));
+  const contentUrls = createContentUrls({
+    secret: config.contentUrlSecret,
+    ttlMs: config.contentUrlTtlMs,
+    clock,
+  });
+  const matchIndex = createMatchIndex(cache);
 
   const app = createApp({
     clock,
@@ -50,7 +60,7 @@ async function main(): Promise<void> {
     config,
     puzzles,
     contentVersion: version,
-    resolvePuzzleId: async (matchId) => (knownPuzzleIds.has(matchId) ? matchId : null),
+    resolvePuzzleId: (matchId) => matchIndex.puzzleIdOf(matchId),
     identity: {
       register: async (email, password, nickname, characterId) =>
         createAccount(db, {
@@ -72,9 +82,23 @@ async function main(): Promise<void> {
     log.info('서버 기동', { port: config.port, nodeEnv: config.nodeEnv });
   });
 
+  const realtime = createRealtime({
+    db,
+    cache,
+    clock,
+    puzzles,
+    log,
+    rng: createRng(randomInt(0, 2 ** 32)),
+    urls: contentUrls,
+    queueKey: 'findit:queue:casual',
+    verify: (token) => verifySession(sessionDeps, token),
+  });
+  realtime.attach(server);
+
   const shutdown = async (signal: string): Promise<void> => {
     log.info('종료 신호 수신', { signal });
     server.close();
+    await realtime.close();
     await Promise.allSettled([db.close(), cache.close()]);
     process.exit(0);
   };

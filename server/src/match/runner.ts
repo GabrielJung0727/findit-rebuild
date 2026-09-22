@@ -46,6 +46,9 @@ export class MatchRunner {
 
   start(): void {
     this.reschedule(null);
+    for (const slot of SLOTS) {
+      if (this.current[slot].isAi) this.submit({ kind: 'READY', slot });
+    }
   }
 
   submit(event: BattleEvent): void {

@@ -171,6 +171,26 @@ describe('매치 러너 — 진행', () => {
   });
 });
 
+describe('매치 러너 — 준비', () => {
+  it('AI 슬롯은 start 만으로 ready 가 된다 — READY 를 보낼 클라이언트가 없다', () => {
+    const h = harness({ p2Ai: true });
+    h.runner.start();
+
+    expect(h.runner.state.p2.ready).toBe(true);
+    expect(h.runner.state.p1.ready).toBe(false);
+
+    h.runner.submit({ kind: 'READY', slot: 'p1' });
+    expect(typesOf(h.sent)).toContain('COUNTDOWN');
+  });
+
+  it('사람끼리면 start 가 아무도 ready 로 만들지 않는다', () => {
+    const h = harness({ p2Ai: false });
+    h.runner.start();
+    expect(h.runner.state.p1.ready).toBe(false);
+    expect(h.runner.state.p2.ready).toBe(false);
+  });
+});
+
 describe('매치 러너 — AI 구동', () => {
   it('AI 는 PLAYING 이 된 뒤에 스스로 rect 를 찾는다', () => {
     const h = harness({ p2Ai: true });

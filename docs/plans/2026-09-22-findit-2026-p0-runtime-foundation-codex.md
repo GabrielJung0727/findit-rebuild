@@ -1,6 +1,14 @@
 # FindIt 2026 P0 — 서버 런타임 기반 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **실행하는 에이전트에게:** Task 1 부터 순서대로 실행한다. 스텝은 체크박스(`- [ ]`)이니
+> 끝낼 때마다 표시한다. 특정 도구나 플러그인을 요구하지 않는다 — Node 24, npm, git,
+> Docker 면 된다.
+>
+> **각 Task 를 끝낼 때마다 그 Task 의 diff 를 독립적으로 검토하는 단계를 넣어라.**
+> 이유와 방법은 아래 "실행 방식" 을 읽을 것. 이 계획서를 쓴 사람은 앞선 두 계획서에서
+> 13번 틀렸고, 그중 다수가 계획서를 따라가는 것만으로는 잡히지 않았다.
+>
+> Claude Code 용 원본: [`docs/superpowers/plans/2026-09-22-findit-2026-p0-runtime-foundation.md`](../superpowers/plans/2026-09-22-findit-2026-p0-runtime-foundation.md) — 내용은 같고 실행 지침만 다르다. 한쪽을 고치면 다른 쪽도 고칠 것.
 
 **Goal:** `docker compose up` 으로 뜨고, 계정/게스트로 로그인하고, 퍼즐 콘텐츠를 **매치별 서명 URL**로 받아갈 수 있는 서버를 만든다.
 
@@ -8,9 +16,7 @@
 
 **Tech Stack:** Node 24 LTS · TypeScript 5.7 · PostgreSQL 16 · Redis 7 · Docker Compose · vitest 3
 
-**Spec:** [`docs/superpowers/specs/2026-09-18-findit-2026-p0-design.md`](../specs/2026-09-18-findit-2026-p0-design.md)
-
-**Codex/타 에이전트용 사본:** [`docs/plans/2026-09-22-findit-2026-p0-runtime-foundation-codex.md`](../../plans/2026-09-22-findit-2026-p0-runtime-foundation-codex.md) — 내용은 같고 실행 지침만 다르다. **한쪽을 고치면 다른 쪽도 고칠 것.**
+**Spec:** [`docs/superpowers/specs/2026-09-18-findit-2026-p0-design.md`](../superpowers/specs/2026-09-18-findit-2026-p0-design.md)
 
 **Depends on:** Plan 1 (`packages/protocol`, `content/`), Plan 2 (`server/src/{platform,rules,content,battle}`)
 
@@ -21,7 +27,7 @@
 - **게임 규칙 금지**: 이 계획은 규칙을 구현하지 않는다. 수치·판정이 필요하면 Plan 2 의 `rules/` · `battle/` 를 호출한다. `server/src/rules` 나 `server/src/battle` 을 **수정하지 않는다**.
 - **시계·난수**: Plan 2 의 `Clock` · `Rng` 포트를 그대로 쓴다. `Date.now()` · `Math.random()` 직접 호출 금지 — 기존 테스트가 이를 강제한다.
 - **비밀값**: 커넥션 문자열·서명 키는 환경변수로만. 소스·테스트·Compose 파일에 실값을 쓰지 않는다. Gitleaks 가 CI 에서 돈다.
-- **커밋**: Task당 1커밋. 한국어 본문 + Conventional Commits 접두어. 끝에 `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`.
+- **커밋**: Task당 1커밋. 한국어 본문 + Conventional Commits 접두어. 기여자 표기는 실행 환경 규칙을 따른다 — 이 계획서 예시에는 넣지 않았다.
 - **`legacy/`는 읽기 전용**: v1 스키마를 참조하되 수정하지 않는다.
 
 ---
@@ -39,6 +45,46 @@
 **원작 난입** (`GameActivity.java:611-616`) — 스펙 §3.6 의 보강 참조. 그 자리에서 상대만 교체되고 **정산은 일어나지 않는다**.
 
 **v1 테이블** — `members` `wallets` `inventories` `skills` `rankings` `login_logs` `images` `notices` `gifts` `iap_receipts` 외 8개. P0 가 필요로 하는 건 그중 소수다.
+
+---
+
+## 실행 방식 — 반드시 읽을 것
+
+이 계획서를 할 일 목록으로만 취급하면 안 된다. 근거가 있다.
+
+같은 사람이 쓴 앞선 계획서 둘(Plan 1 8태스크, Plan 2 10태스크)을 실행했을 때 **계획서 자체의
+결함이 13건** 나왔다. 유형이 반복됐다.
+
+| 유형 | 건수 | 대표 사례 |
+|---|---:|---|
+| 통과 불가능한 단언 | 5 | `[...counts].sort()` 가 숫자를 문자열로 정렬해 assertion 이 영원히 실패 |
+| 무력한 테스트 | 3 | "코인 독식" 을 주장하면서 `coinDelta` 를 검사하지 않음 |
+| 원작 미확인 | 2 | 콤보 정산을 누적으로 구현해 점수가 3배 부풀려짐 |
+| 설계 공백 | 3 | 예측 가능한 패치 URL, 무시된 이벤트가 40초 타이머를 삭제 |
+
+그중 하나는 Critical 이었다 — 검증기가 `in` 연산자를 써서 `{"t":"constructor"}` 한 통으로
+게이트웨이가 죽었다. 259개 테스트가 전부 통과하는 상태에서 변이 테스트가 잡았다.
+
+**계획서를 충실히 따를수록 계획서의 결함도 충실히 복제된다.**
+
+### 각 Task 마다 이렇게 한다
+
+1. 스텝을 순서대로 실행한다 (TDD: 실패 테스트 → 실패 확인 → 구현 → 통과 확인).
+2. 커밋한다.
+3. **커밋 직후, 그 Task 의 diff 만 놓고 다시 검토한다.** 가능하면 구현한 맥락과 분리해서.
+   앞선 계획에서 구현자가 자기 것에서 잡은 결함은 1건, 별도 검토가 잡은 것은 12건이었다.
+
+검토할 때 세 가지를 물어라.
+
+- **이 단언이 실행되지 않는 경로가 있는가.** 조건부 단언(`if (x) expect(...)`)은 전제가
+  틀리면 아무것도 검사하지 않는다. 앞선 계획에서 실제로 그랬다.
+- **구현이 틀렸다면 이 테스트가 실패하는가.** 통과하는 테스트가 곧 옳은 테스트는 아니다.
+- **계획서가 시킨 것이 실제로 맞는가.** 계획서는 스펙의 논증일 뿐이고, 구속력 있는 것은
+  `docs/superpowers/specs/2026-09-18-findit-2026-p0-design.md` 다.
+
+### 계획서가 틀렸다고 판단되면
+
+그대로 따르지 말고 멈춰서 보고하라. 앞선 두 계획에서 지적 13건 중 12건이 맞았다.
 
 ---
 
@@ -284,8 +330,6 @@ loadConfig 가 process.env 를 직접 읽지 않고 인자로 받는다. 테스�
 
 로거는 메시지와 필드를 분리해 받는다. 문자열 보간을 허용하면 비밀값이
 섞여 들어가는 경로가 생긴다.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 EOF
 )"
 ```
@@ -572,8 +616,6 @@ session_log 는 토큰 해시만 저장한다. v1 은 원문을 저장했는데(
 
 스키마는 재실행 가능하다 — 서버 부팅마다 적용되므로 두 번 돌아도
 실패하면 안 된다. 테스트가 이를 강제한다.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 EOF
 )"
 ```
@@ -733,8 +775,6 @@ feat(server): Redis 어댑터 + 키 네임스페이스
 찾기 어렵다.
 
 setEx 는 ttlMs <= 0 을 거부한다. 즉시 사라지는 세션은 버그이지 설정이 아니다.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 EOF
 )"
 ```
@@ -1094,8 +1134,6 @@ P1 요구사항이다.
 
 게스트는 Postgres 에 아무것도 만들지 않는다. 스펙상 승패·경험치·아이템이
 저장되지 않으므로 영속화할 것이 없다.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 EOF
 )"
 ```
@@ -1385,8 +1423,6 @@ Redis 사용 표시가 필요한데 이미지 로딩 재시도가 깨진다. 열
 
 매니페스트에서 rect 개수를 뺀다. 인덱스 규칙과 함께 알려지면 URL 전체가
 계산 가능해진다.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 EOF
 )"
 ```
@@ -1752,8 +1788,6 @@ feat(server): HTTP 라우트 — 헬스·인증·콘텐츠
 matchId 를 경로로 쓰기 전에 정규화한다. ../ 가 섞이면 contentDir 밖을 읽는다.
 
 응답에 password_hash 가 실리지 않는다. 계정 행을 그대로 직렬화하지 않는다.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 EOF
 )"
 ```
@@ -2021,11 +2055,57 @@ npm run content:all 을 돌려야 한다 (compose:up 스크립트가 함께 한�
 
 .env 는 gitignore 대상이고 .env.example 에는 실값을 넣지 않는다.
 CONTENT_URL_SECRET 은 openssl rand -hex 32 로 만들 것.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 EOF
 )"
 ```
+
+---
+
+## 주의해서 볼 곳 — 저자가 가장 확신이 낮은 지점
+
+이 계획서에서 내가 스스로 틀렸을 가능성이 높다고 보는 곳이다. **이 중 어느 것도 실제로
+실행해 보지 않았다** — Plan 1·2 와 달리 이 계획은 DB·Redis·Docker 를 다루는데 나는
+컨테이너를 띄워 검증하지 않았다.
+
+**1. Task 6 의 라우트 구현 (가장 위험)**
+
+Express 코드를 썼지만 한 번도 돌려보지 않았다. 특히:
+
+- `parseContentUrl(req.originalUrl)` — `originalUrl` 이 쿼리스트링을 포함한다고 가정했다.
+  마운트 경로가 있으면 달라질 수 있다.
+- `res.sendFile(full)` — Express 는 절대 경로를 요구한다. `resolve` 가 주므로 맞을 것이나
+  확인할 것.
+- `req.body ?? {}` — 본문 파서가 매치되지 않으면 Express 4 는 `undefined`, 5 는 `{}` 다.
+- `void (async () => {...})()` 패턴 — 비동기 핸들러의 예외가 Express 4 에서 잡히지 않는다.
+  에러 미들웨어가 필요할 수 있다.
+
+**2. Task 7 의 Docker 빌드**
+
+`COPY content ./content` 인데 `content/images/` 는 gitignore 대상이다. `npm run content:all`
+을 먼저 돌려야 하고(스크립트가 함께 하도록 했다), `.dockerignore` 가 있다면 `content/` 를
+제외하지 않는지 확인해야 한다. 빌드 컨텍스트가 저장소 루트라 `legacy/` 3,400여 파일과
+`node_modules` 까지 딸려갈 수 있다 — `.dockerignore` 가 필요할 것이다.
+
+**3. `resolvePuzzleId` 주입점**
+
+Plan 2 리듀서는 `ctx.urls.base(matchId)` 로 URL 을 만드는데 파일은 퍼즐 id 로 저장돼 있다.
+Plan 3 에는 매치가 없어 항등 함수를 넣었다. 이 설계가 Plan 4 에서 실제로 맞물리는지는
+검증되지 않았다.
+
+**4. 서명 URL 의 "일회용" 범위**
+
+TTL + 매치·인덱스 바인딩까지만 한다고 정했다. 진짜 1회 소비를 요구하는 해석도 가능하고,
+그 경우 설계가 달라진다. 스펙 §6.3 의 "일회용" 을 내가 좁게 읽은 것이다.
+
+**5. `session_log` 와 Redis 의 이중 기록**
+
+세션 발급이 Redis 쓰기 2회 + Postgres 쓰기 1회다. 셋 중 하나가 실패하면 상태가 어긋난다.
+트랜잭션으로 묶지 않았고, 어떻게 어긋나는지도 테스트하지 않았다.
+
+**6. 비밀번호 4~12자**
+
+원작 UI 제약을 그대로 따랐다. 2026 기준으로는 지나치게 짧다. bcrypt cost 12 로 보완했지만
+그것으로 충분한지는 판단이 필요하다.
 
 ---
 

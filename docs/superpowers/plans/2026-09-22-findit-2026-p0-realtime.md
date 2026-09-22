@@ -2078,6 +2078,8 @@ EOF
 
 **우선순위에서 난입은 두 번째다.** 큐에 사람이 기다리면 그쪽이 먼저다 — 기다리던 사람을 계속 기다리게 하면서 남의 AI 판을 깨는 것은 불공정하다.
 
+**순서도 계약이다 — 버리는 것이 먼저다.** `startMatch` 가 먼저 돌면 새 매치가 연결과 타이머를 잡은 뒤에도 이전 AI 러너가 잠시 살아 있다. 그 사이 이전 판의 outbound 가 같은 클라이언트로 흘러가 **새 판이 시작되자마자 지난 판의 진행이 섞여 보인다.** 결과만 보는 단언으로는 이 순서를 지킬 수 없으므로, 테스트 스텁이 호출 순서를 기록한다.
+
 - [ ] **Step 1: 실패하는 테스트 작성**
 
 `server/src/match/queue.test.ts` 의 `suite('매칭 큐', ...)` 안에 추가한다. `harness` 를 난입 포트까지 받도록 넓힌다:
@@ -2089,6 +2091,9 @@ EOF
     const scheduler = new TestScheduler();
     const started: { a: string; b: string | null }[] = [];
     const intruded: string[] = [];
+    // **호출 순서 기록.** 결과만 보면 abort 와 start 의 순서를 뒤집어도
+    // 통과한다. 순서는 결과가 아니라 기록으로만 잡힌다.
+    const events: string[] = [];
     const queueKey = `findit:test:queue:${process.pid}:${n}`;
     const maker = new Matchmaker({
       clock, scheduler, cache, queueKey,
@@ -2096,11 +2101,15 @@ EOF
       findIntrudable: opts.intrudable ?? (() => null),
       startMatch: async (a, b) => {
         started.push({ a: a.name, b: b?.name ?? null });
+        events.push(`start:${a.name}:${b?.name ?? 'ai'}`);
         return `match-${started.length}`;
       },
-      abortMatch: (victimKey: string) => { intruded.push(victimKey); },
+      abortMatch: (victimKey: string) => {
+        intruded.push(victimKey);
+        events.push(`abort:${victimKey}`);
+      },
     });
-    return { clock, scheduler, started, intruded, maker, queueKey };
+    return { clock, scheduler, started, intruded, events, maker, queueKey };
   }
 ```
 
@@ -2108,13 +2117,20 @@ EOF
 describe('난입 — 원작 GameActivity.java:611-616', () => {
   const victim: Waiting = { key: 'k-V', name: 'V', level: 10, conn: null };
 
-  it('AI 와 붙고 있는 사람이 있으면 난입해서 그 사람과 붙는다', async () => {
+  it('난입은 이전 판을 먼저 버리고 그다음에 새 매치를 연다', async () => {
     const h = harness({ intrudable: () => victim });
     await h.maker.join(player('I'));
 
     expect(h.started).toEqual([{ a: 'I', b: 'V' }]);
-    // 진행 중이던 AI 판은 중단돼야 한다.
     expect(h.intruded).toEqual(['k-V']);
+
+    // **순서가 계약이다.** 결과만 보면 뒤집어도 통과한다.
+    //
+    // startMatch 가 먼저 돌면 새 매치가 연결과 타이머를 잡은 뒤에도 이전
+    // AI 러너가 잠시 살아 있다. 그 사이 이전 판의 outbound(REVEAL,
+    // OPPONENT_PROGRESS…)가 같은 클라이언트로 흘러가, 새 판이 시작되자마자
+    // 지난 판의 진행이 섞여 보인다.
+    expect(h.events).toEqual(['abort:k-V', 'start:I:V']);
   });
 
   it('난입자는 큐에서 기다리지 않는다', async () => {
@@ -2223,14 +2239,15 @@ export interface MatchmakerPorts {
 - [ ] **Step 4: 통과 확인**
 
 Run: `REDIS_URL=redis://localhost:6379 npx vitest run server/src/match/ && npm run typecheck`
-Expected: PASS — 30 tests (26 + 난입 4).
+Expected: PASS — 32 tests (Task 4 의 28 + 난입 4).
 
 **변이로 확인할 것:**
 
 | 변이 | 깨지는 테스트 |
 |---|---|
 | 난입 블록을 큐 조회 **앞으로** 옮김 | `큐에 기다리는 사람이 있으면 난입보다 그쪽이 먼저다` |
-| `abortMatch` 호출 제거 | `AI 와 붙고 있는 사람이 있으면 난입해서 그 사람과 붙는다` |
+| `abortMatch` 호출 제거 | `난입은 이전 판을 먼저 버리고 그다음에 새 매치를 연다` |
+| `abortMatch` 와 `startMatch` 호출 순서를 맞바꿈 | 같은 테스트의 `h.events` 단언 |
 | 난입 후 `return` 을 빼고 대기 등록까지 진행 | `난입자는 큐에서 기다리지 않는다` |
 
 - [ ] **Step 5: 커밋**
@@ -2252,6 +2269,12 @@ feat(server): 난입 — 진행 중인 AI 판을 가로챈다
 
 우선순위에서 난입은 두 번째다. 큐에 기다리는 사람이 있으면 그쪽이 먼저다.
 기다리던 사람을 계속 기다리게 하면서 남의 AI 판을 깨는 것은 불공정하다.
+
+버리는 것이 새 매치보다 먼저다. startMatch 가 먼저 돌면 새 매치가 연결과
+타이머를 잡은 뒤에도 이전 AI 러너가 잠시 살아 있고, 그 사이 이전 판의
+outbound 가 같은 클라이언트로 흘러가 새 판이 시작되자마자 지난 판의 진행이
+섞여 보인다. 결과만 보는 단언으로는 이 순서를 지킬 수 없어 테스트 스텁이
+호출 순서를 기록한다.
 
 클라이언트 계약을 하나 정한다. 프로토콜에 "중단" 메시지가 없으므로
 MATCH_FOUND 가 진행 중인 매치를 덮어쓴다. 원작이 결과 화면을 건너뛰고

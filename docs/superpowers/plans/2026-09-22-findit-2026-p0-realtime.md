@@ -2142,13 +2142,25 @@ describe('난입 — 원작 GameActivity.java:611-616', () => {
   });
 
   it('큐에 기다리는 사람이 있으면 난입보다 그쪽이 먼저다', async () => {
-    const h = harness({ intrudable: () => victim });
-    await h.maker.join(player('A'));   // A 가 먼저 기다린다
+    // **시나리오를 시간 순서대로 세워야 한다.** intrudable 이 언제나 victim 을
+    // 돌려주면 A 조차 큐에 서지 못하고 곧바로 난입해 버려서, 검사하려던
+    // 상황(큐에 사람이 있는 채로 누가 들어옴)이 아예 만들어지지 않는다.
+    //
+    // A 가 들어올 때는 AI 판이 없고, B 가 들어올 때는 V 가 AI 와 붙고 있다.
+    let aiMatchExists = false;
+    const h = harness({ intrudable: () => (aiMatchExists ? victim : null) });
+
+    await h.maker.join(player('A'));
+    expect(await h.maker.waitingCount()).toBe(1);   // A 가 실제로 기다리는 중
+
+    aiMatchExists = true;                            // 이제 V 가 AI 와 붙고 있다
     await h.maker.join(player('B'));
 
     // 기다리던 A 를 계속 기다리게 하면서 남의 AI 판을 깨면 안 된다.
     expect(h.started).toEqual([{ a: 'B', b: 'A' }]);
     expect(h.intruded).toEqual([]);
+    // 난입을 큐 조회보다 앞으로 옮기면 여기가 ['abort:k-V', 'start:B:V'] 가 된다.
+    expect(h.events).toEqual(['start:B:A']);
   });
 
   it('난입 대상이 없으면 평소대로 큐에 들어간다', async () => {

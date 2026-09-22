@@ -2136,6 +2136,7 @@ import { TestClock } from '../platform/clock.js';
 import { createApp } from './app.js';
 import { createContentUrls, parseContentUrl } from '../content/urls.js';
 import { loadPuzzles } from '../content/loader.js';
+import type { Principal } from '../identity/types.js';
 
 const secret = 's'.repeat(32);
 const clock = new TestClock(1_000_000);
@@ -2144,7 +2145,11 @@ const puzzles = loadPuzzles(resolve(contentDir, 'puzzles'));
 
 // identity 는 인메모리 스텁. 여기서 검증할 것은 HTTP 계약이지 DB 가 아니다.
 function stubDeps() {
-  const sessions = new Map<string, { kind: 'account' | 'guest'; id: string }>();
+  // **Principal 그대로 담는다.** AppDeps.identity.verify 가
+  // Promise<Principal | null> 이므로 { kind, id } 같은 편의 모양을 쓰면
+  // createApp(stubDeps()) 가 typecheck 에서 깨진다. 계정은 accountId,
+  // 게스트는 guestId 로 필드 이름이 다르다.
+  const sessions = new Map<string, Principal>();
   const logged: string[] = [];
   // **호출 기록을 남긴다.** 상태 코드만 보는 테스트는 "순서" 계약을 지키지
   // 못한다 — 조회를 먼저 하고 나중에 거부해도 코드는 같다.
@@ -2173,12 +2178,12 @@ function stubDeps() {
       login: async (email: string, password: string) => {
         if (password !== 'good') return null;
         const token = `t-${email}`;
-        sessions.set(token, { kind: 'account', id: `acc-${email}` });
+        sessions.set(token, { kind: 'account', accountId: `acc-${email}` });
         return { token };
       },
       guest: async () => {
         const token = `g-${sessions.size}`;
-        sessions.set(token, { kind: 'guest', id: token });
+        sessions.set(token, { kind: 'guest', guestId: token });
         return { token };
       },
       logout: async (token: string) => { revoked.push(token); sessions.delete(token); },
@@ -2578,7 +2583,9 @@ export function createApp(deps: AppDeps): express.Express {
 - [ ] **Step 4: 통과 확인**
 
 Run: `npx vitest run server/src/http/ && npm run typecheck`
-Expected: PASS — **25 tests.**
+Expected: PASS — **25 tests**, 그리고 `npm run typecheck` exit 0.
+
+> 테스트 스텁도 타입 검사를 받는다. `AppDeps.identity.verify` 는 `Promise<Principal | null>` 이므로 스텁의 세션 저장 모양이 `Principal` 과 정확히 맞아야 한다 — 계정은 `accountId`, 게스트는 `guestId` 다. 편의상 `{ kind, id }` 로 두면 `createApp(stubDeps())` 가 깨진다.
 
 특히 다음이 통과해야 한다. 전부 결함을 실제로 잡는 검사다:
 - `401 응답이 계정 존재 여부를 흘리지 않는다`

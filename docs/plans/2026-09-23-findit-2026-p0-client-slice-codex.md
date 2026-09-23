@@ -2122,17 +2122,28 @@ void main() {
     );
   }
 
-  testWidgets('START 의 이미지를 한 번만 받아 온다', (tester) async {
+  testWidgets('이미지가 도착하기 전에 apply 가 여러 번 들어와도 한 번만 받는다', (tester) async {
     final scene = build();
     await tester.pumpWidget(MaterialApp(home: GameWidget(game: scene)));
     await tester.pump();
 
+    // **apply 사이에 pump 를 끼우지 말 것.** 끼우면 이미지가 도착해 _base 가
+    // 차고, 그 다음 apply 는 `_base == null` 검사만으로 막힌다 — _inFlight 를
+    // 지워도 통과한다. _inFlight 가 지키는 구간은 **이미지가 오기 전에
+    // apply 가 연달아 들어오는 창**이다.
+    //
+    // 실제로도 그 창이 열린다. 서버 프레임이 올 때마다 setState → rebuild →
+    // didUpdateWidget → apply 가 도는데, 네트워크 이미지는 그보다 훨씬 늦게
+    // 도착한다. 프레임마다 다시 받으면 네트워크가 터지고 화면이 깜빡인다.
+    scene.apply(_playing());
+    scene.apply(_playing());
     scene.apply(_playing());
     await tester.pump();
-    scene.apply(_playing());   // 같은 상태가 또 와도
+
+    // 도착한 뒤에 또 들어와도 다시 받지 않는다 (_base 검사가 그 몫이다).
+    scene.apply(_playing());
     await tester.pump();
 
-    // 프레임마다 다시 받으면 네트워크가 터지고 화면이 깜빡인다.
     expect(loaded.where((u) => u == '/c/m1/base'), hasLength(1));
   });
 
@@ -2214,21 +2225,23 @@ void main() {
     await tester.pump();
 
     // 난입: 새 matchId 와 새 imageUrl
-    scene.apply(MatchState(
+    // prefer_const_constructors 가 켜져 있다. 인자가 전부 상수인 곳은
+    // const 로 써야 analyze 가 조용하다.
+    scene.apply(const MatchState(
       phase: MatchPhase.playing, matchId: 'm2',
-      imageUrl: '/c/m2/base', imageSize: const Size(640, 720),
+      imageUrl: '/c/m2/base', imageSize: Size(640, 720),
       targetCount: 5, durationMs: 40000,
     ));
     await tester.pump();
 
     expect(loaded, contains('/c/m2/base'));
     // 새 매치의 패치는 새 URL 로 온다.
-    scene.apply(MatchState(
+    scene.apply(const MatchState(
       phase: MatchPhase.playing, matchId: 'm2',
-      imageUrl: '/c/m2/base', imageSize: const Size(640, 720),
+      imageUrl: '/c/m2/base', imageSize: Size(640, 720),
       targetCount: 5, durationMs: 40000,
       found: [FoundRect(
-        index: 1, rect: const Rect.fromLTWH(10, 20, 130, 130),
+        index: 1, rect: Rect.fromLTWH(10, 20, 130, 130),
         patchUrl: '/c/m2/patch/1', mine: true)],
     ));
     await tester.pump();
@@ -2486,7 +2499,9 @@ Expected: PASS — 이번 6 (누적 55).
 
 | 변이 | 깨지는 테스트 |
 |---|---|
-| `_inFlight` 검사 제거 | `START 의 이미지를 한 번만 받아 온다` |
+| `_inFlight` 검사 제거 | `이미지가 도착하기 전에 apply 가 여러 번 들어와도 한 번만 받는다` |
+
+> **`apply` 사이에 `pump` 를 끼우면 이 변이가 잡히지 않는다.** `pump` 가 이미지를 도착시켜 `_base` 를 채우므로, 그다음 `apply` 는 `_base == null` 검사만으로 막힌다. `_inFlight` 가 지키는 것은 **이미지가 오기 전의 창**이고, 그 창은 실제로도 열린다 — 서버 프레임마다 rebuild → `apply` 가 도는데 네트워크 이미지는 훨씬 늦게 온다.
 | `onTapDown` 이 `event.localPosition` 을 그대로 전달 | `탭이 이미지 좌표로 올라간다` |
 | `toImage` 의 `null` 검사 제거 후 강제 변환 | `레터박스 바깥 탭은 올라가지 않는다` |
 | `matchId` 변화 시 `_patches.clear()` 제거 | `매치가 바뀌면 이전 판의 그림이 남지 않는다` |

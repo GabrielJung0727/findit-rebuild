@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flame/game.dart';
 import 'package:flutter/material.dart';
@@ -9,6 +10,16 @@ Future<ui.Image> _blank() {
   final recorder = ui.PictureRecorder();
   Canvas(recorder).drawRect(const Rect.fromLTWH(0, 0, 1, 1), Paint());
   return recorder.endRecording().toImage(1, 1);
+}
+
+const _baseColor = Color(0xFFFF0000);
+const _patchColor = Color(0xFF0000FF);
+
+Future<ui.Image> _solid(int w, int h, Color color) async {
+  final recorder = ui.PictureRecorder();
+  Canvas(recorder).drawRect(
+      Rect.fromLTWH(0, 0, w.toDouble(), h.toDouble()), Paint()..color = color);
+  return recorder.endRecording().toImage(w, h);
 }
 
 MatchState _playing({List<FoundRect> found = const []}) => MatchState(
@@ -133,6 +144,57 @@ void main() {
 
     // 서버에 쓰레기 탭을 보내 스스로 2초 잠기게 만들 이유가 없다.
     expect(taps, isEmpty);
+  });
+
+  testWidgets('패치가 REVEAL 의 좌표에 그려진다 — 화면 픽셀로 확인', (tester) async {
+    // 탭 좌표가 맞아도 그림이 밀려 있을 수 있다. 나머지 테스트는 어디를
+    // 눌렀는지와 무엇을 받아 왔는지만 본다. Flame 의 카메라가 캔버스를
+    // 변환하면 toScreen 이 계산한 자리와 실제로 그려지는 자리가 갈리는데,
+    // 그건 픽셀을 읽어야 안다.
+    late final ui.Image baseImage;
+    late final ui.Image patchImage;
+    await tester.runAsync(() async {
+      baseImage = await _solid(640, 720, _baseColor);
+      patchImage = await _solid(130, 130, _patchColor);
+    });
+
+    final scene = BattleScene(
+      loadImage: (url) async => url.contains('patch') ? patchImage : baseImage,
+      onTapImage: (_, _) {},
+    );
+    await tester.pumpWidget(MaterialApp(home: GameWidget(game: scene)));
+    await tester.pump();
+
+    scene.apply(const MatchState(
+      phase: MatchPhase.playing, matchId: 'm1',
+      imageUrl: '/c/m1/base', imageSize: Size(640, 720),
+      targetCount: 5, durationMs: 40000,
+      found: [FoundRect(
+        index: 0, rect: Rect.fromLTWH(187, 340, 130, 130),
+        patchUrl: '/c/m1/patch/0', mine: true)],
+    ));
+    await tester.pump();
+    await tester.pump();
+
+    late final ByteData pixels;
+    await tester.runAsync(() async {
+      final recorder = ui.PictureRecorder();
+      scene.render(Canvas(recorder));
+      final image = await recorder.endRecording().toImage(800, 600);
+      pixels = (await image.toByteData())!;
+    });
+    Color at(int x, int y) {
+      final i = (y * 800 + x) * 4;
+      return Color.fromARGB(pixels.getUint8(i + 3), pixels.getUint8(i),
+          pixels.getUint8(i + 1), pixels.getUint8(i + 2));
+    }
+
+    // 800x600 에 640x720 contain → scale 0.8333, offsetX 133.33, offsetY 0.
+    // rect (187,340,130,130) → 화면 (289.2, 283.3, 108.3, 108.3).
+    expect(at(343, 337), _patchColor, reason: '패치가 그 자리에 없다');
+    expect(at(200, 337), _baseColor, reason: '패치가 왼쪽으로 번졌다');
+    expect(at(343, 200), _baseColor, reason: '패치가 위로 번졌다');
+    expect(at(50, 300).a, 0.0, reason: '레터박스에 무언가 그려졌다');
   });
 
   testWidgets('매치가 바뀌면 이전 판의 그림이 남지 않는다 — 난입', (tester) async {

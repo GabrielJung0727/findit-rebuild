@@ -150,7 +150,7 @@ describe('종료 — 5 개 선취', () => {
     const result = finalTargetTap(state, 'p1', T0 + 600);
     const ends = result.outbound.filter((outbound) => outbound.type === 'END');
     expect(result.outbound.map((outbound) => outbound.type)).toEqual([
-      'REVEAL', 'OPPONENT_PROGRESS', 'END', 'END',
+      'REVEAL', 'REVEAL', 'OPPONENT_PROGRESS', 'END', 'END',
     ]);
     expect(ends).toHaveLength(2);
     expect(ends.find((outbound) => outbound.to === 'p1')!.payload).toMatchObject({

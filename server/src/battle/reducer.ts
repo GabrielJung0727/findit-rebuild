@@ -231,20 +231,31 @@ function onTap(
   };
   next[other] = { ...next[other], combo: 0 };
 
+  // REVEAL 은 받는 사람 기준으로 by 를 쓴다. 이 프로토콜의 다른 s2c 가
+  // 이미 그렇다 — END.myFound, OPPONENT_PROGRESS.found. 절대 슬롯('p1')을
+  // 보내면 클라이언트가 자기 슬롯을 알 방법이 없어(MATCH_FOUND 도 슬롯을
+  // 싣지 않는다) 내가 찾은 것도 상대 것으로 그린다.
+  //
+  // 값이 수신자마다 다르므로 to: 'both' 하나로는 만들 수 없다.
+  //
+  // URL 은 한 번만 만들어 둘이 나눠 쓴다. 스펙 §6.3 은 패치 URL 을
+  // "일회용" 으로 규정했고, Plan 3 은 그것을 TTL + 매치·인덱스 바인딩으로
+  // 좁히면서 "엄격한 1회 소비는 P1 에서 재검토" 라고 적어 뒀다. P1 이 Redis
+  // 사용 표시로 진짜 1회 소비를 구현하면, 한 rect 에 URL 을 두 번 만드는
+  // 코드는 토큰을 둘 태우고 먼저 것을 무효화할 수도 있다.
+  const patchUrl = ctx.urls.patch(next.matchId, hit);
+  const revealPayload = {
+    index: hit,
+    x: rect.x,
+    y: rect.y,
+    w: rect.w,
+    h: rect.h,
+    patchUrl,
+  };
+
   const revealOutbound: Outbound[] = [
-    {
-      to: 'both',
-      type: 'REVEAL',
-      payload: {
-        by: slot,
-        index: hit,
-        x: rect.x,
-        y: rect.y,
-        w: rect.w,
-        h: rect.h,
-        patchUrl: ctx.urls.patch(next.matchId, hit),
-      },
-    },
+    { to: slot, type: 'REVEAL', payload: { by: 'me', ...revealPayload } },
+    { to: other, type: 'REVEAL', payload: { by: 'opponent', ...revealPayload } },
     { to: other, type: 'OPPONENT_PROGRESS', payload: { found: next[slot].found.length } },
   ];
 

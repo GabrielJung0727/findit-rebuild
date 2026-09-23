@@ -35,6 +35,13 @@ app/build/
 app/.dart_tool/
 app/ios/
 app/android/
+# macos·web 도 같은 이유로 넣지 않는다. P0 의 타깃은 iOS·Android 이고
+# (스펙 §2), 플랫폼 폴더는 Plan 6 의 빌드 파이프라인이 서명·번들 ID 설정과
+# 함께 넣는다. flutter create 가 만들어 두더라도 커밋하지 않는다.
+app/macos/
+app/web/
+app/linux/
+app/windows/
 app/.flutter-plugins-dependencies
 
 # Node

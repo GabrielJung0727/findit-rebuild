@@ -1,0 +1,29 @@
+name: findit
+description: FindIt 2026 클라이언트
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ^3.12.0
+  flutter: ">=3.44.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flame: ^1.38.2
+  flutter_riverpod: ^3.4.3
+  web_socket_channel: ^3.0.3
+  http: ^1.6.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  # 이 두 디렉터리는 npm run content:all 이 만든다 (gitignore 대상).
+  # 없는 상태로 pub get 하면 여기서 죽는다.
+  assets:
+    - assets/legacy/
+    - assets/audio/

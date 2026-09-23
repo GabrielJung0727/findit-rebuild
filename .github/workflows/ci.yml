@@ -119,3 +119,48 @@ jobs:
               process.exit(1);
             }
           '
+
+  flutter:
+    name: analyze + test (flutter)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: install
+        run: npm ci
+
+      # app/assets/legacy 와 app/assets/audio 는 gitignore 대상 생성물이다.
+      # pubspec.yaml 이 선언한 디렉터리가 없으면 pub get 이 거기서 죽는다.
+      - name: 에셋 생성
+        run: npm run content:all
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.0'
+          channel: stable
+          cache: true
+
+      - name: pub get
+        working-directory: app
+        run: flutter pub get
+
+      # 생성물이 스키마와 어긋나지 않았는지. 재생성해서 diff 가 나면 실패.
+      - name: 프로토콜 드리프트
+        run: |
+          npm run protocol:dart
+          git diff --exit-code app/lib/domain/protocol.g.dart
+
+      - name: analyze
+        working-directory: app
+        run: flutter analyze
+
+      - name: test
+        working-directory: app
+        run: flutter test

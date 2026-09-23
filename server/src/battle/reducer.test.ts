@@ -150,16 +150,62 @@ describe('READY → COUNTDOWN → PLAYING', () => {
 });
 
 describe('TAP — 히트', () => {
-  it('REVEAL 을 양쪽에 보내고 콤보를 올린다', () => {
+  it('REVEAL 을 양쪽에 보내되 by 는 받는 사람 기준이다', () => {
     const state = playing();
     const { x, y } = centerOfUnrevealed(state);
     const result = reduce(state, { kind: 'TAP', slot: 'p1', x, y }, ctx(COUNTDOWN_MS + 500));
-    const reveal = result.outbound.find((outbound) => outbound.type === 'REVEAL')!;
-    expect(reveal.to).toBe('both');
-    expect(reveal.payload).toMatchObject({ by: 'p1' });
+
+    const reveals = result.outbound.filter((outbound) => outbound.type === 'REVEAL');
+    expect(reveals).toHaveLength(2);
+
+    const mine = reveals.find((r) => r.to === 'p1')!;
+    const theirs = reveals.find((r) => r.to === 'p2')!;
+    expect(mine.payload).toMatchObject({ by: 'me' });
+    expect(theirs.payload).toMatchObject({ by: 'opponent' });
+
+    // 좌표는 양쪽이 같아야 한다 — 같은 rect 다.
+    // patchUrl 을 한 번만 만드는지는 아래 별도 테스트가 호출 수로 본다.
+    // testUrls.patch 가 순수 함수라 결과 비교로는 구분되지 않는다.
+    expect(theirs.payload['index']).toBe(mine.payload['index']);
+    expect(theirs.payload['patchUrl']).toBe(mine.payload['patchUrl']);
+
     expect(result.state.p1.found).toHaveLength(1);
     expect(result.state.p1.combo).toBe(1);
     expect(result.state.revealed).toHaveLength(1);
+  });
+
+  it('패치 URL 을 한 번만 만들어 양쪽에 같은 것을 준다', () => {
+    const state = playing();
+    const { x, y } = centerOfUnrevealed(state);
+
+    let patchCalls = 0;
+    const counting: ReduceContext = {
+      ...ctx(COUNTDOWN_MS + 500),
+      urls: {
+        base: testUrls.base,
+        patch: (matchId: string, rectIndex: number) => {
+          patchCalls += 1;
+          return testUrls.patch(matchId, rectIndex);
+        },
+      },
+    };
+
+    const result = reduce(state, { kind: 'TAP', slot: 'p1', x, y }, counting);
+    const reveals = result.outbound.filter((outbound) => outbound.type === 'REVEAL');
+
+    expect(reveals).toHaveLength(2);
+    expect(patchCalls).toBe(1);
+    expect(reveals[1]!.payload['patchUrl']).toBe(reveals[0]!.payload['patchUrl']);
+  });
+
+  it('p2 가 찾으면 p2 에게 me 가 간다 — 슬롯이 고정돼 있지 않다', () => {
+    const state = playing();
+    const { x, y } = centerOfUnrevealed(state);
+    const result = reduce(state, { kind: 'TAP', slot: 'p2', x, y }, ctx(COUNTDOWN_MS + 500));
+
+    const reveals = result.outbound.filter((outbound) => outbound.type === 'REVEAL');
+    expect(reveals.find((r) => r.to === 'p2')!.payload).toMatchObject({ by: 'me' });
+    expect(reveals.find((r) => r.to === 'p1')!.payload).toMatchObject({ by: 'opponent' });
   });
 
   it('OPPONENT_PROGRESS 로 상대 진행도를 알린다', () => {

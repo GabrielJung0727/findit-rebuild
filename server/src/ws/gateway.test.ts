@@ -219,4 +219,30 @@ describe('매치 이벤트 전달', () => {
     expect(await next(ws)).toMatchObject({ seq: 1 });
     ws.close();
   });
+
+  it('AUTH 직후에 온 프레임이 인증을 기다린다 — 프레임은 순서대로 처리된다', async () => {
+    const slow = await start({
+      verify: async (token: string) => {
+        // 실제 verify 는 Redis 를 때린다. 한 틱만 지연돼도 창이 열린다.
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        return token === 'good' ? { kind: 'account', accountId: 'acc-1' } : null;
+      },
+    });
+
+    try {
+      const ws = await open(slow.url);
+      // 클라이언트가 하는 그대로 — AUTH 를 보내고 곧바로 QUEUE_JOIN.
+      ws.send(frame('AUTH', { token: 'good' }));
+      ws.send(frame('QUEUE_JOIN', { mode: 'casual' }));
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // 동시에 처리하면 QUEUE_JOIN 이 principal === null 을 보고 연결을
+      // 4401 로 끊는다. 인증된 클라이언트가 문 앞에서 쫓겨난다.
+      expect(slow.joins).toEqual(['casual']);
+      expect(ws.readyState).toBe(ws.OPEN);
+      ws.close();
+    } finally {
+      await slow.stop();
+    }
+  });
 });

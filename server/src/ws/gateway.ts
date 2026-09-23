@@ -55,14 +55,26 @@ export function attachGateway(
     };
     conns.add(conn);
 
+    // 연결마다 프레임을 한 줄로 세운다.
+    //
+    // handle 은 비동기이고 AUTH 분기는 verify 에서 Redis 를 때린다. 그대로
+    // 두면 AUTH 가 끝나기 전에 다음 프레임이 처리되어, 인증된 클라이언트가
+    // unauthorized 로 끊긴다. WebSocket 프레임은 순서가 보장되므로 처리도
+    // 그 순서를 지켜야 한다 — AUTH 만의 문제가 아니라 await 를 가진 어떤
+    // 분기든 같은 창을 연다.
+    let inOrder: Promise<void> = Promise.resolve();
+
     socket.on('message', (raw: unknown) => {
-      void handle(String(raw)).catch((error: unknown) => {
-        deps.log.error('게이트웨이 처리 실패', {
-          conn: session.id,
-          error: error instanceof Error ? error.message : String(error),
+      const text = String(raw);
+      inOrder = inOrder
+        .then(() => handle(text))
+        .catch((error: unknown) => {
+          deps.log.error('게이트웨이 처리 실패', {
+            conn: session.id,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          conn.close('internal', '처리 중 오류');
         });
-        conn.close('internal', '처리 중 오류');
-      });
     });
 
     socket.on('close', () => {

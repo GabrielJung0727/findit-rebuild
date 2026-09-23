@@ -1361,7 +1361,9 @@ EOF
 ### Task 5: 서버 — `REVEAL.by` 를 수신자 기준으로
 
 **Files:**
-- Modify: `server/src/battle/reducer.ts`, `server/src/battle/reducer.test.ts`
+- Modify: `server/src/battle/reducer.ts`, `server/src/battle/reducer.test.ts`, `server/src/battle/skills-and-end.test.ts`
+
+> **`REVEAL` 을 둘로 나누면 outbound 순서를 단언하는 다른 테스트가 깨진다.** `skills-and-end.test.ts` 의 선취 종료 테스트가 `['REVEAL', 'OPPONENT_PROGRESS', 'END', 'END']` 를 기대한다. `['REVEAL', 'REVEAL', 'OPPONENT_PROGRESS', 'END', 'END']` 로 고친다. `END` 의 각자 관점 단언은 그대로 둔다.
 
 **Interfaces:**
 - Produces: `REVEAL.by` 가 `'me' | 'opponent'` 를 갖는다 (이전: `'p1' | 'p2'`)
@@ -1485,7 +1487,7 @@ DATABASE_URL=postgres://findit:findit@localhost:5432/findit \
 REDIS_URL=redis://localhost:6379 \
 npm test && npm run typecheck
 ```
-Expected: PASS — 434 → **436** tests, skip 0 (REVEAL 테스트 2개 + 호출 수 1개, 기존 1개 대체).
+Expected: PASS — 434 → **436** tests, skip 0 (REVEAL 테스트 2개 + 호출 수 1개, 기존 1개 대체). `skills-and-end.test.ts` 의 순서 단언도 함께 고쳐야 한다.
 
 **변이로 확인할 것:**
 
@@ -1766,20 +1768,47 @@ void main() {
       await c.dispose();
     });
 
-    test('dispose 뒤에는 다시 연결하지 않는다', () async {
+    test('dispose 가 소켓을 닫는다', () async {
       final c = build();
       await c.connect();
       await c.dispose();
 
-      // dispose 가 소켓을 닫았는지 먼저 본다. 안 닫혔다면 아래 단언이
-      // 통과해도 의미가 없다 — 끊길 일이 없었을 뿐이다.
+      // 이것만으로는 _disposed 가드를 검증하지 못한다. 구독이 이미 취소돼
+      // 끊김이 아무 데도 닿지 않기 때문이다 — 아래 테스트가 그 몫이다.
       expect(made.first.closed, isTrue);
+    });
+
+    test('재연결을 기다리는 도중에 dispose 하면 다시 연결하지 않는다', () async {
+      // **가드가 실제로 지키는 상황은 이것이다.** 소켓이 끊기면 _reconnect 가
+      // 시작되어 백오프만큼 기다린다. 그 사이에 dispose 가 오면, 가드가 없는
+      // 구현은 잠에서 깨어나 새 소켓을 만들고 아무도 그것을 닫지 않는다 —
+      // 앱을 떠난 뒤에도 영원히 재연결을 반복한다.
+      //
+      // dispose 를 먼저 하고 drop 하는 순서로는 잡히지 않는다. dispose 가
+      // 구독을 취소하고 소켓을 닫으므로 끊김이 아무 데도 닿지 않아, 가드가
+      // 있든 없든 재연결이 시작되지 않는다.
+      final gate = Completer<void>();
+      made = [];
+      waited = [];
+      final c = WsClient(
+        url: Uri.parse('ws://x'),
+        token: 't-1',
+        connect: (_) async { final s = FakeSocket(); made.add(s); return s; },
+        sleep: (d) { waited.add(d); return gate.future; },   // 테스트가 풀어 준다
+      );
+      await c.connect();
+      expect(made, hasLength(1));
 
       made.first.drop();
-      for (var spin = 0; spin < 20; spin += 1) {
-        await Future<void>.delayed(Duration.zero);
-      }
-      expect(made.length, 1);
+      await pumpEventQueue();
+      // 정말 기다리는 중인지 먼저 확인한다. 아니라면 아래가 통과해도 의미가 없다.
+      expect(waited, hasLength(1));
+
+      await c.dispose();
+      gate.complete();
+      await pumpEventQueue();
+
+      expect(made, hasLength(1));
     });
   });
 }
@@ -1870,6 +1899,10 @@ class WsClient {
   MatchState get state => _state;
 
   Future<void> connect() async {
+    // **닫힌 뒤 연결을 막는 유일한 자리다.** 재연결이 백오프를 기다리는
+    // 동안 dispose 가 오면, 잠에서 깨어난 _reconnect 가 여기로 들어온다.
+    // 이 검사가 없으면 아무도 닫지 않을 소켓이 만들어지고 영원히 재연결을
+    // 반복한다.
     if (_disposed) return;
     final socket = await _connect(url);
     _socket = socket;
@@ -1925,8 +1958,6 @@ class WsClient {
   }
 
   Future<void> _reconnect() async {
-    if (_disposed) return;
-
     await _sub?.cancel();
     _sub = null;
     _socket = null;
@@ -1946,7 +1977,9 @@ class WsClient {
     final doubled = _backoff * 2;
     _backoff = doubled > _backoffMax ? _backoffMax : doubled;
 
-    if (_disposed) return;
+    // **여기서 _disposed 를 또 검사하지 않는다.** connect() 가 이미 본다.
+    // 가드를 여러 군데 두면 어느 하나를 지워도 다른 쪽이 막아, 회귀를 잡을
+    // 수 있는 테스트를 쓸 수 없게 된다.
     try {
       await connect();
     } on Object {
@@ -1960,7 +1993,7 @@ class WsClient {
 - [ ] **Step 4: 통과 확인**
 
 Run: `cd app && flutter test && flutter analyze`
-Expected: PASS — 이번 9 (누적 48).
+Expected: PASS — 이번 10 (누적 49).
 
 **변이로 확인할 것:**
 
@@ -1972,7 +2005,12 @@ Expected: PASS — 이번 9 (누적 48).
 | `_backoff` 를 늘리지 않음(항상 최소) | `백오프가 두 배씩 늘고 상한에서 멈춘다` |
 | `connect()` 에서 `_backoff` 를 초기화 | `백오프가 두 배씩 늘고 상한에서 멈춘다` |
 | `_onFrame` 의 `_backoff` 초기화 제거 | `프레임을 한 번 받으면 백오프가 처음으로 되돌아간다` |
-| `dispose` 의 `_disposed` 검사 제거 | `dispose 뒤에는 다시 연결하지 않는다` |
+| `connect()` 의 `_disposed` 검사 제거 | `재연결을 기다리는 도중에 dispose 하면 다시 연결하지 않는다` |
+| `dispose` 가 소켓을 닫지 않음 | `dispose 가 소켓을 닫는다` |
+
+> **가드를 한 군데에만 둔다.** `connect()` · `_reconnect` 진입 · 백오프 직후, 셋에 나눠 두면 어느 하나를 지워도 나머지가 막아 **어떤 단일 변이로도 잡히지 않는다.** 실제로 그렇게 써 놓고 한 번 당했다. `_reconnect` 진입 검사는 애초에 죽은 코드다 — `dispose` 가 구독을 취소하므로 `onError`·`onDone` 이 오지 않는다.
+>
+> **`dispose` 를 먼저 하고 끊는 순서로는 가드가 잡히지 않는다.** `dispose` 가 구독을 취소하고 소켓을 닫으므로 그 뒤의 끊김은 아무 데도 닿지 않는다 — 가드가 있든 없든 재연결이 시작되지 않는다. 가드가 실제로 지키는 것은 **재연결이 백오프를 기다리는 동안 `dispose` 가 오는** 경우다. 그때 가드가 없으면 잠에서 깨어나 새 소켓을 만들고, 아무도 그것을 닫지 않는다.
 
 - [ ] **Step 5: 커밋**
 
@@ -1980,6 +2018,11 @@ Expected: PASS — 이번 9 (누적 48).
 git add app/lib/net/socket.dart app/lib/net/ws_client.dart app/test/net/ws_client_test.dart
 git commit -m "$(cat <<'EOF'
 feat(app): WS 클라이언트 — 연결 · 재연결 · 상태 접기
+
+닫힌 뒤 연결을 막는 가드를 connect() 한 곳에만 둔다. _reconnect 진입과
+백오프 직후에도 같은 검사를 두면 어느 하나를 지워도 나머지가 막아 회귀를
+잡을 수 없다. _reconnect 진입 검사는 애초에 죽은 코드이기도 하다 —
+dispose 가 구독을 취소하므로 onError·onDone 이 오지 않는다.
 
 소켓을 좁은 포트(Stream<String> + send + close) 뒤에 둔다. WebSocketChannel
 은 추상 클래스라 가짜로 만들기 번거롭고, 테스트가 그 패키지 구현에 묶인다.
@@ -2437,7 +2480,7 @@ class _BattlePageState extends State<BattlePage> {
 - [ ] **Step 4: 통과 확인**
 
 Run: `cd app && flutter test && flutter analyze`
-Expected: PASS — 이번 6 (누적 54).
+Expected: PASS — 이번 6 (누적 55).
 
 **변이로 확인할 것:**
 
@@ -2802,7 +2845,7 @@ void main() {
 ```bash
 cd app && flutter test && flutter analyze
 ```
-Expected: PASS — 이번 4, **총 58 tests**.
+Expected: PASS — 이번 4, **총 59 tests**.
 
 **실서버로 손으로 확인한다.** 이 Task 가 존재하는 이유가 그것이다 — Plan 4 에서 서버 테스트 434개가 전부 통과하는데도 서명 URL 이 운영에서 403 이었다.
 
@@ -2852,7 +2895,7 @@ EOF
 
 ## 완료 기준
 
-1. `flutter test` **58개** 통과, `flutter analyze` 경고 0
+1. `flutter test` **59개** 통과, `flutter analyze` 경고 0
 2. 서버 테스트가 **436개**로 늘고 skip 0 — Task 5 가 `REVEAL` 을 둘로 나눴다
 3. CI 에 Flutter 잡이 있고 `npm run content:all` → `pub get` → 드리프트 검사 → `analyze` → `test` 순서로 돈다
 4. **탭이 이미지 좌표로 나간다** — 스케일과 레터박스 오프셋을 둘 다 되돌린다

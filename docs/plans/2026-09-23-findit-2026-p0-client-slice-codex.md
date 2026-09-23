@@ -1391,12 +1391,41 @@ EOF
     expect(mine.payload).toMatchObject({ by: 'me' });
     expect(theirs.payload).toMatchObject({ by: 'opponent' });
 
-    // 좌표와 패치 URL 은 양쪽이 같아야 한다 — 같은 rect 다.
+    // 좌표는 양쪽이 같아야 한다 — 같은 rect 다.
+    // (patchUrl 을 한 번만 만드는지는 아래 별도 테스트가 호출 수로 본다.
+    //  testUrls.patch 가 순수 함수라 결과 비교로는 구분되지 않는다.)
     expect(theirs.payload['index']).toBe(mine.payload['index']);
     expect(theirs.payload['patchUrl']).toBe(mine.payload['patchUrl']);
 
     expect(result.state.p1.found).toHaveLength(1);
     expect(result.state.p1.combo).toBe(1);
+  });
+
+it('패치 URL 을 한 번만 만들어 양쪽에 같은 것을 준다', () => {
+    const state = playing();
+    const { x, y } = centerOfUnrevealed(state);
+
+    // **호출 수를 세야 잡힌다.** testUrls.patch 는 순수 함수라 같은 인자로
+    // 두 번 불러도 같은 문자열이 나온다. 결과만 비교하면 수신자마다 새로
+    // 만드는 구현과 구분되지 않는다.
+    let patchCalls = 0;
+    const counting: ReduceContext = {
+      ...ctx(COUNTDOWN_MS + 500),
+      urls: {
+        base: testUrls.base,
+        patch: (matchId: string, rectIndex: number) => {
+          patchCalls += 1;
+          return testUrls.patch(matchId, rectIndex);
+        },
+      },
+    };
+
+    const result = reduce(state, { kind: 'TAP', slot: 'p1', x, y }, counting);
+    const reveals = result.outbound.filter((outbound) => outbound.type === 'REVEAL');
+
+    expect(reveals).toHaveLength(2);
+    expect(patchCalls).toBe(1);
+    expect(reveals[1]!.payload['patchUrl']).toBe(reveals[0]!.payload['patchUrl']);
   });
 
   it('p2 가 찾으면 p2 에게 me 가 간다 — 슬롯이 고정돼 있지 않다', () => {
@@ -1426,6 +1455,12 @@ Expected: FAIL — `expected length 2, received 1`
   // 싣지 않는다) 내가 찾은 것도 상대 것으로 그린다.
   //
   // 값이 수신자마다 다르므로 to: 'both' 하나로는 만들 수 없다.
+  //
+  // **URL 은 한 번만 만들어 둘이 나눠 쓴다.** 스펙 §6.3 은 패치 URL 을
+  // "일회용" 으로 규정했고, Plan 3 은 그것을 TTL + 매치·인덱스 바인딩으로
+  // 좁히면서 "엄격한 1회 소비는 P1 에서 재검토" 라고 적어 뒀다. P1 이 Redis
+  // 사용 표시로 진짜 1회 소비를 구현하면, 한 rect 에 URL 을 두 번 만드는
+  // 코드는 토큰을 둘 태우고 먼저 것을 무효화할 수도 있다.
   const patchUrl = ctx.urls.patch(next.matchId, hit);
   const revealPayload = {
     index: hit,
@@ -1450,7 +1485,7 @@ DATABASE_URL=postgres://findit:findit@localhost:5432/findit \
 REDIS_URL=redis://localhost:6379 \
 npm test && npm run typecheck
 ```
-Expected: PASS — 434 → 435 tests, skip 0.
+Expected: PASS — 434 → **436** tests, skip 0 (REVEAL 테스트 2개 + 호출 수 1개, 기존 1개 대체).
 
 **변이로 확인할 것:**
 
@@ -1458,7 +1493,9 @@ Expected: PASS — 434 → 435 tests, skip 0.
 |---|---|
 | 두 `REVEAL` 을 `to: 'both'` 하나로 되돌림 | `REVEAL 을 양쪽에 보내되 by 는 받는 사람 기준이다` |
 | 양쪽 모두 `by: 'me'` | `p2 가 찾으면 p2 에게 me 가 간다` |
-| `patchUrl` 을 수신자마다 새로 만듦 | 같은 테스트의 `patchUrl` 동일 단언 (서명 시각이 달라질 수 있다) |
+| `patchUrl` 을 수신자마다 새로 만듦 (`urls.patch` 를 두 번 호출) | `패치 URL 을 한 번만 만들어 양쪽에 같은 것을 준다` |
+
+> **결과 비교로는 이 변이가 잡히지 않는다.** `testUrls.patch` 는 순수 함수라 같은 인자로 두 번 불러도 같은 문자열이 나온다. **호출 수**를 세야 한다 — 이 계획서가 반복해 말하는 "부재·횟수 계약은 결과가 아니라 호출 기록으로 본다" 의 또 다른 사례다.
 
 - [ ] **Step 5: 커밋**
 
@@ -1477,8 +1514,14 @@ END.opponentFound, OPPONENT_PROGRESS.found. REVEAL.by 가 절대 슬롯인 것�
 오히려 예외였다. 규약에 맞춘다.
 
 값이 수신자마다 다르므로 to: 'both' 하나로는 만들 수 없다. 슬롯별로 두 번
-만들되 좌표와 patchUrl 은 같은 것을 쓴다 — 서명 시각이 갈리면 두 클라가
-서로 다른 URL 을 받는다.
+만들되 URL 은 한 번만 만들어 나눠 쓴다. 스펙 §6.3 이 패치 URL 을 "일회용"
+으로 규정했고 Plan 3 이 엄격한 1회 소비를 P1 로 미뤄 뒀다 — P1 이 Redis
+사용 표시로 그것을 구현하면 한 rect 에 URL 을 두 번 만드는 코드는 토큰을
+둘 태운다.
+
+그 계약은 결과 비교로 검증되지 않는다. 테스트 픽스처의 patch 가 순수
+함수라 두 번 불러도 같은 문자열이 나오기 때문이다. urls.patch 호출 수를
+세는 테스트를 따로 뒀다.
 
 스키마는 바뀌지 않는다. by 는 str 그대로이고 값만 달라지므로 Dart 생성물도
 그대로다.
@@ -2810,7 +2853,7 @@ EOF
 ## 완료 기준
 
 1. `flutter test` **58개** 통과, `flutter analyze` 경고 0
-2. 서버 테스트가 435개로 늘고 skip 0 — Task 5 가 `REVEAL` 을 둘로 나눴다
+2. 서버 테스트가 **436개**로 늘고 skip 0 — Task 5 가 `REVEAL` 을 둘로 나눴다
 3. CI 에 Flutter 잡이 있고 `npm run content:all` → `pub get` → 드리프트 검사 → `analyze` → `test` 순서로 돈다
 4. **탭이 이미지 좌표로 나간다** — 스케일과 레터박스 오프셋을 둘 다 되돌린다
 5. 레터박스 바깥 탭은 서버로 가지 않는다

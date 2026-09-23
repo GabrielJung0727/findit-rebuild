@@ -2541,7 +2541,145 @@ EOF
 
 ---
 
-### Task 8: 결과 화면 · 진입 배선 · 실서버 확인
+### Task 8: 게이트웨이가 프레임을 순서대로 처리한다
+
+**Files:**
+- Modify: `server/src/ws/gateway.ts`, `server/src/ws/gateway.test.ts`
+
+**Interfaces:**
+- Produces: 없음 — 동작을 고친다
+
+**인증된 클라이언트가 문 앞에서 쫓겨난다.** 실서버에 붙여 확인하다 드러났다.
+
+게이트웨이는 프레임마다 `void handle(...)` 를 부른다. `handle` 은 비동기이고 `AUTH` 분기는 `await deps.verify(token)` 에서 Redis 를 때린다. 그 사이에 다음 프레임이 도착하면 **같은 연결에서 두 `handle` 이 동시에 돈다.** 아직 `session.principal` 이 `null` 이므로 `QUEUE_JOIN` 은 인증 전 프레임으로 보이고, 연결이 `4401` 로 끊긴다.
+
+클라이언트는 `connect()` 에서 `AUTH` 를 보내고 곧바로 `joinQueue()` 한다 — 그게 정상 동작이다. 재현하면 이렇게 된다:
+
+```
+받은 프레임: [ERROR]
+onJoin 호출: 0회
+close 코드 : 4401
+```
+
+**WebSocket 프레임은 순서가 보장된다.** 처리도 그 순서를 지켜야 한다. `AUTH` 만의 문제가 아니다 — `await` 를 가진 어떤 분기든 같은 창을 연다. `onJoin` 은 Redis 큐를 때리므로 연속된 `QUEUE_JOIN`·`QUEUE_LEAVE` 도 뒤집힐 수 있다.
+
+**연결마다 한 줄로 세운다.** Plan 4 의 `Matchmaker` 가 쓴 것과 같은 꼬리 체인이다.
+
+- [ ] **Step 1: 실패하는 테스트 작성**
+
+`server/src/ws/gateway.test.ts` 에 추가한다:
+
+```typescript
+  it('AUTH 직후에 온 프레임이 인증을 기다린다 — 프레임은 순서대로 처리된다', async () => {
+    const slow = await start({
+      verify: async (token: string) => {
+        // 실제 verify 는 Redis 를 때린다. 한 틱만 지연돼도 창이 열린다.
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        return token === 'good' ? { kind: 'account', accountId: 'acc-1' } : null;
+      },
+    });
+
+    try {
+      const ws = await open(slow.url);
+      // 클라이언트가 하는 그대로 — AUTH 를 보내고 곧바로 QUEUE_JOIN.
+      ws.send(frame('AUTH', { token: 'good' }));
+      ws.send(frame('QUEUE_JOIN', { mode: 'casual' }));
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // 동시에 처리하면 QUEUE_JOIN 이 principal === null 을 보고 연결을
+      // 4401 로 끊는다. 인증된 클라이언트가 문 앞에서 쫓겨난다.
+      expect(slow.joins).toEqual(['casual']);
+      expect(ws.readyState).toBe(ws.OPEN);
+      ws.close();
+    } finally {
+      await slow.stop();
+    }
+  });
+```
+
+- [ ] **Step 2: 실패 확인**
+
+Run: `npx vitest run server/src/ws/gateway.test.ts`
+Expected: FAIL — `expected [] to deeply equal [ 'casual' ]`
+
+- [ ] **Step 3: 구현**
+
+`server/src/ws/gateway.ts` 의 `message` 리스너를 고친다:
+
+```typescript
+    // 연결마다 프레임을 한 줄로 세운다.
+    //
+    // handle 은 비동기이고 AUTH 분기는 verify 에서 Redis 를 때린다. 그대로
+    // 두면 AUTH 가 끝나기 전에 다음 프레임이 처리되어, 인증된 클라이언트가
+    // unauthorized 로 끊긴다. WebSocket 프레임은 순서가 보장되므로 처리도
+    // 그 순서를 지켜야 한다 — AUTH 만의 문제가 아니라 await 를 가진 어떤
+    // 분기든 같은 창을 연다.
+    let inOrder: Promise<void> = Promise.resolve();
+
+    socket.on('message', (raw: unknown) => {
+      const text = String(raw);
+      inOrder = inOrder
+        .then(() => handle(text))
+        .catch((error: unknown) => {
+          deps.log.error('게이트웨이 처리 실패', {
+            conn: session.id,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          conn.close('internal', '처리 중 오류');
+        });
+    });
+```
+
+> `.catch` 가 `Promise<void>` 를 돌려주므로 한 프레임이 터져도 꼬리가 끊기지 않는다. Plan 4 의 `Matchmaker.serialize` 와 같은 모양이다.
+
+- [ ] **Step 4: 통과 확인**
+
+```bash
+DATABASE_URL=postgres://findit:findit@localhost:5432/findit \
+REDIS_URL=redis://localhost:6379 \
+npm test && npm run typecheck
+```
+Expected: PASS — 436 → **437** tests, skip 0.
+
+**변이로 확인할 것:**
+
+| 변이 | 깨지는 테스트 |
+|---|---|
+| `inOrder` 체인을 `void handle(text)` 로 되돌림 | `AUTH 직후에 온 프레임이 인증을 기다린다` |
+
+- [ ] **Step 5: 커밋**
+
+```bash
+git add server/src/ws/gateway.ts server/src/ws/gateway.test.ts
+git commit -m "$(cat <<'EOF'
+fix(server): 게이트웨이가 프레임을 순서대로 처리한다
+
+클라이언트를 실서버에 붙이자 드러났다. 게스트 토큰은 나오는데 배경이 뜨지
+않고 스피너만 남았다.
+
+게이트웨이가 프레임마다 void handle(...) 을 부른다. handle 은 비동기이고
+AUTH 분기는 verify 에서 Redis 를 때린다. 그 사이에 다음 프레임이 도착하면
+같은 연결에서 두 handle 이 동시에 돈다. 아직 session.principal 이 null
+이므로 QUEUE_JOIN 이 인증 전 프레임으로 보이고 연결이 4401 로 끊긴다.
+
+클라이언트는 AUTH 를 보내고 곧바로 QUEUE_JOIN 한다 — 그게 정상 동작이다.
+재현하면 받은 프레임이 [ERROR], onJoin 0회, close 4401 이다.
+
+WebSocket 프레임은 순서가 보장된다. 처리도 그 순서를 지켜야 한다. AUTH 만의
+문제가 아니다 — await 를 가진 어떤 분기든 같은 창을 연다. onJoin 은 Redis
+큐를 때리므로 연속된 QUEUE_JOIN·QUEUE_LEAVE 도 뒤집힐 수 있다.
+
+연결마다 꼬리 체인으로 한 줄로 세운다. Plan 4 의 Matchmaker.serialize 와
+같은 모양이고, catch 가 Promise<void> 를 돌려주므로 한 프레임이 터져도
+꼬리가 끊기지 않는다.
+
+EOF
+)"
+```
+
+---
+
+### Task 9: 결과 화면 · 진입 배선 · 실서버 확인
 
 **Files:**
 - Create: `app/lib/features/result/result_page.dart`, `app/lib/net/network_image_loader.dart`, `app/lib/main.dart`
@@ -2549,7 +2687,7 @@ EOF
 - Test: `app/test/features/flow_test.dart`
 
 **Interfaces:**
-- Consumes: Task 1~7 전부
+- Consumes: Task 1~8 전부
 - Produces: 게스트 자동 로그인 → 큐 → 배틀 → 결과로 이어지는 화면 흐름
 
 **진입을 최소로 둔다.** 로그인·가입·로비의 Material 3 화면은 Plan 6 이다. 여기서는 앱이 뜨면 게스트 토큰을 받아 곧장 큐에 들어간다. **그래야 계약이 맞물리는지를 화면 작업에 가리지 않고 확인할 수 있다.**
@@ -2761,6 +2899,14 @@ class _FindItAppState extends State<FindItApp> {
         next.phase == MatchPhase.matched) {
       _ws?.ready();
     }
+
+    // **재연결로 idle 에 돌아오면 다시 큐에 들어간다.** 소켓이 끊기면 서버가
+    // 그 매치를 끝내므로 클라도 로비로 돌아오는데, 이 슬라이스에는 로비가
+    // 없어서 그대로 두면 스피너에 갇힌다. Plan 6 이 로비를 넣으면 그 화면의
+    // "매칭 시작" 이 이 자리를 대신한다.
+    if (before.phase != MatchPhase.idle && next.phase == MatchPhase.idle) {
+      _ws?.joinQueue();
+    }
   }
 
   @override
@@ -2911,7 +3057,8 @@ EOF
 ## 완료 기준
 
 1. `flutter test` **59개** 통과, `flutter analyze` 경고 0
-2. 서버 테스트가 **436개**로 늘고 skip 0 — Task 5 가 `REVEAL` 을 둘로 나눴다
+2. 서버 테스트가 **437개**로 늘고 skip 0 — Task 5 가 `REVEAL` 을 둘로 나누고 Task 8 이 프레임 직렬화를 더했다
+2-1. **인증 직후에 보낸 `QUEUE_JOIN` 이 끊기지 않는다** — 게이트웨이가 프레임을 순서대로 처리한다
 3. CI 에 Flutter 잡이 있고 `npm run content:all` → `pub get` → 드리프트 검사 → `analyze` → `test` 순서로 돈다
 4. **탭이 이미지 좌표로 나간다** — 스케일과 레터박스 오프셋을 둘 다 되돌린다
 5. 레터박스 바깥 탭은 서버로 가지 않는다
@@ -2925,7 +3072,8 @@ EOF
 13. 매니페스트가 두 번째 호출에서 네트워크를 때리지 않는다
 14. `PuzzleMeta` 에 좌표를 담을 자리가 없다
 15. 결과 화면이 `END` 의 값을 그대로 보여준다
-16. **실서버에 붙여 한 판을 끝까지 친다** — 이미지가 뜨고, 누르면 패치가 그려지고, 결과가 나온다
+16. 재연결로 로비에 돌아오면 다시 큐에 들어간다 — 슬라이스에는 로비 화면이 없다
+17. **실서버에 붙여 한 판을 끝까지 친다** — 이미지가 뜨고, 누르면 패치가 그려지고, 결과가 나온다
 
 ---
 

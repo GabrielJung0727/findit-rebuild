@@ -2079,6 +2079,7 @@ EOF
 `app/test/features/battle_scene_test.dart`:
 
 ```dart
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flame/game.dart';
 import 'package:flutter/material.dart';
@@ -2101,6 +2102,16 @@ MatchState _playing({List<FoundRect> found = const []}) => MatchState(
       durationMs: 40000,
       found: found,
     );
+
+const _baseColor = Color(0xFFFF0000);
+const _patchColor = Color(0xFF0000FF);
+
+Future<ui.Image> _solid(int w, int h, Color color) async {
+  final recorder = ui.PictureRecorder();
+  Canvas(recorder).drawRect(
+      Rect.fromLTWH(0, 0, w.toDouble(), h.toDouble()), Paint()..color = color);
+  return recorder.endRecording().toImage(w, h);
+}
 
 FoundRect _rect(int i, {bool mine = true}) => FoundRect(
       index: i,
@@ -2214,6 +2225,57 @@ void main() {
 
     // 서버에 쓰레기 탭을 보내 스스로 2초 잠기게 만들 이유가 없다.
     expect(taps, isEmpty);
+  });
+
+testWidgets('패치가 REVEAL 의 좌표에 그려진다 — 화면 픽셀로 확인', (tester) async {
+    // **탭 좌표가 맞아도 그림이 밀려 있을 수 있다.** 나머지 테스트는 어디를
+    // 눌렀는지와 무엇을 받아 왔는지만 본다. Flame 의 카메라가 캔버스를
+    // 변환하면 toScreen 이 계산한 자리와 실제로 그려지는 자리가 갈리는데,
+    // 그건 픽셀을 읽어야 안다.
+    late final ui.Image baseImage;
+    late final ui.Image patchImage;
+    await tester.runAsync(() async {
+      baseImage = await _solid(640, 720, _baseColor);
+      patchImage = await _solid(130, 130, _patchColor);
+    });
+
+    final scene = BattleScene(
+      loadImage: (url) async => url.contains('patch') ? patchImage : baseImage,
+      onTapImage: (_, _) {},
+    );
+    await tester.pumpWidget(MaterialApp(home: GameWidget(game: scene)));
+    await tester.pump();
+
+    scene.apply(const MatchState(
+      phase: MatchPhase.playing, matchId: 'm1',
+      imageUrl: '/c/m1/base', imageSize: Size(640, 720),
+      targetCount: 5, durationMs: 40000,
+      found: [FoundRect(
+        index: 0, rect: Rect.fromLTWH(187, 340, 130, 130),
+        patchUrl: '/c/m1/patch/0', mine: true)],
+    ));
+    await tester.pump();
+    await tester.pump();
+
+    late final ByteData pixels;
+    await tester.runAsync(() async {
+      final recorder = ui.PictureRecorder();
+      scene.render(Canvas(recorder));
+      final image = await recorder.endRecording().toImage(800, 600);
+      pixels = (await image.toByteData())!;
+    });
+    Color at(int x, int y) {
+      final i = (y * 800 + x) * 4;
+      return Color.fromARGB(pixels.getUint8(i + 3), pixels.getUint8(i),
+          pixels.getUint8(i + 1), pixels.getUint8(i + 2));
+    }
+
+    // 800x600 에 640x720 contain → scale 0.8333, offsetX 133.33, offsetY 0.
+    // rect (187,340,130,130) → 화면 (289.2, 283.3, 108.3, 108.3).
+    expect(at(343, 337), _patchColor, reason: '패치가 그 자리에 없다');
+    expect(at(200, 337), _baseColor, reason: '패치가 왼쪽으로 번졌다');
+    expect(at(343, 200), _baseColor, reason: '패치가 위로 번졌다');
+    expect(at(50, 300).a, 0.0, reason: '레터박스에 무언가 그려졌다');
   });
 
   testWidgets('매치가 바뀌면 이전 판의 그림이 남지 않는다 — 난입', (tester) async {
@@ -2493,7 +2555,7 @@ class _BattlePageState extends State<BattlePage> {
 - [ ] **Step 4: 통과 확인**
 
 Run: `cd app && flutter test && flutter analyze`
-Expected: PASS — 이번 6 (누적 55).
+Expected: PASS — 이번 7 (누적 56).
 
 **변이로 확인할 것:**
 
@@ -2506,6 +2568,7 @@ Expected: PASS — 이번 6 (누적 55).
 | `toImage` 의 `null` 검사 제거 후 강제 변환 | `레터박스 바깥 탭은 올라가지 않는다` |
 | `matchId` 변화 시 `_patches.clear()` 제거 | `매치가 바뀌면 이전 판의 그림이 남지 않는다` |
 | `next.found` 대신 `targetCount` 만큼 미리 받기 | `REVEAL 이 온 rect 만 패치를 받는다` |
+| `render` 에서 `viewport.toScreen(found.rect)` 대신 `found.rect` 를 그대로 사용 | `패치가 REVEAL 의 좌표에 그려진다` |
 
 - [ ] **Step 5: 커밋**
 
@@ -3006,7 +3069,7 @@ void main() {
 ```bash
 cd app && flutter test && flutter analyze
 ```
-Expected: PASS — 이번 4, **총 59 tests**.
+Expected: PASS — 이번 4, **총 60 tests**.
 
 **실서버로 손으로 확인한다.** 이 Task 가 존재하는 이유가 그것이다 — Plan 4 에서 서버 테스트 434개가 전부 통과하는데도 서명 URL 이 운영에서 403 이었다.
 
@@ -3056,7 +3119,7 @@ EOF
 
 ## 완료 기준
 
-1. `flutter test` **59개** 통과, `flutter analyze` 경고 0
+1. `flutter test` **60개** 통과, `flutter analyze` 경고 0
 2. 서버 테스트가 **437개**로 늘고 skip 0 — Task 5 가 `REVEAL` 을 둘로 나누고 Task 8 이 프레임 직렬화를 더했다
 2-1. **인증 직후에 보낸 `QUEUE_JOIN` 이 끊기지 않는다** — 게이트웨이가 프레임을 순서대로 처리한다
 3. CI 에 Flutter 잡이 있고 `npm run content:all` → `pub get` → 드리프트 검사 → `analyze` → `test` 순서로 돈다
@@ -3095,7 +3158,7 @@ EOF
 
 그 밖에 확인한 것: Flutter 3.44.0 / Dart 3.12.0 설치, `flutter test`·`analyze` 헤드리스 동작, Flame 1.38.2 를 `testWidgets` 에서 띄워 `onLoad` 확인, 여섯 패키지의 SDK 제약, 서버의 `REVEAL.by = slot`(`reducer.ts:239`)과 그것을 단언하는 테스트가 한 곳뿐임, base/patch 이미지 크기가 rect 와 일치함.
 
-**1. Flame 의 렌더 좌표계 (가장 위험).** `BattleScene.render` 가 `canvas` 에 직접 그린다. Flame 의 카메라 기본값이 캔버스를 변환하고 있으면 `toScreen` 이 계산한 좌표와 어긋난다. **탭 경로는 실제로 돌려 확인했다** — `TapCallbacks.localPosition` 이 씬 좌표와 같고, 800×600 표면에서 640×720 이미지의 중앙 탭이 이미지 중앙으로 변환된다. 하지만 테스트는 **그려지는 위치를 잡지 못한다.** 탭이 맞는데 그림이 밀려 있는 상태가 가능하다 — 화면을 봐야 안다. Task 8 의 손 확인 2번이 이것이다.
+**1. Flame 의 렌더 좌표계 — 확인함.** `BattleScene.render` 가 `canvas` 에 직접 그리므로 Flame 의 카메라가 캔버스를 변환하면 `toScreen` 이 계산한 자리와 어긋난다. **픽셀을 읽어 확인했다.** 800×600 표면에서 640×720 이미지를 `contain` 하고 rect `(187,340,130,130)` 에 패치를 얹었을 때, 화면 `(343,337)` 이 패치 색, `(200,337)`·`(343,200)` 이 배경 색, 레터박스 `(50,300)` 이 투명이다. 기본 카메라는 캔버스를 변환하지 않는다. 그 검사를 상시 테스트로 남겼다 — 탭 좌표만 보는 나머지 테스트는 "눌렀더니 엉뚱한 데 그려진다" 를 잡지 못한다.
 
 **2. 테스트 표면 크기에 기댄다.** 위젯 테스트의 기본 표면은 800×600 이고, 좌표 기대값이 그 수치에서 나온다. `SizedBox` 로 크기를 주려 하면 `MaterialApp.home` 의 꽉 찬 제약에 무시되어 조용히 어긋난다 — 실제로 한 번 당했다. 표면 크기를 바꾸려면 기대값을 다시 계산해야 한다.
 
